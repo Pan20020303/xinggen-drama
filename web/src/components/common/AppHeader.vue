@@ -18,18 +18,45 @@
 
         <!-- Right section: Actions + Right slot -->
         <div class="header-right">
-          
           <!-- Language Switcher | 语言切换 -->
           <LanguageSwitcher v-if="showLanguage" />
-          
+
           <!-- Theme Toggle | 主题切换 -->
           <ThemeToggle v-if="showTheme" />
-          
+
+          <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goCharacterLibrary">
+            <el-icon><Collection /></el-icon>
+            <span class="btn-text">角色库</span>
+          </el-button>
+
           <!-- AI Config (Model Switch) | AI 配置（模型切换） -->
           <el-button v-if="showAIConfig" @click="handleOpenAIConfig" class="header-btn">
             <el-icon><Setting /></el-icon>
             <span class="btn-text">{{ $t('drama.aiConfig') }}</span>
           </el-button>
+
+          <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goAccountCenter">
+            <el-icon><Coin /></el-icon>
+            <span class="btn-text">积分 {{ authStore.user?.credits ?? 0 }}</span>
+          </el-button>
+
+          <el-dropdown v-if="showNavButtons && isAuthenticated" trigger="click">
+            <el-button class="header-btn">
+              <el-icon><UserFilled /></el-icon>
+              <span class="btn-text user-email">{{ authStore.user?.email }}</span>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="goAccountCenter">账户中心</el-dropdown-item>
+                <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <el-button v-if="showNavButtons && !isAuthenticated" type="primary" class="header-btn" @click="goLogin">
+            登录
+          </el-button>
+
           <!-- Right slot for business content (before actions) | 右侧插槽（在操作按钮前） -->
           <slot name="right" />
         </div>
@@ -42,11 +69,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Setting } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { Collection, Coin, Setting, UserFilled } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from './ThemeToggle.vue'
 import AIConfigDialog from './AIConfigDialog.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * AppHeader - Global application header component
@@ -88,6 +117,11 @@ const emit = defineEmits<{
   (e: 'open-ai-config'): void
   (e: 'config-updated'): void
 }>()
+const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated)
+const showNavButtons = computed(() => route.path !== '/login' && route.path !== '/register')
 
 // AI Config dialog state | AI 配置对话框状态
 const showConfigDialog = ref(false)
@@ -96,6 +130,23 @@ const showConfigDialog = ref(false)
 const handleOpenAIConfig = () => {
   showConfigDialog.value = true
   emit('open-ai-config')
+}
+
+const goCharacterLibrary = () => {
+  router.push('/character-library')
+}
+
+const goAccountCenter = () => {
+  router.push('/settings/account')
+}
+
+const goLogin = () => {
+  router.push('/login')
+}
+
+const handleLogout = async () => {
+  authStore.logout()
+  await router.replace('/login')
 }
 
 // Expose methods for external control | 暴露方法供外部控制
@@ -182,6 +233,13 @@ defineExpose({
 
 .header-btn .btn-text {
   margin-left: 4px;
+}
+
+.user-email {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Dark mode adjustments | 深色模式适配 */

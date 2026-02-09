@@ -10,6 +10,7 @@ import App from './App.vue'
 import router from './router'
 import i18n from './locales'
 import './assets/styles/main.css'
+import { useAuthStore } from './stores/auth'
 
 // Apply theme before app mounts to prevent flash
 // 在应用挂载前应用主题，防止闪烁
@@ -20,7 +21,9 @@ if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-s
 
 const app = createApp(App)
 
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
+useAuthStore(pinia).initFromStorage()
 app.use(router)
 app.use(i18n)
 app.use(ElementPlus)

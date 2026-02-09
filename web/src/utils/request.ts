@@ -1,6 +1,5 @@
 import type { AxiosError, AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
 
 interface CustomAxiosInstance extends Omit<AxiosInstance, 'get' | 'post' | 'put' | 'patch' | 'delete'> {
   get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
@@ -18,9 +17,12 @@ const request = axios.create({
   }
 }) as CustomAxiosInstance
 
-// 开源版本 - 无需认证token
 request.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error: AxiosError) => {
@@ -39,8 +41,18 @@ request.interceptors.response.use(
     }
   },
   (error: AxiosError<any>) => {
-    // 不在拦截器中自动显示错误提示，让业务代码根据具体情况处理
-    // 只抛出错误供调用者捕获
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+
+      const pathname = window.location.pathname
+      const search = window.location.search
+      if (pathname !== '/login' && pathname !== '/register') {
+        const redirect = encodeURIComponent(`${pathname}${search}`)
+        window.location.href = `/login?redirect=${redirect}`
+      }
+    }
+
     return Promise.reject(error)
   }
 )
