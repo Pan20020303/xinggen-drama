@@ -183,6 +183,29 @@ func (c *GeminiClient) GenerateText(prompt string, systemPrompt string, options 
 	return responseText, nil
 }
 
+// GenerateTextStream 流式生成文本（Gemini 也支持流式，但这里先用非流式实现以满足接口要求）
+// 如果需要真正的流式输出，可以使用 streamGenerateContent 端点
+func (c *GeminiClient) GenerateTextStream(prompt string, systemPrompt string, callback StreamCallback, options ...func(*ChatCompletionRequest)) (string, error) {
+	// 对于 Gemini，暂时使用非流式实现
+	// 在开始时发送一个初始进度
+	if callback != nil {
+		callback("", 0, 0.1) // 开始生成
+	}
+
+	// 调用非流式方法
+	result, err := c.GenerateText(prompt, systemPrompt, options...)
+	if err != nil {
+		return "", err
+	}
+
+	// 完成时发送最终进度
+	if callback != nil {
+		callback(result, len(result), 1.0)
+	}
+
+	return result, nil
+}
+
 func (c *GeminiClient) GenerateImage(prompt string, size string, n int) ([]string, error) {
 	return nil, fmt.Errorf("GenerateImage not implemented for Gemini client")
 }

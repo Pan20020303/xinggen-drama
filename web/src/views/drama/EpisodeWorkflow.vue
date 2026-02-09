@@ -1199,7 +1199,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -2030,6 +2030,12 @@ const generateShots = async () => {
 };
 
 const pollTaskStatus = async (taskId: string) => {
+  // 清理可能存在的旧定时器
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
   const checkStatus = async () => {
     try {
       const task = await generationAPI.getTaskStatus(taskId);
@@ -2055,6 +2061,7 @@ const pollTaskStatus = async (taskId: string) => {
             episodeNumber: episodeNumber,
           },
         });
+        return true; // 标记已完成
       } else if (task.status === "failed") {
         // 任务失败
         if (pollTimer) {
@@ -2063,8 +2070,10 @@ const pollTaskStatus = async (taskId: string) => {
         }
         generatingShots.value = false;
         ElMessage.error(task.error || "分镜拆分失败");
+        return true; // 标记已完成
       }
       // 否则继续轮询
+      return false;
     } catch (error: any) {
       if (pollTimer) {
         clearInterval(pollTimer);
@@ -2072,15 +2081,25 @@ const pollTaskStatus = async (taskId: string) => {
       }
       generatingShots.value = false;
       ElMessage.error("查询任务状态失败: " + error.message);
+      return true; // 出错也标记为结束，避免死循环
     }
   };
 
   // 立即检查一次
-  await checkStatus();
+  const finished = await checkStatus();
 
-  // 每2秒轮询一次
-  pollTimer = setInterval(checkStatus, 2000);
+  // 只有未完成时才启动定时器
+  if (!finished) {
+    pollTimer = setInterval(checkStatus, 2000);
+  }
 };
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+});
 
 const regenerateShots = async () => {
   await ElMessageBox.confirm($t("workflow.reSplitConfirm"), $t("common.tip"), {

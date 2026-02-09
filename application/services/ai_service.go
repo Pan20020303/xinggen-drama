@@ -438,6 +438,16 @@ func (s *AIService) GenerateText(prompt string, systemPrompt string, options ...
 	return client.GenerateText(prompt, systemPrompt, options...)
 }
 
+// GenerateTextStream 流式生成文本，通过 callback 实时返回生成进度
+func (s *AIService) GenerateTextStream(prompt string, systemPrompt string, callback ai.StreamCallback, options ...func(*ai.ChatCompletionRequest)) (string, error) {
+	client, err := s.GetAIClient("text")
+	if err != nil {
+		return "", fmt.Errorf("failed to get AI client: %w", err)
+	}
+
+	return client.GenerateTextStream(prompt, systemPrompt, callback, options...)
+}
+
 func (s *AIService) GenerateImage(prompt string, size string, n int) ([]string, error) {
 	client, err := s.GetAIClient("image")
 	if err != nil {

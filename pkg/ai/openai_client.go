@@ -264,6 +264,168 @@ func (c *OpenAIClient) GenerateText(prompt string, systemPrompt string, options 
 	return resp.Choices[0].Message.Content, nil
 }
 
+// StreamChunkResponse SSE 流式响应的单个 chunk 结构
+type StreamChunkResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index int `json:"index"`
+		Delta struct {
+			Role    string `json:"role,omitempty"`
+			Content string `json:"content,omitempty"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
+// GenerateTextStream 流式生成文本，通过 callback 实时返回生成内容
+func (c *OpenAIClient) GenerateTextStream(prompt string, systemPrompt string, callback StreamCallback, options ...func(*ChatCompletionRequest)) (string, error) {
+	messages := []ChatMessage{}
+
+	if systemPrompt != "" {
+		messages = append(messages, ChatMessage{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	}
+
+	messages = append(messages, ChatMessage{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	// 创建请求，启用 stream
+	req := &ChatCompletionRequest{
+		Model:    c.Model,
+		Messages: messages,
+		Stream:   true,
+	}
+
+	for _, opt := range options {
+		opt(req)
+	}
+
+	// 估算期望的输出 token 数（用于进度计算）
+	estimatedOutputTokens := 8000 // 分镜生成通常输出较多
+	if req.MaxTokens != nil {
+		estimatedOutputTokens = *req.MaxTokens
+	} else if req.MaxCompletionTokens != nil {
+		estimatedOutputTokens = *req.MaxCompletionTokens
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := strings.TrimSuffix(c.BaseURL, "/") + c.Endpoint
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	// 使用不带超时的客户端（流式响应可能很长）
+	client := &http.Client{
+		Timeout: 0, // 无超时
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// 解析 SSE 流
+	var fullContent strings.Builder
+	totalChars := 0
+	lastProgressUpdate := 0
+
+	// 逐行读取 SSE 响应
+	buf := make([]byte, 4096)
+	var lineBuf strings.Builder
+
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			lineBuf.Write(buf[:n])
+
+			// 处理完整的行
+			content := lineBuf.String()
+			lines := strings.Split(content, "\n")
+
+			// 保留最后一个可能不完整的行
+			for i := 0; i < len(lines)-1; i++ {
+				line := strings.TrimSpace(lines[i])
+				if line == "" {
+					continue
+				}
+
+				// 处理 SSE data 行
+				if strings.HasPrefix(line, "data: ") {
+					data := strings.TrimPrefix(line, "data: ")
+
+					// [DONE] 表示流结束
+					if data == "[DONE]" {
+						break
+					}
+
+					var chunk StreamChunkResponse
+					if jsonErr := json.Unmarshal([]byte(data), &chunk); jsonErr != nil {
+						continue // 忽略解析错误的行
+					}
+
+					// 提取内容
+					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+						chunkContent := chunk.Choices[0].Delta.Content
+						fullContent.WriteString(chunkContent)
+						totalChars += len(chunkContent)
+
+						// 每增加约 500 字符或 5% 进度时调用回调
+						// 估算进度：totalChars / (estimatedOutputTokens * 2) （假设平均每 token 2 字符）
+						estimatedProgress := float64(totalChars) / float64(estimatedOutputTokens*2)
+						if estimatedProgress > 1.0 {
+							estimatedProgress = 0.95 // 不超过 95%，留给解析阶段
+						}
+
+						// 每增加 5% 时更新一次
+						progressPercent := int(estimatedProgress * 100)
+						if progressPercent >= lastProgressUpdate+5 || totalChars <= 500 {
+							if callback != nil {
+								callback(chunkContent, totalChars, estimatedProgress)
+							}
+							lastProgressUpdate = progressPercent
+						}
+					}
+				}
+			}
+
+			// 保留最后一个可能不完整的行
+			lineBuf.Reset()
+			lineBuf.WriteString(lines[len(lines)-1])
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fullContent.String(), fmt.Errorf("error reading stream: %w", err)
+		}
+	}
+
+	return fullContent.String(), nil
+}
+
 func (c *OpenAIClient) GenerateImage(prompt string, size string, n int) ([]string, error) {
 	// 图片生成端点通常是 /v1/images/generations
 	// 如果 c.Endpoint 是 chat 端点，我们需要将其替换

@@ -352,23 +352,47 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 		return
 	}
 
-	s.log.Infow("Processing storyboard generation", "task_id", taskID, "episode_id", episodeID)
+	s.log.Infow("Processing storyboard generation with streaming", "task_id", taskID, "episode_id", episodeID)
 
-	// 调用AI服务生成（如果指定了模型则使用指定的模型）
-	// 设置较大的max_tokens以确保完整返回所有分镜的JSON
+	// 创建流式回调函数，用于实时更新进度
+	// 进度范围：10% -> 50%（AI 生成阶段占 40%）
+	lastProgress := 10
+	streamCallback := func(chunk string, totalChars int, estimatedProgress float64) {
+		// 将 estimatedProgress (0.0-1.0) 映射到 10%-50% 范围
+		newProgress := 10 + int(estimatedProgress*40)
+		if newProgress > 50 {
+			newProgress = 50
+		}
+
+		// 只在进度有明显变化时更新（避免频繁更新数据库）
+		if newProgress > lastProgress+3 {
+			s.log.Infow("Streaming progress update",
+				"task_id", taskID,
+				"total_chars", totalChars,
+				"estimated_progress", estimatedProgress,
+				"new_progress", newProgress)
+
+			if err := s.taskService.UpdateTaskStatus(taskID, "processing", newProgress, "正在生成分镜头..."); err != nil {
+				s.log.Warnw("Failed to update progress", "error", err, "task_id", taskID)
+			}
+			lastProgress = newProgress
+		}
+	}
+
+	// 调用AI服务流式生成
 	var text string
 	var err error
 	if model != "" {
 		s.log.Infow("Using specified model for storyboard generation", "model", model, "task_id", taskID)
 		client, getErr := s.aiService.GetAIClientForModel("text", model)
 		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", getErr, "task_id", taskID)
-			text, err = s.aiService.GenerateText(prompt, "", ai.WithMaxTokens(16000))
+			s.log.Warnw("Failed to get client for specified model, using default streaming", "model", model, "error", getErr, "task_id", taskID)
+			text, err = s.aiService.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 		} else {
-			text, err = client.GenerateText(prompt, "", ai.WithMaxTokens(16000))
+			text, err = client.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 		}
 	} else {
-		text, err = s.aiService.GenerateText(prompt, "", ai.WithMaxTokens(16000))
+		text, err = s.aiService.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 	}
 
 	if err != nil {
@@ -380,7 +404,7 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 	}
 
 	// 更新任务进度
-	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 50, "分镜头生成完成，正在解析结果..."); err != nil {
+	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 55, "分镜头生成完成，正在解析结果..."); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
 		return
 	}
