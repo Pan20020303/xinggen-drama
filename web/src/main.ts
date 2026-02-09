@@ -11,6 +11,7 @@ import router from './router'
 import i18n from './locales'
 import './assets/styles/main.css'
 import { useAuthStore } from './stores/auth'
+import { useAdminAuthStore } from './stores/adminAuth'
 
 // Apply theme before app mounts to prevent flash
 // 在应用挂载前应用主题，防止闪烁
@@ -24,6 +25,7 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 useAuthStore(pinia).initFromStorage()
+useAdminAuthStore(pinia).initFromStorage()
 app.use(router)
 app.use(i18n)
 app.use(ElementPlus)

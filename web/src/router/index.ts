@@ -3,6 +3,28 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/admin/login',
+    name: 'AdminLogin',
+    component: () => import('../views/admin/AdminLogin.vue'),
+    meta: { public: true, adminGuestOnly: true }
+  },
+  {
+    path: '/admin',
+    redirect: '/admin/users'
+  },
+  {
+    path: '/admin/users',
+    name: 'AdminUsers',
+    component: () => import('../views/admin/AdminUsers.vue'),
+    meta: { requiresAdminAuth: true }
+  },
+  {
+    path: '/admin/billing',
+    name: 'AdminBilling',
+    component: () => import('../views/admin/AdminBilling.vue'),
+    meta: { requiresAdminAuth: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -113,17 +135,32 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const token = localStorage.getItem('token')
+  const adminToken = localStorage.getItem('admin_token')
   const isPublic = Boolean(to.meta.public)
   const isGuestOnly = Boolean(to.meta.guestOnly)
+  const requiresAdminAuth = Boolean(to.meta.requiresAdminAuth)
+  const adminGuestOnly = Boolean(to.meta.adminGuestOnly)
+  const isAdminRoute = to.path.startsWith('/admin')
 
-  if (!token && !isPublic) {
+  if (requiresAdminAuth && !adminToken) {
+    return {
+      path: '/admin/login',
+      query: { redirect: to.fullPath }
+    }
+  }
+
+  if (adminToken && adminGuestOnly) {
+    return '/admin/users'
+  }
+
+  if (!isAdminRoute && !token && !isPublic) {
     return {
       path: '/login',
       query: { redirect: to.fullPath }
     }
   }
 
-  if (token && isGuestOnly) {
+  if (!isAdminRoute && token && isGuestOnly) {
     return '/'
   }
 

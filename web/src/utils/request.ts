@@ -17,9 +17,33 @@ const request = axios.create({
   }
 }) as CustomAxiosInstance
 
+const USER_TOKEN_KEY = 'token'
+const USER_KEY = 'user'
+const ADMIN_TOKEN_KEY = 'admin_token'
+const ADMIN_USER_KEY = 'admin_user'
+
+function getRequestPath(url?: string): string {
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    try {
+      return new URL(url).pathname
+    } catch {
+      return url
+    }
+  }
+  return url
+}
+
+function isAdminRequest(url?: string): boolean {
+  const path = getRequestPath(url)
+  return path.startsWith('/admin/')
+}
+
 request.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
+    const token = isAdminRequest(config.url)
+      ? localStorage.getItem(ADMIN_TOKEN_KEY)
+      : localStorage.getItem(USER_TOKEN_KEY)
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -42,14 +66,24 @@ request.interceptors.response.use(
   },
   (error: AxiosError<any>) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-
       const pathname = window.location.pathname
       const search = window.location.search
-      if (pathname !== '/login' && pathname !== '/register') {
-        const redirect = encodeURIComponent(`${pathname}${search}`)
-        window.location.href = `/login?redirect=${redirect}`
+
+      if (pathname.startsWith('/admin')) {
+        localStorage.removeItem(ADMIN_TOKEN_KEY)
+        localStorage.removeItem(ADMIN_USER_KEY)
+        if (pathname !== '/admin/login') {
+          const redirect = encodeURIComponent(`${pathname}${search}`)
+          window.location.href = `/admin/login?redirect=${redirect}`
+        }
+      } else {
+        localStorage.removeItem(USER_TOKEN_KEY)
+        localStorage.removeItem(USER_KEY)
+
+        if (pathname !== '/login' && pathname !== '/register') {
+          const redirect = encodeURIComponent(`${pathname}${search}`)
+          window.location.href = `/login?redirect=${redirect}`
+        }
       }
     }
 

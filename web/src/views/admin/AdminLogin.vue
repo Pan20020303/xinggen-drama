@@ -2,13 +2,13 @@
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <h1>登录火爆剧</h1>
-        <p>登录后可使用多租户隔离与积分能力</p>
+        <h1>平台管理端登录</h1>
+        <p>仅平台管理员可登录，登录后访问用户与计费管理能力</p>
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="请输入邮箱" autocomplete="email" />
+          <el-input v-model="form.email" placeholder="请输入管理员邮箱" autocomplete="email" />
         </el-form-item>
 
         <el-form-item label="密码" prop="password">
@@ -16,21 +16,18 @@
             v-model="form.password"
             type="password"
             show-password
-            placeholder="请输入密码"
+            placeholder="请输入管理员密码"
             autocomplete="current-password"
           />
         </el-form-item>
 
         <el-button class="submit-btn" type="primary" :loading="submitting" @click="handleLogin">
-          登录
+          登录管理端
         </el-button>
       </el-form>
 
       <div class="auth-footer">
-        <span>还没有账号？</span>
-        <router-link to="/register">去注册</router-link>
-        <span>·</span>
-        <router-link to="/admin/login">管理员登录</router-link>
+        <router-link to="/login">返回普通用户登录</router-link>
       </div>
     </div>
   </div>
@@ -40,11 +37,11 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { useAuthStore } from '@/stores/auth'
+import { useAdminAuthStore } from '@/stores/adminAuth'
 
 const router = useRouter()
 const route = useRoute()
-const authStore = useAuthStore()
+const adminAuthStore = useAdminAuthStore()
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
@@ -68,13 +65,13 @@ const handleLogin = async () => {
 
   submitting.value = true
   try {
-    await authStore.login({
+    await adminAuthStore.login({
       email: form.email,
       password: form.password
     })
-    ElMessage.success('登录成功')
+    ElMessage.success('管理端登录成功')
     const redirect = route.query.redirect as string | undefined
-    await router.replace(redirect || '/')
+    await router.replace(redirect || '/admin/users')
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error?.message || error?.message || '登录失败')
   } finally {
@@ -95,7 +92,7 @@ const handleLogin = async () => {
 
 .auth-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
@@ -127,9 +124,7 @@ const handleLogin = async () => {
 .auth-footer {
   margin-top: 16px;
   font-size: 13px;
-  color: var(--text-secondary);
   display: flex;
-  gap: 4px;
   justify-content: center;
 }
 
