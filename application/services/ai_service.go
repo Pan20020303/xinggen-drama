@@ -365,16 +365,9 @@ func (s *AIService) TestConnection(req *TestConnectionRequest) error {
 }
 
 func (s *AIService) GetDefaultConfig(serviceType string, userIDs ...uint) (*models.AIServiceConfig, error) {
-	userID := uint(0)
-	if len(userIDs) > 0 {
-		userID = userIDs[0]
-	}
 	var config models.AIServiceConfig
 	// 按优先级降序获取第一个激活的配置
-	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
-	if userID > 0 {
-		query = query.Where("user_id = ?", userID)
-	}
+	query := s.db.Where("service_type = ? AND is_active = ? AND user_id = ?", serviceType, true, 0)
 	err := query.Order("priority DESC, created_at DESC").First(&config).Error
 
 	if err != nil {
@@ -389,15 +382,8 @@ func (s *AIService) GetDefaultConfig(serviceType string, userIDs ...uint) (*mode
 
 // GetConfigForModel 根据服务类型和模型名称获取优先级最高的激活配置
 func (s *AIService) GetConfigForModel(serviceType string, modelName string, userIDs ...uint) (*models.AIServiceConfig, error) {
-	userID := uint(0)
-	if len(userIDs) > 0 {
-		userID = userIDs[0]
-	}
 	var configs []models.AIServiceConfig
-	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
-	if userID > 0 {
-		query = query.Where("user_id = ?", userID)
-	}
+	query := s.db.Where("service_type = ? AND is_active = ? AND user_id = ?", serviceType, true, 0)
 	err := query.Order("priority DESC, created_at DESC").Find(&configs).Error
 
 	if err != nil {
