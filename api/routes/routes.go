@@ -38,6 +38,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	adminAuthHandler := handlers2.NewAdminAuthHandler(db, cfg, log)
 	adminUserHandler := handlers2.NewAdminUserHandler(db, log)
 	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
+	adminAIConfigHandler := handlers2.NewAdminAIConfigHandler(db, cfg, log)
 	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
 	aiConfigHandler := handlers2.NewAIConfigHandler(db, cfg, log)
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
@@ -93,6 +94,15 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			{
 				adminBilling.POST("/recharge", adminBillingHandler.Recharge)
 				adminBilling.GET("/transactions", adminBillingHandler.ListTransactions)
+			}
+
+			adminAI := adminSecured.Group("/ai-configs")
+			{
+				adminAI.GET("", adminAIConfigHandler.ListConfigs)
+				adminAI.POST("", adminAIConfigHandler.CreateConfig)
+				adminAI.PUT("/:id", adminAIConfigHandler.UpdateConfig)
+				adminAI.DELETE("/:id", adminAIConfigHandler.DeleteConfig)
+				adminAI.POST("/test", adminAIConfigHandler.TestConnection)
 			}
 		}
 

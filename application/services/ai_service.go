@@ -187,6 +187,137 @@ func (s *AIService) ListConfigs(serviceType string, userIDs ...uint) ([]models.A
 	return configs, nil
 }
 
+// ListPlatformConfigs returns only platform-level configs (user_id = 0).
+func (s *AIService) ListPlatformConfigs(serviceType string) ([]models.AIServiceConfig, error) {
+	var configs []models.AIServiceConfig
+	query := s.db.Where("user_id = ?", 0)
+	if serviceType != "" {
+		query = query.Where("service_type = ?", serviceType)
+	}
+	if err := query.Order("priority DESC, created_at DESC").Find(&configs).Error; err != nil {
+		s.log.Errorw("Failed to list platform AI configs", "error", err)
+		return nil, err
+	}
+	return configs, nil
+}
+
+func (s *AIService) GetPlatformConfig(configID uint) (*models.AIServiceConfig, error) {
+	var cfg models.AIServiceConfig
+	if err := s.db.Where("id = ? AND user_id = ?", configID, 0).First(&cfg).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("config not found")
+		}
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (s *AIService) UpdatePlatformConfig(configID uint, req *UpdateAIConfigRequest) (*models.AIServiceConfig, error) {
+	// Reuse UpdateConfig update logic but enforce platform scope filter.
+	var config models.AIServiceConfig
+	if err := s.db.Where("id = ? AND user_id = ?", configID, 0).First(&config).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("config not found")
+		}
+		return nil, err
+	}
+
+	tx := s.db.Begin()
+
+	updates := make(map[string]interface{})
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Provider != "" {
+		updates["provider"] = req.Provider
+	}
+	if req.BaseURL != "" {
+		updates["base_url"] = req.BaseURL
+	}
+	if req.APIKey != "" {
+		updates["api_key"] = req.APIKey
+	}
+	if req.Model != nil && len(*req.Model) > 0 {
+		updates["model"] = *req.Model
+	}
+	if req.Priority != nil {
+		updates["priority"] = *req.Priority
+	}
+
+	// endpoint logic mirrors UpdateConfig
+	if req.Provider != "" && req.Endpoint == "" {
+		provider := req.Provider
+		serviceType := config.ServiceType
+
+		switch provider {
+		case "gemini", "google":
+			if serviceType == "text" || serviceType == "image" {
+				updates["endpoint"] = "/v1beta/models/{model}:generateContent"
+			}
+		case "openai":
+			if serviceType == "text" {
+				updates["endpoint"] = "/chat/completions"
+			} else if serviceType == "image" {
+				updates["endpoint"] = "/images/generations"
+			} else if serviceType == "video" {
+				updates["endpoint"] = "/videos"
+				updates["query_endpoint"] = "/videos/{taskId}"
+			}
+		case "chatfire":
+			if serviceType == "text" {
+				updates["endpoint"] = "/chat/completions"
+			} else if serviceType == "image" {
+				updates["endpoint"] = "/images/generations"
+			} else if serviceType == "video" {
+				updates["endpoint"] = "/video/generations"
+				updates["query_endpoint"] = "/video/task/{taskId}"
+			}
+		case "doubao", "volcengine", "volces":
+			if serviceType == "text" {
+				updates["endpoint"] = "/chat/completions"
+			} else if serviceType == "image" {
+				updates["endpoint"] = "/images/generations"
+			} else if serviceType == "video" {
+				updates["endpoint"] = "/contents/generations/tasks"
+				updates["query_endpoint"] = "/generations/tasks/{taskId}"
+			}
+		}
+	} else if req.Endpoint != "" {
+		updates["endpoint"] = req.Endpoint
+	}
+
+	updates["query_endpoint"] = req.QueryEndpoint
+	if req.Settings != "" {
+		updates["settings"] = req.Settings
+	}
+	updates["is_default"] = req.IsDefault
+	updates["is_active"] = req.IsActive
+
+	if err := tx.Model(&config).Updates(updates).Error; err != nil {
+		tx.Rollback()
+		s.log.Errorw("Failed to update platform AI config", "error", err)
+		return nil, err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+
+	s.log.Infow("Platform AI config updated", "config_id", configID)
+	return &config, nil
+}
+
+func (s *AIService) DeletePlatformConfig(configID uint) error {
+	result := s.db.Where("id = ? AND user_id = ?", configID, 0).Delete(&models.AIServiceConfig{})
+	if result.Error != nil {
+		s.log.Errorw("Failed to delete platform AI config", "error", result.Error)
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("config not found")
+	}
+	return nil
+}
+
 func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest, userIDs ...uint) (*models.AIServiceConfig, error) {
 	userID := uint(0)
 	if len(userIDs) > 0 {
