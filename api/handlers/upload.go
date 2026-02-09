@@ -5,6 +5,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 )
 
@@ -81,6 +82,12 @@ func (h *UploadHandler) UploadImage(c *gin.Context) {
 
 // UploadCharacterImage 上传角色图片（带角色ID）
 func (h *UploadHandler) UploadCharacterImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	characterID := c.Param("id")
 
 	// 获取上传的文件
@@ -126,7 +133,7 @@ func (h *UploadHandler) UploadCharacterImage(c *gin.Context) {
 	}
 
 	// 更新角色的image_url字段到数据库
-	err = h.characterLibraryService.UploadCharacterImage(characterID, result.URL)
+	err = h.characterLibraryService.UploadCharacterImage(userID, characterID, result.URL)
 	if err != nil {
 		h.log.Errorw("Failed to update character image_url", "error", err, "character_id", characterID)
 		response.InternalError(c, "更新角色图片失败")

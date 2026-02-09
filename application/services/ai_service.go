@@ -58,7 +58,11 @@ type TestConnectionRequest struct {
 	Endpoint string            `json:"endpoint"`
 }
 
-func (s *AIService) CreateConfig(req *CreateAIConfigRequest) (*models.AIServiceConfig, error) {
+func (s *AIService) CreateConfig(req *CreateAIConfigRequest, userIDs ...uint) (*models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	// 根据 provider 和 service_type 自动设置 endpoint
 	endpoint := req.Endpoint
 	queryEndpoint := req.QueryEndpoint
@@ -115,6 +119,7 @@ func (s *AIService) CreateConfig(req *CreateAIConfigRequest) (*models.AIServiceC
 	}
 
 	config := &models.AIServiceConfig{
+		UserID:        userID,
 		ServiceType:   req.ServiceType,
 		Name:          req.Name,
 		Provider:      req.Provider,
@@ -138,9 +143,17 @@ func (s *AIService) CreateConfig(req *CreateAIConfigRequest) (*models.AIServiceC
 	return config, nil
 }
 
-func (s *AIService) GetConfig(configID uint) (*models.AIServiceConfig, error) {
+func (s *AIService) GetConfig(configID uint, userIDs ...uint) (*models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	var config models.AIServiceConfig
-	err := s.db.Where("id = ? ", configID).First(&config).Error
+	query := s.db.Where("id = ?", configID)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	err := query.First(&config).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("config not found")
@@ -150,9 +163,16 @@ func (s *AIService) GetConfig(configID uint) (*models.AIServiceConfig, error) {
 	return &config, nil
 }
 
-func (s *AIService) ListConfigs(serviceType string) ([]models.AIServiceConfig, error) {
+func (s *AIService) ListConfigs(serviceType string, userIDs ...uint) ([]models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	var configs []models.AIServiceConfig
 	query := s.db
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
 
 	if serviceType != "" {
 		query = query.Where("service_type = ?", serviceType)
@@ -167,9 +187,17 @@ func (s *AIService) ListConfigs(serviceType string) ([]models.AIServiceConfig, e
 	return configs, nil
 }
 
-func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest) (*models.AIServiceConfig, error) {
+func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest, userIDs ...uint) (*models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	var config models.AIServiceConfig
-	if err := s.db.Where("id = ? ", configID).First(&config).Error; err != nil {
+	query := s.db.Where("id = ?", configID)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.First(&config).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("config not found")
 		}
@@ -264,8 +292,16 @@ func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest) (*mo
 	return &config, nil
 }
 
-func (s *AIService) DeleteConfig(configID uint) error {
-	result := s.db.Where("id = ? ", configID).Delete(&models.AIServiceConfig{})
+func (s *AIService) DeleteConfig(configID uint, userIDs ...uint) error {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
+	query := s.db.Where("id = ?", configID)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	result := query.Delete(&models.AIServiceConfig{})
 
 	if result.Error != nil {
 		s.log.Errorw("Failed to delete AI config", "error", result.Error)
@@ -328,12 +364,18 @@ func (s *AIService) TestConnection(req *TestConnectionRequest) error {
 	return err
 }
 
-func (s *AIService) GetDefaultConfig(serviceType string) (*models.AIServiceConfig, error) {
+func (s *AIService) GetDefaultConfig(serviceType string, userIDs ...uint) (*models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	var config models.AIServiceConfig
 	// 按优先级降序获取第一个激活的配置
-	err := s.db.Where("service_type = ? AND is_active = ?", serviceType, true).
-		Order("priority DESC, created_at DESC").
-		First(&config).Error
+	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	err := query.Order("priority DESC, created_at DESC").First(&config).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -346,11 +388,17 @@ func (s *AIService) GetDefaultConfig(serviceType string) (*models.AIServiceConfi
 }
 
 // GetConfigForModel 根据服务类型和模型名称获取优先级最高的激活配置
-func (s *AIService) GetConfigForModel(serviceType string, modelName string) (*models.AIServiceConfig, error) {
+func (s *AIService) GetConfigForModel(serviceType string, modelName string, userIDs ...uint) (*models.AIServiceConfig, error) {
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	var configs []models.AIServiceConfig
-	err := s.db.Where("service_type = ? AND is_active = ?", serviceType, true).
-		Order("priority DESC, created_at DESC").
-		Find(&configs).Error
+	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	err := query.Order("priority DESC, created_at DESC").Find(&configs).Error
 
 	if err != nil {
 		return nil, err

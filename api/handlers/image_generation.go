@@ -9,6 +9,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -32,6 +33,11 @@ func NewImageGenerationHandler(db *gorm.DB, cfg *config.Config, log *logger.Logg
 }
 
 func (h *ImageGenerationHandler) GenerateImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req services.GenerateImageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -39,7 +45,7 @@ func (h *ImageGenerationHandler) GenerateImage(c *gin.Context) {
 		return
 	}
 
-	imageGen, err := h.imageService.GenerateImage(&req)
+	imageGen, err := h.imageService.GenerateImage(userID, &req)
 	if err != nil {
 		h.log.Errorw("Failed to generate image", "error", err)
 		response.InternalError(c, err.Error())
@@ -50,10 +56,15 @@ func (h *ImageGenerationHandler) GenerateImage(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) GenerateImagesForScene(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	sceneID := c.Param("scene_id")
 
-	images, err := h.imageService.GenerateImagesForScene(sceneID)
+	images, err := h.imageService.GenerateImagesForScene(userID, sceneID)
 	if err != nil {
 		h.log.Errorw("Failed to generate images for scene", "error", err)
 		response.InternalError(c, err.Error())
@@ -64,10 +75,15 @@ func (h *ImageGenerationHandler) GenerateImagesForScene(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) GetBackgroundsForEpisode(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	episodeID := c.Param("episode_id")
 
-	backgrounds, err := h.imageService.GetScencesForEpisode(episodeID)
+	backgrounds, err := h.imageService.GetScencesForEpisode(userID, episodeID)
 	if err != nil {
 		h.log.Errorw("Failed to get backgrounds", "error", err)
 		response.InternalError(c, err.Error())
@@ -78,6 +94,12 @@ func (h *ImageGenerationHandler) GetBackgroundsForEpisode(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) ExtractBackgroundsForEpisode(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	episodeID := c.Param("episode_id")
 
 	// 接收可选的 model 和 style 参数
@@ -99,7 +121,7 @@ func (h *ImageGenerationHandler) ExtractBackgroundsForEpisode(c *gin.Context) {
 	}
 
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
-	taskID, err := h.imageService.ExtractBackgroundsForEpisode(episodeID, req.Model, req.Style)
+	taskID, err := h.imageService.ExtractBackgroundsForEpisode(userID, episodeID, req.Model, req.Style)
 	if err != nil {
 		h.log.Errorw("Failed to extract backgrounds", "error", err, "episode_id", episodeID)
 		response.InternalError(c, err.Error())
@@ -115,10 +137,15 @@ func (h *ImageGenerationHandler) ExtractBackgroundsForEpisode(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) BatchGenerateForEpisode(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	episodeID := c.Param("episode_id")
 
-	images, err := h.imageService.BatchGenerateImagesForEpisode(episodeID)
+	images, err := h.imageService.BatchGenerateImagesForEpisode(userID, episodeID)
 	if err != nil {
 		h.log.Errorw("Failed to batch generate images", "error", err)
 		response.InternalError(c, err.Error())
@@ -129,6 +156,11 @@ func (h *ImageGenerationHandler) BatchGenerateForEpisode(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) GetImageGeneration(c *gin.Context) {
+	userID, authErr := tenant.GetUserID(c)
+	if authErr != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	imageGenID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -136,7 +168,7 @@ func (h *ImageGenerationHandler) GetImageGeneration(c *gin.Context) {
 		return
 	}
 
-	imageGen, err := h.imageService.GetImageGeneration(uint(imageGenID))
+	imageGen, err := h.imageService.GetImageGeneration(userID, uint(imageGenID))
 	if err != nil {
 		response.NotFound(c, "图片生成记录不存在")
 		return
@@ -146,6 +178,12 @@ func (h *ImageGenerationHandler) GetImageGeneration(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	var sceneID *uint
 	if sceneIDStr := c.Query("scene_id"); sceneIDStr != "" {
 		id, err := strconv.ParseUint(sceneIDStr, 10, 32)
@@ -183,7 +221,7 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 		dramaIDUint = &didUint
 	}
 
-	images, total, err := h.imageService.ListImageGenerations(dramaIDUint, sceneID, storyboardID, frameType, status, page, pageSize)
+	images, total, err := h.imageService.ListImageGenerations(userID, dramaIDUint, sceneID, storyboardID, frameType, status, page, pageSize)
 
 	if err != nil {
 		h.log.Errorw("Failed to list images", "error", err)
@@ -195,6 +233,11 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 }
 
 func (h *ImageGenerationHandler) DeleteImageGeneration(c *gin.Context) {
+	userID, authErr := tenant.GetUserID(c)
+	if authErr != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	imageGenID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -202,7 +245,7 @@ func (h *ImageGenerationHandler) DeleteImageGeneration(c *gin.Context) {
 		return
 	}
 
-	if err := h.imageService.DeleteImageGeneration(uint(imageGenID)); err != nil {
+	if err := h.imageService.DeleteImageGeneration(userID, uint(imageGenID)); err != nil {
 		h.log.Errorw("Failed to delete image", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -213,6 +256,12 @@ func (h *ImageGenerationHandler) DeleteImageGeneration(c *gin.Context) {
 
 // UploadImage 上传图片并创建图片生成记录
 func (h *ImageGenerationHandler) UploadImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	var req struct {
 		StoryboardID uint   `json:"storyboard_id" binding:"required"`
 		DramaID      uint   `json:"drama_id" binding:"required"`
@@ -229,6 +278,7 @@ func (h *ImageGenerationHandler) UploadImage(c *gin.Context) {
 	imageGen, err := h.imageService.CreateImageFromUpload(&services.UploadImageRequest{
 		StoryboardID: req.StoryboardID,
 		DramaID:      req.DramaID,
+		UserID:       userID,
 		FrameType:    req.FrameType,
 		ImageURL:     req.ImageURL,
 		Prompt:       req.Prompt,

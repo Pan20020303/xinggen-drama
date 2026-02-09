@@ -7,6 +7,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -24,13 +25,19 @@ func NewAIConfigHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AI
 }
 
 func (h *AIConfigHandler) CreateConfig(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	var req services.CreateAIConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	config, err := h.aiService.CreateConfig(&req)
+	config, err := h.aiService.CreateConfig(&req, userID)
 	if err != nil {
 		response.InternalError(c, "创建失败")
 		return
@@ -40,6 +47,11 @@ func (h *AIConfigHandler) CreateConfig(c *gin.Context) {
 }
 
 func (h *AIConfigHandler) GetConfig(c *gin.Context) {
+	userID, authErr := tenant.GetUserID(c)
+	if authErr != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	configID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -47,7 +59,7 @@ func (h *AIConfigHandler) GetConfig(c *gin.Context) {
 		return
 	}
 
-	config, err := h.aiService.GetConfig(uint(configID))
+	config, err := h.aiService.GetConfig(uint(configID), userID)
 	if err != nil {
 		if err.Error() == "config not found" {
 			response.NotFound(c, "配置不存在")
@@ -61,10 +73,15 @@ func (h *AIConfigHandler) GetConfig(c *gin.Context) {
 }
 
 func (h *AIConfigHandler) ListConfigs(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	serviceType := c.Query("service_type")
 
-	configs, err := h.aiService.ListConfigs(serviceType)
+	configs, err := h.aiService.ListConfigs(serviceType, userID)
 	if err != nil {
 		response.InternalError(c, "获取列表失败")
 		return
@@ -74,6 +91,11 @@ func (h *AIConfigHandler) ListConfigs(c *gin.Context) {
 }
 
 func (h *AIConfigHandler) UpdateConfig(c *gin.Context) {
+	userID, authErr := tenant.GetUserID(c)
+	if authErr != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	configID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -87,7 +109,7 @@ func (h *AIConfigHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	config, err := h.aiService.UpdateConfig(uint(configID), &req)
+	config, err := h.aiService.UpdateConfig(uint(configID), &req, userID)
 	if err != nil {
 		if err.Error() == "config not found" {
 			response.NotFound(c, "配置不存在")
@@ -101,6 +123,11 @@ func (h *AIConfigHandler) UpdateConfig(c *gin.Context) {
 }
 
 func (h *AIConfigHandler) DeleteConfig(c *gin.Context) {
+	userID, authErr := tenant.GetUserID(c)
+	if authErr != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	configID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -108,7 +135,7 @@ func (h *AIConfigHandler) DeleteConfig(c *gin.Context) {
 		return
 	}
 
-	if err := h.aiService.DeleteConfig(uint(configID)); err != nil {
+	if err := h.aiService.DeleteConfig(uint(configID), userID); err != nil {
 		if err.Error() == "config not found" {
 			response.NotFound(c, "配置不存在")
 			return

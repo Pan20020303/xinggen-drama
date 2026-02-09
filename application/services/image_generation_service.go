@@ -23,6 +23,7 @@ import (
 type ImageGenerationService struct {
 	db              *gorm.DB
 	aiService       *AIService
+	billingService  *BillingService
 	transferService *ResourceTransferService
 	localStorage    *storage.LocalStorage
 	log             *logger.Logger
@@ -53,6 +54,7 @@ func NewImageGenerationService(db *gorm.DB, cfg *config.Config, transferService 
 	return &ImageGenerationService{
 		db:              db,
 		aiService:       NewAIService(db, log),
+		billingService:  NewBillingService(db, cfg, log),
 		transferService: transferService,
 		localStorage:    localStorage,
 		config:          cfg,
@@ -91,12 +93,16 @@ type GenerateImageRequest struct {
 	ReferenceImages []string `json:"reference_images"` // 参考图片URL列表
 }
 
-func (s *ImageGenerationService) GenerateImage(request *GenerateImageRequest) (*models.ImageGeneration, error) {
+func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateImageRequest) (*models.ImageGeneration, error) {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", request.DramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", request.DramaID, userID).First(&drama).Error; err != nil {
 		return nil, fmt.Errorf("drama not found")
 	}
 	// 注意：SceneID可能指向Scene或Storyboard表，调用方已经做过权限验证，这里不再重复验证
+
+	if err := s.billingService.ConsumeForImageGeneration(userID, BillingDetail("drama", request.DramaID)); err != nil {
+		return nil, err
+	}
 
 	provider := request.Provider
 	if provider == "" {
@@ -122,6 +128,7 @@ func (s *ImageGenerationService) GenerateImage(request *GenerateImageRequest) (*
 	}
 
 	imageGen := &models.ImageGeneration{
+		UserID:          userID,
 		StoryboardID:    request.StoryboardID,
 		DramaID:         uint(dramaIDParsed),
 		SceneID:         request.SceneID,
@@ -180,7 +187,7 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 		}
 	}
 
-	client, err := s.getImageClientWithModel(imageGen.Provider, imageGen.Model)
+	client, err := s.getImageClientWithModel(imageGen.UserID, imageGen.Provider, imageGen.Model)
 	if err != nil {
 		s.log.Errorw("Failed to get image client", "error", err, "provider", imageGen.Provider, "model", imageGen.Model)
 		s.updateImageGenError(imageGenID, err.Error())
@@ -485,8 +492,8 @@ func (s *ImageGenerationService) updateImageGenError(imageGenID uint, errorMsg s
 	}
 }
 
-func (s *ImageGenerationService) getImageClient(provider string) (image.ImageClient, error) {
-	config, err := s.aiService.GetDefaultConfig("image")
+func (s *ImageGenerationService) getImageClient(userID uint, provider string) (image.ImageClient, error) {
+	config, err := s.aiService.GetDefaultConfig("image", userID)
 	if err != nil {
 		return nil, fmt.Errorf("no image AI config found: %w", err)
 	}
@@ -528,22 +535,22 @@ func (s *ImageGenerationService) getImageClient(provider string) (image.ImageCli
 }
 
 // getImageClientWithModel 根据模型名称获取图片客户端
-func (s *ImageGenerationService) getImageClientWithModel(provider string, modelName string) (image.ImageClient, error) {
+func (s *ImageGenerationService) getImageClientWithModel(userID uint, provider string, modelName string) (image.ImageClient, error) {
 	var config *models.AIServiceConfig
 	var err error
 
 	// 如果指定了模型，尝试获取对应的配置
 	if modelName != "" {
-		config, err = s.aiService.GetConfigForModel("image", modelName)
+		config, err = s.aiService.GetConfigForModel("image", modelName, userID)
 		if err != nil {
 			s.log.Warnw("Failed to get config for model, using default", "model", modelName, "error", err)
-			config, err = s.aiService.GetDefaultConfig("image")
+			config, err = s.aiService.GetDefaultConfig("image", userID)
 			if err != nil {
 				return nil, fmt.Errorf("no image AI config found: %w", err)
 			}
 		}
 	} else {
-		config, err = s.aiService.GetDefaultConfig("image")
+		config, err = s.aiService.GetDefaultConfig("image", userID)
 		if err != nil {
 			return nil, fmt.Errorf("no image AI config found: %w", err)
 		}
@@ -585,16 +592,16 @@ func (s *ImageGenerationService) getImageClientWithModel(provider string, modelN
 	}
 }
 
-func (s *ImageGenerationService) GetImageGeneration(imageGenID uint) (*models.ImageGeneration, error) {
+func (s *ImageGenerationService) GetImageGeneration(userID uint, imageGenID uint) (*models.ImageGeneration, error) {
 	var imageGen models.ImageGeneration
-	if err := s.db.Where("id = ? ", imageGenID).First(&imageGen).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", imageGenID, userID).First(&imageGen).Error; err != nil {
 		return nil, err
 	}
 	return &imageGen, nil
 }
 
-func (s *ImageGenerationService) ListImageGenerations(dramaID *uint, sceneID *uint, storyboardID *uint, frameType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
-	query := s.db.Model(&models.ImageGeneration{})
+func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint, sceneID *uint, storyboardID *uint, frameType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
+	query := s.db.Model(&models.ImageGeneration{}).Where("user_id = ?", userID)
 
 	if dramaID != nil {
 		query = query.Where("drama_id = ?", *dramaID)
@@ -630,8 +637,8 @@ func (s *ImageGenerationService) ListImageGenerations(dramaID *uint, sceneID *ui
 	return images, total, nil
 }
 
-func (s *ImageGenerationService) DeleteImageGeneration(imageGenID uint) error {
-	result := s.db.Where("id = ? ", imageGenID).Delete(&models.ImageGeneration{})
+func (s *ImageGenerationService) DeleteImageGeneration(userID uint, imageGenID uint) error {
+	result := s.db.Where("id = ? AND user_id = ?", imageGenID, userID).Delete(&models.ImageGeneration{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -645,6 +652,7 @@ func (s *ImageGenerationService) DeleteImageGeneration(imageGenID uint) error {
 type UploadImageRequest struct {
 	StoryboardID uint   `json:"storyboard_id"`
 	DramaID      uint   `json:"drama_id"`
+	UserID       uint   `json:"user_id"`
 	FrameType    string `json:"frame_type"`
 	ImageURL     string `json:"image_url"`
 	Prompt       string `json:"prompt"`
@@ -654,13 +662,13 @@ type UploadImageRequest struct {
 func (s *ImageGenerationService) CreateImageFromUpload(req *UploadImageRequest) (*models.ImageGeneration, error) {
 	// 验证storyboard存在
 	var storyboard models.Storyboard
-	if err := s.db.First(&storyboard, req.StoryboardID).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", req.StoryboardID, req.UserID).First(&storyboard).Error; err != nil {
 		return nil, fmt.Errorf("storyboard not found")
 	}
 
 	// 验证drama存在
 	var drama models.Drama
-	if err := s.db.First(&drama, req.DramaID).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", req.DramaID, req.UserID).First(&drama).Error; err != nil {
 		return nil, fmt.Errorf("drama not found")
 	}
 
@@ -671,6 +679,7 @@ func (s *ImageGenerationService) CreateImageFromUpload(req *UploadImageRequest) 
 
 	now := time.Now()
 	imageGen := &models.ImageGeneration{
+		UserID:      req.UserID,
 		StoryboardID: &req.StoryboardID,
 		DramaID:      req.DramaID,
 		ImageType:    string(models.ImageTypeStoryboard),
@@ -695,7 +704,7 @@ func (s *ImageGenerationService) CreateImageFromUpload(req *UploadImageRequest) 
 	return imageGen, nil
 }
 
-func (s *ImageGenerationService) GenerateImagesForScene(sceneID string) ([]*models.ImageGeneration, error) {
+func (s *ImageGenerationService) GenerateImagesForScene(userID uint, sceneID string) ([]*models.ImageGeneration, error) {
 	// 转换sceneID
 	sid, err := strconv.ParseUint(sceneID, 10, 32)
 	if err != nil {
@@ -704,7 +713,7 @@ func (s *ImageGenerationService) GenerateImagesForScene(sceneID string) ([]*mode
 	sceneIDUint := uint(sid)
 
 	var scene models.Scene
-	if err := s.db.Where("id = ?", sceneIDUint).First(&scene).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", sceneIDUint, userID).First(&scene).Error; err != nil {
 		return nil, fmt.Errorf("scene not found")
 	}
 
@@ -722,7 +731,7 @@ func (s *ImageGenerationService) GenerateImagesForScene(sceneID string) ([]*mode
 		Prompt:    prompt,
 	}
 
-	imageGen, err := s.GenerateImage(req)
+	imageGen, err := s.GenerateImage(userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -741,14 +750,14 @@ type BackgroundInfo struct {
 	StoryboardCount   int    `json:"scene_count"`
 }
 
-func (s *ImageGenerationService) BatchGenerateImagesForEpisode(episodeID string) ([]*models.ImageGeneration, error) {
+func (s *ImageGenerationService) BatchGenerateImagesForEpisode(userID uint, episodeID string) ([]*models.ImageGeneration, error) {
 	var ep models.Episode
-	if err := s.db.Preload("Drama").Where("id = ?", episodeID).First(&ep).Error; err != nil {
+	if err := s.db.Preload("Drama").Where("id = ? AND user_id = ?", episodeID, userID).First(&ep).Error; err != nil {
 		return nil, fmt.Errorf("episode not found")
 	}
 	// 从数据库读取已保存的场景
 	var scenes []models.Storyboard
-	if err := s.db.Where("episode_id = ?", episodeID).Find(&scenes).Error; err != nil {
+	if err := s.db.Where("episode_id = ? AND user_id = ?", episodeID, userID).Find(&scenes).Error; err != nil {
 		return nil, fmt.Errorf("failed to get scenes: %w", err)
 	}
 
@@ -774,7 +783,7 @@ func (s *ImageGenerationService) BatchGenerateImagesForEpisode(episodeID string)
 			Prompt:       *bg.ImagePrompt,
 		}
 
-		imageGen, err := s.GenerateImage(req)
+		imageGen, err := s.GenerateImage(userID, req)
 		if err != nil {
 			s.log.Errorw("Failed to generate image for background",
 				"scene_id", bg.ID,
@@ -797,15 +806,15 @@ func (s *ImageGenerationService) BatchGenerateImagesForEpisode(episodeID string)
 }
 
 // GetScencesForEpisode 获取项目的场景列表（项目级）
-func (s *ImageGenerationService) GetScencesForEpisode(episodeID string) ([]*models.Scene, error) {
+func (s *ImageGenerationService) GetScencesForEpisode(userID uint, episodeID string) ([]*models.Scene, error) {
 	var episode models.Episode
-	if err := s.db.Preload("Drama").Where("id = ?", episodeID).First(&episode).Error; err != nil {
+	if err := s.db.Preload("Drama").Where("id = ? AND user_id = ?", episodeID, userID).First(&episode).Error; err != nil {
 		return nil, fmt.Errorf("episode not found")
 	}
 
 	// 场景是项目级的，通过drama_id查询
 	var scenes []*models.Scene
-	if err := s.db.Where("drama_id = ?", episode.DramaID).Order("location ASC, time ASC").Find(&scenes).Error; err != nil {
+	if err := s.db.Where("drama_id = ? AND user_id = ?", episode.DramaID, userID).Order("location ASC, time ASC").Find(&scenes).Error; err != nil {
 		return nil, fmt.Errorf("failed to load scenes: %w", err)
 	}
 
@@ -813,9 +822,9 @@ func (s *ImageGenerationService) GetScencesForEpisode(episodeID string) ([]*mode
 }
 
 // ExtractBackgroundsForEpisode 从剧本内容中提取场景并保存到项目级别数据库
-func (s *ImageGenerationService) ExtractBackgroundsForEpisode(episodeID string, model string, style string) (string, error) {
+func (s *ImageGenerationService) ExtractBackgroundsForEpisode(userID uint, episodeID string, model string, style string) (string, error) {
 	var episode models.Episode
-	if err := s.db.Preload("Storyboards").First(&episode, episodeID).Error; err != nil {
+	if err := s.db.Preload("Storyboards").Where("id = ? AND user_id = ?", episodeID, userID).First(&episode).Error; err != nil {
 		return "", fmt.Errorf("episode not found")
 	}
 
@@ -832,19 +841,19 @@ func (s *ImageGenerationService) ExtractBackgroundsForEpisode(episodeID string, 
 	}
 
 	// 异步处理场景提取
-	go s.processBackgroundExtraction(task.ID, episodeID, model, style)
+	go s.processBackgroundExtraction(userID, task.ID, episodeID, model, style)
 
 	s.log.Infow("Background extraction task created", "task_id", task.ID, "episode_id", episodeID)
 	return task.ID, nil
 }
 
 // processBackgroundExtraction 异步处理场景提取
-func (s *ImageGenerationService) processBackgroundExtraction(taskID string, episodeID string, model string, style string) {
+func (s *ImageGenerationService) processBackgroundExtraction(userID uint, taskID string, episodeID string, model string, style string) {
 	// 更新任务状态为处理中
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在提取场景信息...")
 
 	var episode models.Episode
-	if err := s.db.Preload("Storyboards").First(&episode, episodeID).Error; err != nil {
+	if err := s.db.Preload("Storyboards").Where("id = ? AND user_id = ?", episodeID, userID).First(&episode).Error; err != nil {
 		s.log.Errorw("Episode not found during background extraction", "error", err, "episode_id", episodeID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "剧集信息不存在")
 		return
@@ -881,7 +890,8 @@ func (s *ImageGenerationService) processBackgroundExtraction(taskID string, epis
 		for _, bgInfo := range backgroundsInfo {
 			// 保存新场景到数据库（章节级）
 			episodeIDVal := episode.ID
-			scene := &models.Scene{
+		scene := &models.Scene{
+				UserID:          userID,
 				DramaID:         dramaID,
 				EpisodeID:       &episodeIDVal,
 				Location:        bgInfo.Location,

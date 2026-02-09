@@ -917,6 +917,11 @@ type CreateStoryboardRequest struct {
 
 // CreateStoryboard 创建单个分镜
 func (s *StoryboardService) CreateStoryboard(req *CreateStoryboardRequest) (*models.Storyboard, error) {
+	var episode models.Episode
+	if err := s.db.Where("id = ?", req.EpisodeID).First(&episode).Error; err != nil {
+		return nil, fmt.Errorf("episode not found")
+	}
+
 	// 构建Storyboard对象
 	sb := Storyboard{
 		ShotNumber:  req.StoryboardNumber,
@@ -951,6 +956,7 @@ func (s *StoryboardService) CreateStoryboard(req *CreateStoryboardRequest) (*mod
 	}
 
 	modelSB := &models.Storyboard{
+		UserID:           episode.UserID,
 		EpisodeID:        req.EpisodeID,
 		SceneID:          req.SceneID,
 		StoryboardNumber: req.StoryboardNumber,

@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
 // BatchGenerateCharacterImages 批量生成角色图片
 func (h *CharacterLibraryHandler) BatchGenerateCharacterImages(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req struct {
 		CharacterIDs []string `json:"character_ids" binding:"required,min=1"`
@@ -25,7 +31,7 @@ func (h *CharacterLibraryHandler) BatchGenerateCharacterImages(c *gin.Context) {
 	}
 
 	// 异步批量生成
-	go h.libraryService.BatchGenerateCharacterImages(req.CharacterIDs, h.imageService, req.Model)
+	go h.libraryService.BatchGenerateCharacterImages(userID, req.CharacterIDs, h.imageService, req.Model)
 
 	response.Success(c, gin.H{
 		"message": "批量生成任务已提交",

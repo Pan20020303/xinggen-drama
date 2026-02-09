@@ -12,6 +12,8 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Storage  StorageConfig  `mapstructure:"storage"`
 	AI       AIConfig       `mapstructure:"ai"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+	Billing  BillingConfig  `mapstructure:"billing"`
 }
 
 type AppConfig struct {
@@ -52,6 +54,17 @@ type AIConfig struct {
 	DefaultTextProvider  string `mapstructure:"default_text_provider"`
 	DefaultImageProvider string `mapstructure:"default_image_provider"`
 	DefaultVideoProvider string `mapstructure:"default_video_provider"`
+}
+
+type AuthConfig struct {
+	JWTSecret        string `mapstructure:"jwt_secret"`
+	TokenExpireHours int    `mapstructure:"token_expire_hours"`
+	InitialCredits   int    `mapstructure:"initial_credits"`
+}
+
+type BillingConfig struct {
+	FramePromptCredits    int `mapstructure:"frame_prompt_credits"`
+	ImageGenerationCredits int `mapstructure:"image_generation_credits"`
 }
 
 func LoadConfig() (*Config, error) {

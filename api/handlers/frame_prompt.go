@@ -4,6 +4,7 @@ import (
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,6 +25,12 @@ func NewFramePromptHandler(framePromptService *services.FramePromptService, log 
 // GenerateFramePrompt 生成指定类型的帧提示词
 // POST /api/v1/storyboards/:id/frame-prompt
 func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	storyboardID := c.Param("id")
 
 	var req struct {
@@ -43,7 +50,7 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 	}
 
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
-	taskID, err := h.framePromptService.GenerateFramePrompt(serviceReq, req.Model)
+	taskID, err := h.framePromptService.GenerateFramePrompt(userID, serviceReq, req.Model)
 	if err != nil {
 		h.log.Errorw("Failed to generate frame prompt", "error", err)
 		response.InternalError(c, err.Error())

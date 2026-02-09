@@ -5,6 +5,7 @@ import "time"
 // FramePrompt 帧提示词存储表
 type FramePrompt struct {
 	ID           uint      `gorm:"primarykey" json:"id"`
+	UserID       uint      `gorm:"not null;default:0;index" json:"user_id"`
 	StoryboardID uint      `gorm:"not null;index:idx_frame_prompts_storyboard" json:"storyboard_id"`
 	FrameType    string    `gorm:"size:20;not null;index:idx_frame_prompts_type" json:"frame_type"` // first, key, last, panel, action
 	Prompt       string    `gorm:"type:text;not null" json:"prompt"`

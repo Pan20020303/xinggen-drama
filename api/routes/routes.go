@@ -30,9 +30,11 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	})
 
 	aiService := services2.NewAIService(db, log)
+	authService := services2.NewAuthService(db, cfg, log)
 	localStoragePtr := localStorage.(*storage2.LocalStorage)
 	transferService := services2.NewResourceTransferService(db, log)
 	promptI18n := services2.NewPromptI18n(cfg)
+	authHandler := handlers2.NewAuthHandler(db, cfg, log)
 	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
 	aiConfigHandler := handlers2.NewAIConfigHandler(db, cfg, log)
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
@@ -60,7 +62,16 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	{
 		api.Use(middlewares2.RateLimitMiddleware())
 
-		dramas := api.Group("/dramas")
+		auth := api.Group("/auth")
+		{
+			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
+		}
+
+		secured := api.Group("")
+		secured.Use(middlewares2.AuthMiddleware(authService))
+
+		dramas := secured.Group("/dramas")
 		{
 			dramas.GET("", dramaHandler.ListDramas)
 			dramas.POST("", dramaHandler.CreateDrama)
@@ -77,7 +88,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			dramas.GET("/:id/props", propHandler.ListProps) // Added prop list route
 		}
 
-		aiConfigs := api.Group("/ai-configs")
+		aiConfigs := secured.Group("/ai-configs")
 		{
 			aiConfigs.GET("", aiConfigHandler.ListConfigs)
 			aiConfigs.POST("", aiConfigHandler.CreateConfig)
@@ -87,13 +98,13 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			aiConfigs.DELETE("/:id", aiConfigHandler.DeleteConfig)
 		}
 
-		generation := api.Group("/generation")
+		generation := secured.Group("/generation")
 		{
 			generation.POST("/characters", scriptGenHandler.GenerateCharacters)
 		}
 
 		// 角色库路由
-		characterLibrary := api.Group("/character-library")
+		characterLibrary := secured.Group("/character-library")
 		{
 			characterLibrary.GET("", characterLibraryHandler.ListLibraryItems)
 			characterLibrary.POST("", characterLibraryHandler.CreateLibraryItem)
@@ -102,7 +113,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		}
 
 		// 角色图片相关路由
-		characters := api.Group("/characters")
+		characters := secured.Group("/characters")
 		{
 			characters.PUT("/:id", characterLibraryHandler.UpdateCharacter)
 			characters.DELETE("/:id", characterLibraryHandler.DeleteCharacter)
@@ -114,7 +125,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			characters.POST("/:id/add-to-library", characterLibraryHandler.AddCharacterToLibrary)
 		}
 
-		props := api.Group("/props")
+		props := secured.Group("/props")
 		{
 			props.POST("", propHandler.CreateProp)
 			props.PUT("/:id", propHandler.UpdateProp)
@@ -123,13 +134,13 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		}
 
 		// 文件上传路由
-		upload := api.Group("/upload")
+		upload := secured.Group("/upload")
 		{
 			upload.POST("/image", uploadHandler.UploadImage)
 		}
 
 		// 分镜头路由
-		episodes := api.Group("/episodes")
+		episodes := secured.Group("/episodes")
 		{
 			// 分镜头
 			episodes.POST("/:episode_id/storyboards", storyboardHandler.GenerateStoryboard)
@@ -141,14 +152,14 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		}
 
 		// 任务路由
-		tasks := api.Group("/tasks")
+		tasks := secured.Group("/tasks")
 		{
 			tasks.GET("/:task_id", taskHandler.GetTaskStatus)
 			tasks.GET("", taskHandler.GetResourceTasks)
 		}
 
 		// 场景路由
-		scenes := api.Group("/scenes")
+		scenes := secured.Group("/scenes")
 		{
 			scenes.PUT("/:scene_id", sceneHandler.UpdateScene)
 			scenes.PUT("/:scene_id/prompt", sceneHandler.UpdateScenePrompt)
@@ -158,7 +169,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			scenes.POST("", sceneHandler.CreateScene)
 		}
 
-		images := api.Group("/images")
+		images := secured.Group("/images")
 		{
 			images.GET("", imageGenHandler.ListImageGenerations)
 			images.POST("", imageGenHandler.GenerateImage)
@@ -171,7 +182,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			images.POST("/episode/:episode_id/batch", imageGenHandler.BatchGenerateForEpisode)
 		}
 
-		videos := api.Group("/videos")
+		videos := secured.Group("/videos")
 		{
 			videos.GET("", videoGenHandler.ListVideoGenerations)
 			videos.POST("", videoGenHandler.GenerateVideo)
@@ -181,7 +192,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			videos.POST("/episode/:episode_id/batch", videoGenHandler.BatchGenerateForEpisode)
 		}
 
-		videoMerges := api.Group("/video-merges")
+		videoMerges := secured.Group("/video-merges")
 		{
 			videoMerges.GET("", videoMergeHandler.ListMerges)
 			videoMerges.POST("", videoMergeHandler.MergeVideos)
@@ -189,7 +200,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			videoMerges.DELETE("/:merge_id", videoMergeHandler.DeleteMerge)
 		}
 
-		assets := api.Group("/assets")
+		assets := secured.Group("/assets")
 		{
 			assets.GET("", assetHandler.ListAssets)
 			assets.POST("", assetHandler.CreateAsset)
@@ -200,7 +211,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			assets.POST("/import/video/:video_gen_id", assetHandler.ImportFromVideoGen)
 		}
 
-		storyboards := api.Group("/storyboards")
+		storyboards := secured.Group("/storyboards")
 		{
 			storyboards.GET("/episode/:episode_id/generate", storyboardHandler.GenerateStoryboard)
 			storyboards.POST("", storyboardHandler.CreateStoryboard)
@@ -211,13 +222,13 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			storyboards.GET("/:id/frame-prompts", handlers2.GetStoryboardFramePrompts(db, log))
 		}
 
-		audio := api.Group("/audio")
+		audio := secured.Group("/audio")
 		{
 			audio.POST("/extract", audioExtractionHandler.ExtractAudio)
 			audio.POST("/extract/batch", audioExtractionHandler.BatchExtractAudio)
 		}
 
-		settings := api.Group("/settings")
+		settings := secured.Group("/settings")
 		{
 			settings.GET("/language", settingsHandler.GetLanguage)
 			settings.PUT("/language", settingsHandler.UpdateLanguage)

@@ -14,6 +14,7 @@ import (
 type FramePromptService struct {
 	db          *gorm.DB
 	aiService   *AIService
+	billing     *BillingService
 	log         *logger.Logger
 	config      *config.Config
 	promptI18n  *PromptI18n
@@ -25,6 +26,7 @@ func NewFramePromptService(db *gorm.DB, cfg *config.Config, log *logger.Logger) 
 	return &FramePromptService{
 		db:          db,
 		aiService:   NewAIService(db, log),
+		billing:     NewBillingService(db, cfg, log),
 		log:         log,
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
@@ -71,11 +73,15 @@ type MultiFramePrompt struct {
 }
 
 // GenerateFramePrompt 生成指定类型的帧提示词并保存到frame_prompts表
-func (s *FramePromptService) GenerateFramePrompt(req GenerateFramePromptRequest, model string) (string, error) {
+func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFramePromptRequest, model string) (string, error) {
 	// 查询分镜信息
 	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").First(&storyboard, req.StoryboardID).Error; err != nil {
+	if err := s.db.Preload("Characters").Where("id = ? AND user_id = ?", req.StoryboardID, userID).First(&storyboard).Error; err != nil {
 		return "", fmt.Errorf("storyboard not found: %w", err)
+	}
+
+	if err := s.billing.ConsumeForFramePrompt(userID, BillingDetail("storyboard", req.StoryboardID)); err != nil {
+		return "", err
 	}
 
 	// 创建任务
@@ -86,20 +92,20 @@ func (s *FramePromptService) GenerateFramePrompt(req GenerateFramePromptRequest,
 	}
 
 	// 异步处理帧提示词生成
-	go s.processFramePromptGeneration(task.ID, req, model)
+	go s.processFramePromptGeneration(userID, task.ID, req, model)
 
 	s.log.Infow("Frame prompt generation task created", "task_id", task.ID, "storyboard_id", req.StoryboardID, "frame_type", req.FrameType)
 	return task.ID, nil
 }
 
 // processFramePromptGeneration 异步处理帧提示词生成
-func (s *FramePromptService) processFramePromptGeneration(taskID string, req GenerateFramePromptRequest, model string) {
+func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID string, req GenerateFramePromptRequest, model string) {
 	// 更新任务状态为处理中
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在生成帧提示词...")
 
 	// 查询分镜信息
 	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").First(&storyboard, req.StoryboardID).Error; err != nil {
+	if err := s.db.Preload("Characters").Where("id = ? AND user_id = ?", req.StoryboardID, userID).First(&storyboard).Error; err != nil {
 		s.log.Errorw("Storyboard not found during frame prompt generation", "error", err, "storyboard_id", req.StoryboardID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "分镜信息不存在")
 		return
@@ -109,7 +115,7 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 	var scene *models.Scene
 	if storyboard.SceneID != nil {
 		scene = &models.Scene{}
-		if err := s.db.First(scene, *storyboard.SceneID).Error; err != nil {
+		if err := s.db.Where("id = ? AND user_id = ?", *storyboard.SceneID, userID).First(scene).Error; err != nil {
 			s.log.Warnw("Scene not found during frame prompt generation", "scene_id", *storyboard.SceneID, "task_id", taskID)
 			scene = nil
 		}
@@ -117,7 +123,7 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 
 	// 获取 drama 的 style 信息
 	var episode models.Episode
-	if err := s.db.Preload("Drama").First(&episode, storyboard.EpisodeID).Error; err != nil {
+	if err := s.db.Preload("Drama").Where("id = ? AND user_id = ?", storyboard.EpisodeID, userID).First(&episode).Error; err != nil {
 		s.log.Warnw("Failed to load episode and drama", "error", err, "episode_id", storyboard.EpisodeID)
 	}
 	dramaStyle := episode.Drama.Style
@@ -131,13 +137,13 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 	case FrameTypeFirst:
 		response.SingleFrame = s.generateFirstFrame(storyboard, scene, dramaStyle, model)
 		// 保存单帧提示词
-		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
+		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeKey:
 		response.SingleFrame = s.generateKeyFrame(storyboard, scene, dramaStyle, model)
-		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
+		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeLast:
 		response.SingleFrame = s.generateLastFrame(storyboard, scene, dramaStyle, model)
-		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
+		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypePanel:
 		count := req.PanelCount
 		if count == 0 {
@@ -150,7 +156,7 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 			prompts = append(prompts, frame.Prompt)
 		}
 		combinedPrompt := strings.Join(prompts, "\n---\n")
-		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
+		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
 	case FrameTypeAction:
 		response.MultiFrame = s.generateActionSequence(storyboard, scene, dramaStyle, model)
 		var prompts []string
@@ -158,7 +164,7 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 			prompts = append(prompts, frame.Prompt)
 		}
 		combinedPrompt := strings.Join(prompts, "\n---\n")
-		s.saveFramePrompt(req.StoryboardID, string(req.FrameType), combinedPrompt, "动作序列组合提示词", response.MultiFrame.Layout)
+		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), combinedPrompt, "动作序列组合提示词", response.MultiFrame.Layout)
 	default:
 		s.log.Errorw("Unsupported frame type during frame prompt generation", "frame_type", req.FrameType, "task_id", taskID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "不支持的帧类型")
@@ -176,8 +182,9 @@ func (s *FramePromptService) processFramePromptGeneration(taskID string, req Gen
 }
 
 // saveFramePrompt 保存帧提示词到数据库
-func (s *FramePromptService) saveFramePrompt(storyboardID, frameType, prompt, description, layout string) {
+func (s *FramePromptService) saveFramePrompt(userID uint, storyboardID, frameType, prompt, description, layout string) {
 	framePrompt := models.FramePrompt{
+		UserID:       userID,
 		StoryboardID: uint(mustParseUint(storyboardID)),
 		FrameType:    frameType,
 		Prompt:       prompt,
@@ -191,7 +198,7 @@ func (s *FramePromptService) saveFramePrompt(storyboardID, frameType, prompt, de
 	}
 
 	// 先删除同类型的旧记录（保持最新）
-	s.db.Where("storyboard_id = ? AND frame_type = ?", storyboardID, frameType).Delete(&models.FramePrompt{})
+	s.db.Where("storyboard_id = ? AND frame_type = ? AND user_id = ?", storyboardID, frameType, userID).Delete(&models.FramePrompt{})
 
 	// 插入新记录
 	if err := s.db.Create(&framePrompt).Error; err != nil {

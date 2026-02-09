@@ -71,6 +71,10 @@ func NewDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		// 用户与计费
+		&models.User{},
+		&models.CreditTransaction{},
+
 		// 核心模型
 		&models.Drama{},
 		&models.Episode{},

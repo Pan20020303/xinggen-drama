@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	middlewares "github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
@@ -13,9 +14,14 @@ import (
 func GetStoryboardFramePrompts(db *gorm.DB, log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		storyboardID := c.Param("id")
+		userID, ok := middlewares.GetUserID(c)
+		if !ok {
+			response.Unauthorized(c, "用户未登录")
+			return
+		}
 
 		var framePrompts []models.FramePrompt
-		if err := db.Where("storyboard_id = ?", storyboardID).
+		if err := db.Where("storyboard_id = ? AND user_id = ?", storyboardID, userID).
 			Order("created_at DESC").
 			Find(&framePrompts).Error; err != nil {
 			log.Errorw("Failed to query frame prompts", "error", err)

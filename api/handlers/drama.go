@@ -8,6 +8,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -29,6 +30,11 @@ func NewDramaHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger, transf
 }
 
 func (h *DramaHandler) CreateDrama(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req services.CreateDramaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -36,7 +42,7 @@ func (h *DramaHandler) CreateDrama(c *gin.Context) {
 		return
 	}
 
-	drama, err := h.dramaService.CreateDrama(&req)
+	drama, err := h.dramaService.CreateDrama(userID, &req)
 	if err != nil {
 		response.InternalError(c, "创建失败")
 		return
@@ -46,10 +52,15 @@ func (h *DramaHandler) CreateDrama(c *gin.Context) {
 }
 
 func (h *DramaHandler) GetDrama(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
-	drama, err := h.dramaService.GetDrama(dramaID)
+	drama, err := h.dramaService.GetDrama(userID, dramaID)
 	if err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
@@ -63,6 +74,11 @@ func (h *DramaHandler) GetDrama(c *gin.Context) {
 }
 
 func (h *DramaHandler) ListDramas(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var query services.DramaListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -77,7 +93,7 @@ func (h *DramaHandler) ListDramas(c *gin.Context) {
 		query.PageSize = 20
 	}
 
-	dramas, total, err := h.dramaService.ListDramas(&query)
+	dramas, total, err := h.dramaService.ListDramas(userID, &query)
 	if err != nil {
 		response.InternalError(c, "获取列表失败")
 		return
@@ -87,6 +103,11 @@ func (h *DramaHandler) ListDramas(c *gin.Context) {
 }
 
 func (h *DramaHandler) UpdateDrama(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
@@ -96,7 +117,7 @@ func (h *DramaHandler) UpdateDrama(c *gin.Context) {
 		return
 	}
 
-	drama, err := h.dramaService.UpdateDrama(dramaID, &req)
+	drama, err := h.dramaService.UpdateDrama(userID, dramaID, &req)
 	if err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
@@ -110,10 +131,15 @@ func (h *DramaHandler) UpdateDrama(c *gin.Context) {
 }
 
 func (h *DramaHandler) DeleteDrama(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
-	if err := h.dramaService.DeleteDrama(dramaID); err != nil {
+	if err := h.dramaService.DeleteDrama(userID, dramaID); err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
 			return
@@ -126,8 +152,13 @@ func (h *DramaHandler) DeleteDrama(c *gin.Context) {
 }
 
 func (h *DramaHandler) GetDramaStats(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
-	stats, err := h.dramaService.GetDramaStats()
+	stats, err := h.dramaService.GetDramaStats(userID)
 	if err != nil {
 		response.InternalError(c, "获取统计失败")
 		return
@@ -137,6 +168,11 @@ func (h *DramaHandler) GetDramaStats(c *gin.Context) {
 }
 
 func (h *DramaHandler) SaveOutline(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
@@ -146,7 +182,7 @@ func (h *DramaHandler) SaveOutline(c *gin.Context) {
 		return
 	}
 
-	if err := h.dramaService.SaveOutline(dramaID, &req); err != nil {
+	if err := h.dramaService.SaveOutline(userID, dramaID, &req); err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
 			return
@@ -159,6 +195,11 @@ func (h *DramaHandler) SaveOutline(c *gin.Context) {
 }
 
 func (h *DramaHandler) GetCharacters(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 	episodeID := c.Query("episode_id") // 可选：如果提供则只返回该章节的角色
@@ -168,7 +209,7 @@ func (h *DramaHandler) GetCharacters(c *gin.Context) {
 		episodeIDPtr = &episodeID
 	}
 
-	characters, err := h.dramaService.GetCharacters(dramaID, episodeIDPtr)
+	characters, err := h.dramaService.GetCharacters(userID, dramaID, episodeIDPtr)
 	if err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
@@ -186,6 +227,12 @@ func (h *DramaHandler) GetCharacters(c *gin.Context) {
 }
 
 func (h *DramaHandler) SaveCharacters(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	dramaID := c.Param("id")
 
 	var req services.SaveCharactersRequest
@@ -233,7 +280,7 @@ func (h *DramaHandler) SaveCharacters(c *gin.Context) {
 		}
 	}
 
-	if err := h.dramaService.SaveCharacters(dramaID, &req); err != nil {
+	if err := h.dramaService.SaveCharacters(userID, dramaID, &req); err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
 			return
@@ -246,6 +293,11 @@ func (h *DramaHandler) SaveCharacters(c *gin.Context) {
 }
 
 func (h *DramaHandler) SaveEpisodes(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
@@ -255,7 +307,7 @@ func (h *DramaHandler) SaveEpisodes(c *gin.Context) {
 		return
 	}
 
-	if err := h.dramaService.SaveEpisodes(dramaID, &req); err != nil {
+	if err := h.dramaService.SaveEpisodes(userID, dramaID, &req); err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
 			return
@@ -268,6 +320,11 @@ func (h *DramaHandler) SaveEpisodes(c *gin.Context) {
 }
 
 func (h *DramaHandler) SaveProgress(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	dramaID := c.Param("id")
 
@@ -277,7 +334,7 @@ func (h *DramaHandler) SaveProgress(c *gin.Context) {
 		return
 	}
 
-	if err := h.dramaService.SaveProgress(dramaID, &req); err != nil {
+	if err := h.dramaService.SaveProgress(userID, dramaID, &req); err != nil {
 		if err.Error() == "drama not found" {
 			response.NotFound(c, "剧本不存在")
 			return

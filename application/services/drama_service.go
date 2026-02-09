@@ -52,8 +52,9 @@ type DramaListQuery struct {
 	Keyword  string `form:"keyword"`
 }
 
-func (s *DramaService) CreateDrama(req *CreateDramaRequest) (*models.Drama, error) {
+func (s *DramaService) CreateDrama(userID uint, req *CreateDramaRequest) (*models.Drama, error) {
 	drama := &models.Drama{
+		UserID: userID,
 		Title:  req.Title,
 		Status: "draft",
 		Style:  "ghibli", // 默认风格
@@ -78,9 +79,9 @@ func (s *DramaService) CreateDrama(req *CreateDramaRequest) (*models.Drama, erro
 	return drama, nil
 }
 
-func (s *DramaService) GetDrama(dramaID string) (*models.Drama, error) {
+func (s *DramaService) GetDrama(userID uint, dramaID string) (*models.Drama, error) {
 	var drama models.Drama
-	err := s.db.Where("id = ? ", dramaID).
+	err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).
 		Preload("Characters").          // 加载Drama级别的角色
 		Preload("Scenes").              // 加载Drama级别的场景
 		Preload("Props").               // 加载Drama级别的道具
@@ -203,11 +204,11 @@ func (s *DramaService) GetDrama(dramaID string) (*models.Drama, error) {
 	return &drama, nil
 }
 
-func (s *DramaService) ListDramas(query *DramaListQuery) ([]models.Drama, int64, error) {
+func (s *DramaService) ListDramas(userID uint, query *DramaListQuery) ([]models.Drama, int64, error) {
 	var dramas []models.Drama
 	var total int64
 
-	db := s.db.Model(&models.Drama{})
+	db := s.db.Model(&models.Drama{}).Where("user_id = ?", userID)
 
 	if query.Status != "" {
 		db = db.Where("status = ?", query.Status)
@@ -256,9 +257,9 @@ func (s *DramaService) ListDramas(query *DramaListQuery) ([]models.Drama, int64,
 	return dramas, total, nil
 }
 
-func (s *DramaService) UpdateDrama(dramaID string, req *UpdateDramaRequest) (*models.Drama, error) {
+func (s *DramaService) UpdateDrama(userID uint, dramaID string, req *UpdateDramaRequest) (*models.Drama, error) {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("drama not found")
 		}
@@ -297,8 +298,8 @@ func (s *DramaService) UpdateDrama(dramaID string, req *UpdateDramaRequest) (*mo
 	return &drama, nil
 }
 
-func (s *DramaService) DeleteDrama(dramaID string) error {
-	result := s.db.Where("id = ? ", dramaID).Delete(&models.Drama{})
+func (s *DramaService) DeleteDrama(userID uint, dramaID string) error {
+	result := s.db.Where("id = ? AND user_id = ?", dramaID, userID).Delete(&models.Drama{})
 
 	if result.Error != nil {
 		s.log.Errorw("Failed to delete drama", "error", result.Error)
@@ -313,18 +314,19 @@ func (s *DramaService) DeleteDrama(dramaID string) error {
 	return nil
 }
 
-func (s *DramaService) GetDramaStats() (map[string]interface{}, error) {
+func (s *DramaService) GetDramaStats(userID uint) (map[string]interface{}, error) {
 	var total int64
 	var byStatus []struct {
 		Status string
 		Count  int64
 	}
 
-	if err := s.db.Model(&models.Drama{}).Count(&total).Error; err != nil {
+	if err := s.db.Model(&models.Drama{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
 		return nil, err
 	}
 
 	if err := s.db.Model(&models.Drama{}).
+		Where("user_id = ?", userID).
 		Select("status, count(*) as count").
 		Group("status").
 		Scan(&byStatus).Error; err != nil {
@@ -360,9 +362,9 @@ type SaveEpisodesRequest struct {
 	Episodes []models.Episode `json:"episodes" binding:"required"`
 }
 
-func (s *DramaService) SaveOutline(dramaID string, req *SaveOutlineRequest) error {
+func (s *DramaService) SaveOutline(userID uint, dramaID string, req *SaveOutlineRequest) error {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("drama not found")
 		}
@@ -397,9 +399,9 @@ func (s *DramaService) SaveOutline(dramaID string, req *SaveOutlineRequest) erro
 	return nil
 }
 
-func (s *DramaService) GetCharacters(dramaID string, episodeID *string) ([]models.Character, error) {
+func (s *DramaService) GetCharacters(userID uint, dramaID string, episodeID *string) ([]models.Character, error) {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("drama not found")
 		}
@@ -411,7 +413,7 @@ func (s *DramaService) GetCharacters(dramaID string, episodeID *string) ([]model
 	// 如果指定了episodeID，只获取该章节关联的角色
 	if episodeID != nil {
 		var episode models.Episode
-		if err := s.db.Preload("Characters").Where("id = ? AND drama_id = ?", *episodeID, dramaID).First(&episode).Error; err != nil {
+		if err := s.db.Preload("Characters").Where("id = ? AND drama_id = ? AND user_id = ?", *episodeID, dramaID, userID).First(&episode).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, errors.New("episode not found")
 			}
@@ -420,7 +422,7 @@ func (s *DramaService) GetCharacters(dramaID string, episodeID *string) ([]model
 		characters = episode.Characters
 	} else {
 		// 如果没有指定episodeID，获取项目的所有角色
-		if err := s.db.Where("drama_id = ?", dramaID).Find(&characters).Error; err != nil {
+		if err := s.db.Where("drama_id = ? AND user_id = ?", dramaID, userID).Find(&characters).Error; err != nil {
 			s.log.Errorw("Failed to get characters", "error", err)
 			return nil, err
 		}
@@ -452,7 +454,7 @@ func (s *DramaService) GetCharacters(dramaID string, episodeID *string) ([]model
 	return characters, nil
 }
 
-func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest) error {
+func (s *DramaService) SaveCharacters(userID uint, dramaID string, req *SaveCharactersRequest) error {
 	// 转换dramaID
 	id, err := strconv.ParseUint(dramaID, 10, 32)
 	if err != nil {
@@ -461,7 +463,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 	dramaIDUint := uint(id)
 
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaIDUint).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaIDUint, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("drama not found")
 		}
@@ -471,7 +473,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 	// 如果指定了EpisodeID，验证章节存在性
 	if req.EpisodeID != nil {
 		var episode models.Episode
-		if err := s.db.Where("id = ? AND drama_id = ?", *req.EpisodeID, dramaIDUint).First(&episode).Error; err != nil {
+		if err := s.db.Where("id = ? AND drama_id = ? AND user_id = ?", *req.EpisodeID, dramaIDUint, userID).First(&episode).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errors.New("episode not found")
 			}
@@ -481,7 +483,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 
 	// 获取该项目已存在的所有角色
 	var existingCharacters []models.Character
-	if err := s.db.Where("drama_id = ?", dramaIDUint).Find(&existingCharacters).Error; err != nil {
+	if err := s.db.Where("drama_id = ? AND user_id = ?", dramaIDUint, userID).Find(&existingCharacters).Error; err != nil {
 		s.log.Errorw("Failed to get existing characters", "error", err)
 		return err
 	}
@@ -500,7 +502,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 		// 1. 如果提供了ID，尝试更新已有角色
 		if char.ID > 0 {
 			var existing models.Character
-			if err := s.db.Where("id = ? AND drama_id = ?", char.ID, dramaIDUint).First(&existing).Error; err == nil {
+			if err := s.db.Where("id = ? AND drama_id = ? AND user_id = ?", char.ID, dramaIDUint, userID).First(&existing).Error; err == nil {
 				// 更新角色信息
 				updates := map[string]interface{}{
 					"name":        char.Name,
@@ -527,6 +529,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 
 		// 3. 角色不存在，创建新角色
 		character := models.Character{
+			UserID:      userID,
 			DramaID:     dramaIDUint,
 			Name:        char.Name,
 			Role:        char.Role,
@@ -548,13 +551,13 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 	// 如果指定了EpisodeID，建立角色与章节的关联
 	if req.EpisodeID != nil && len(characterIDs) > 0 {
 		var episode models.Episode
-		if err := s.db.First(&episode, *req.EpisodeID).Error; err != nil {
+		if err := s.db.Where("id = ? AND user_id = ?", *req.EpisodeID, userID).First(&episode).Error; err != nil {
 			return err
 		}
 
 		// 获取角色对象
 		var characters []models.Character
-		if err := s.db.Where("id IN ?", characterIDs).Find(&characters).Error; err != nil {
+		if err := s.db.Where("id IN ? AND user_id = ?", characterIDs, userID).Find(&characters).Error; err != nil {
 			s.log.Errorw("Failed to get characters", "error", err)
 			return err
 		}
@@ -576,7 +579,7 @@ func (s *DramaService) SaveCharacters(dramaID string, req *SaveCharactersRequest
 	return nil
 }
 
-func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) error {
+func (s *DramaService) SaveEpisodes(userID uint, dramaID string, req *SaveEpisodesRequest) error {
 	// 转换dramaID
 	id, err := strconv.ParseUint(dramaID, 10, 32)
 	if err != nil {
@@ -585,7 +588,7 @@ func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) er
 	dramaIDUint := uint(id)
 
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaIDUint).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaIDUint, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("drama not found")
 		}
@@ -593,7 +596,7 @@ func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) er
 	}
 
 	// 删除旧剧集
-	if err := s.db.Where("drama_id = ?", dramaIDUint).Delete(&models.Episode{}).Error; err != nil {
+	if err := s.db.Where("drama_id = ? AND user_id = ?", dramaIDUint, userID).Delete(&models.Episode{}).Error; err != nil {
 		s.log.Errorw("Failed to delete old episodes", "error", err)
 		return err
 	}
@@ -601,6 +604,7 @@ func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) er
 	// 创建新剧集（不包含场景，场景由后续步骤生成）
 	for _, ep := range req.Episodes {
 		episode := models.Episode{
+			UserID:        userID,
 			DramaID:       dramaIDUint,
 			EpisodeNum:    ep.EpisodeNum,
 			Title:         ep.Title,
@@ -624,9 +628,9 @@ func (s *DramaService) SaveEpisodes(dramaID string, req *SaveEpisodesRequest) er
 	return nil
 }
 
-func (s *DramaService) SaveProgress(dramaID string, req *SaveProgressRequest) error {
+func (s *DramaService) SaveProgress(userID uint, dramaID string, req *SaveProgressRequest) error {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", dramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).First(&drama).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("drama not found")
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -28,6 +29,11 @@ func NewCharacterLibraryHandler(db *gorm.DB, cfg *config.Config, log *logger.Log
 
 // ListLibraryItems 获取角色库列表
 func (h *CharacterLibraryHandler) ListLibraryItems(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var query services2.CharacterLibraryQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -42,7 +48,7 @@ func (h *CharacterLibraryHandler) ListLibraryItems(c *gin.Context) {
 		query.PageSize = 20
 	}
 
-	items, total, err := h.libraryService.ListLibraryItems(&query)
+	items, total, err := h.libraryService.ListLibraryItems(userID, &query)
 	if err != nil {
 		h.log.Errorw("Failed to list library items", "error", err)
 		response.InternalError(c, "获取角色库失败")
@@ -54,6 +60,11 @@ func (h *CharacterLibraryHandler) ListLibraryItems(c *gin.Context) {
 
 // CreateLibraryItem 添加到角色库
 func (h *CharacterLibraryHandler) CreateLibraryItem(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req services2.CreateLibraryItemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -61,7 +72,7 @@ func (h *CharacterLibraryHandler) CreateLibraryItem(c *gin.Context) {
 		return
 	}
 
-	item, err := h.libraryService.CreateLibraryItem(&req)
+	item, err := h.libraryService.CreateLibraryItem(userID, &req)
 	if err != nil {
 		h.log.Errorw("Failed to create library item", "error", err)
 		response.InternalError(c, "添加到角色库失败")
@@ -73,10 +84,15 @@ func (h *CharacterLibraryHandler) CreateLibraryItem(c *gin.Context) {
 
 // GetLibraryItem 获取角色库项详情
 func (h *CharacterLibraryHandler) GetLibraryItem(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	itemID := c.Param("id")
 
-	item, err := h.libraryService.GetLibraryItem(itemID)
+	item, err := h.libraryService.GetLibraryItem(userID, itemID)
 	if err != nil {
 		if err.Error() == "library item not found" {
 			response.NotFound(c, "角色库项不存在")
@@ -92,10 +108,15 @@ func (h *CharacterLibraryHandler) GetLibraryItem(c *gin.Context) {
 
 // DeleteLibraryItem 删除角色库项
 func (h *CharacterLibraryHandler) DeleteLibraryItem(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	itemID := c.Param("id")
 
-	if err := h.libraryService.DeleteLibraryItem(itemID); err != nil {
+	if err := h.libraryService.DeleteLibraryItem(userID, itemID); err != nil {
 		if err.Error() == "library item not found" {
 			response.NotFound(c, "角色库项不存在")
 			return
@@ -110,6 +131,11 @@ func (h *CharacterLibraryHandler) DeleteLibraryItem(c *gin.Context) {
 
 // UploadCharacterImage 上传角色图片
 func (h *CharacterLibraryHandler) UploadCharacterImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterID := c.Param("id")
 
@@ -125,7 +151,7 @@ func (h *CharacterLibraryHandler) UploadCharacterImage(c *gin.Context) {
 		return
 	}
 
-	if err := h.libraryService.UploadCharacterImage(characterID, req.ImageURL); err != nil {
+	if err := h.libraryService.UploadCharacterImage(userID, characterID, req.ImageURL); err != nil {
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")
 			return
@@ -144,6 +170,11 @@ func (h *CharacterLibraryHandler) UploadCharacterImage(c *gin.Context) {
 
 // ApplyLibraryItemToCharacter 从角色库应用形象
 func (h *CharacterLibraryHandler) ApplyLibraryItemToCharacter(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterID := c.Param("id")
 
@@ -156,7 +187,7 @@ func (h *CharacterLibraryHandler) ApplyLibraryItemToCharacter(c *gin.Context) {
 		return
 	}
 
-	if err := h.libraryService.ApplyLibraryItemToCharacter(characterID, req.LibraryItemID); err != nil {
+	if err := h.libraryService.ApplyLibraryItemToCharacter(userID, characterID, req.LibraryItemID); err != nil {
 		if err.Error() == "library item not found" {
 			response.NotFound(c, "角色库项不存在")
 			return
@@ -179,6 +210,11 @@ func (h *CharacterLibraryHandler) ApplyLibraryItemToCharacter(c *gin.Context) {
 
 // AddCharacterToLibrary 将角色添加到角色库
 func (h *CharacterLibraryHandler) AddCharacterToLibrary(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterID := c.Param("id")
 
@@ -191,7 +227,7 @@ func (h *CharacterLibraryHandler) AddCharacterToLibrary(c *gin.Context) {
 		req.Category = nil
 	}
 
-	item, err := h.libraryService.AddCharacterToLibrary(characterID, req.Category)
+	item, err := h.libraryService.AddCharacterToLibrary(userID, characterID, req.Category)
 	if err != nil {
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")
@@ -215,6 +251,11 @@ func (h *CharacterLibraryHandler) AddCharacterToLibrary(c *gin.Context) {
 
 // UpdateCharacter 更新角色信息
 func (h *CharacterLibraryHandler) UpdateCharacter(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterID := c.Param("id")
 
@@ -224,7 +265,7 @@ func (h *CharacterLibraryHandler) UpdateCharacter(c *gin.Context) {
 		return
 	}
 
-	if err := h.libraryService.UpdateCharacter(characterID, &req); err != nil {
+	if err := h.libraryService.UpdateCharacter(userID, characterID, &req); err != nil {
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")
 			return
@@ -243,6 +284,11 @@ func (h *CharacterLibraryHandler) UpdateCharacter(c *gin.Context) {
 
 // DeleteCharacter 删除单个角色
 func (h *CharacterLibraryHandler) DeleteCharacter(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterIDStr := c.Param("id")
 	characterID, err := strconv.ParseUint(characterIDStr, 10, 32)
@@ -251,7 +297,7 @@ func (h *CharacterLibraryHandler) DeleteCharacter(c *gin.Context) {
 		return
 	}
 
-	if err := h.libraryService.DeleteCharacter(uint(characterID)); err != nil {
+	if err := h.libraryService.DeleteCharacter(userID, uint(characterID)); err != nil {
 		h.log.Errorw("Failed to delete character", "error", err, "id", characterID)
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")
@@ -270,6 +316,12 @@ func (h *CharacterLibraryHandler) DeleteCharacter(c *gin.Context) {
 
 // ExtractCharacters 从剧本提取角色
 func (h *CharacterLibraryHandler) ExtractCharacters(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	episodeIDStr := c.Param("episode_id")
 	episodeID, err := strconv.ParseUint(episodeIDStr, 10, 32)
 	if err != nil {
@@ -277,7 +329,7 @@ func (h *CharacterLibraryHandler) ExtractCharacters(c *gin.Context) {
 		return
 	}
 
-	taskID, err := h.libraryService.ExtractCharactersFromScript(uint(episodeID))
+	taskID, err := h.libraryService.ExtractCharactersFromScript(userID, uint(episodeID))
 	if err != nil {
 		h.log.Errorw("Failed to extract characters", "error", err)
 		response.InternalError(c, err.Error())

@@ -9,6 +9,7 @@ import (
 
 type Drama struct {
 	ID            uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID        uint           `gorm:"not null;default:0;index" json:"user_id"`
 	Title         string         `gorm:"type:varchar(200);not null" json:"title"`
 	Description   *string        `gorm:"type:text" json:"description"`
 	Genre         *string        `gorm:"type:varchar(50)" json:"genre"`
@@ -35,6 +36,7 @@ func (d *Drama) TableName() string {
 
 type Character struct {
 	ID              uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID          uint           `gorm:"not null;default:0;index" json:"user_id"`
 	DramaID         uint           `gorm:"not null;index" json:"drama_id"`
 	Name            string         `gorm:"type:varchar(100);not null" json:"name"`
 	Role            *string        `gorm:"type:varchar(50)" json:"role"`
@@ -65,6 +67,7 @@ func (c *Character) TableName() string {
 
 type Episode struct {
 	ID            uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID        uint           `gorm:"not null;default:0;index" json:"user_id"`
 	DramaID       uint           `gorm:"not null;index" json:"drama_id"`
 	EpisodeNum    int            `gorm:"column:episode_number;not null" json:"episode_number"`
 	Title         string         `gorm:"type:varchar(200);not null" json:"title"`
@@ -91,6 +94,7 @@ func (e *Episode) TableName() string {
 
 type Storyboard struct {
 	ID               uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID           uint           `gorm:"not null;default:0;index" json:"user_id"`
 	EpisodeID        uint           `gorm:"not null;index:idx_storyboards_episode_id" json:"episode_id"`
 	SceneID          *uint          `gorm:"index:idx_storyboards_scene_id;column:scene_id" json:"scene_id"`
 	StoryboardNumber int            `gorm:"not null;column:storyboard_number" json:"storyboard_number"`
@@ -129,6 +133,7 @@ func (s *Storyboard) TableName() string {
 
 type Scene struct {
 	ID              uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID          uint           `gorm:"not null;default:0;index" json:"user_id"`
 	DramaID         uint           `gorm:"not null;index:idx_scenes_drama_id" json:"drama_id"`
 	EpisodeID       *uint          `gorm:"index:idx_scenes_episode_id" json:"episode_id"` // 场景所属章节
 	Location        string         `gorm:"type:varchar(200);not null" json:"location"`
@@ -153,6 +158,7 @@ func (s *Scene) TableName() string {
 
 type Prop struct {
 	ID              uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID          uint           `gorm:"not null;default:0;index" json:"user_id"`
 	DramaID         uint           `gorm:"not null;index" json:"drama_id"`
 	Name            string         `gorm:"type:varchar(100);not null" json:"name"`
 	Type            *string        `gorm:"type:varchar(50)" json:"type"` // e.g., "weapon", "daily", "vehicle"

@@ -185,7 +185,7 @@ func (s *PropService) processPropImageGeneration(taskID string, prop models.Prop
 	}
 
 	// 调用 ImageGenerationService
-	imageGen, err := s.imageGenerationService.GenerateImage(req)
+	imageGen, err := s.imageGenerationService.GenerateImage(prop.UserID, req)
 	if err != nil {
 		s.taskService.UpdateTaskError(taskID, err)
 		return

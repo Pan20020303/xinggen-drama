@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
 // GenerateCharacterImage AI生成角色形象
 func (h *CharacterLibraryHandler) GenerateCharacterImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	characterID := c.Param("id")
 
@@ -17,7 +23,7 @@ func (h *CharacterLibraryHandler) GenerateCharacterImage(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&req)
 
-	imageGen, err := h.libraryService.GenerateCharacterImage(characterID, h.imageService, req.Model, req.Style)
+	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style)
 	if err != nil {
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")

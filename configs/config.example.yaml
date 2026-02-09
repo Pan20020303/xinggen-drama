@@ -27,3 +27,12 @@ ai:
   default_text_provider: "openai"
   default_image_provider: "openai"
   default_video_provider: "doubao"
+
+auth:
+  jwt_secret: "change-me-in-production"
+  token_expire_hours: 72
+  initial_credits: 100
+
+billing:
+  frame_prompt_credits: 10
+  image_generation_credits: 5
