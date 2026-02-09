@@ -94,7 +94,11 @@ func (s *AIService) CreateConfig(req *CreateAIConfigRequest) (*models.AIServiceC
 				}
 			}
 		case "doubao", "volcengine", "volces":
-			if req.ServiceType == "video" {
+			if req.ServiceType == "text" {
+				endpoint = "/chat/completions"
+			} else if req.ServiceType == "image" {
+				endpoint = "/images/generations"
+			} else if req.ServiceType == "video" {
 				endpoint = "/contents/generations/tasks"
 				if queryEndpoint == "" {
 					queryEndpoint = "/generations/tasks/{taskId}"
@@ -224,6 +228,15 @@ func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest) (*mo
 				updates["endpoint"] = "/video/generations"
 				updates["query_endpoint"] = "/video/task/{taskId}"
 			}
+		case "doubao", "volcengine", "volces":
+			if serviceType == "text" {
+				updates["endpoint"] = "/chat/completions"
+			} else if serviceType == "image" {
+				updates["endpoint"] = "/images/generations"
+			} else if serviceType == "video" {
+				updates["endpoint"] = "/contents/generations/tasks"
+				updates["query_endpoint"] = "/generations/tasks/{taskId}"
+			}
 		}
 	} else if req.Endpoint != "" {
 		updates["endpoint"] = req.Endpoint
@@ -287,8 +300,8 @@ func (s *AIService) TestConnection(req *TestConnectionRequest) error {
 		s.log.Infow("Using Gemini client", "baseURL", req.BaseURL)
 		endpoint = "/v1beta/models/{model}:generateContent"
 		client = ai.NewGeminiClient(req.BaseURL, req.APIKey, model, endpoint)
-	case "openai", "chatfire":
-		// OpenAI 格式（包括 chatfire 等）
+	case "openai", "chatfire", "volcengine", "volces", "doubao":
+		// OpenAI 格式（包括 chatfire、火山引擎等）
 		s.log.Infow("Using OpenAI-compatible client", "baseURL", req.BaseURL, "provider", req.Provider)
 		endpoint = req.Endpoint
 		if endpoint == "" {

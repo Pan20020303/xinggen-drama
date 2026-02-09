@@ -44,7 +44,7 @@ type VolcEngineImageResponse struct {
 
 func NewVolcEngineImageClient(baseURL, apiKey, model, endpoint, queryEndpoint string) *VolcEngineImageClient {
 	if endpoint == "" {
-		endpoint = "/api/v3/images/generations"
+		endpoint = "/images/generations"
 	}
 	if queryEndpoint == "" {
 		queryEndpoint = endpoint
