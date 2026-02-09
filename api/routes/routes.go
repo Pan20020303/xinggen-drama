@@ -35,6 +35,9 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	transferService := services2.NewResourceTransferService(db, log)
 	promptI18n := services2.NewPromptI18n(cfg)
 	authHandler := handlers2.NewAuthHandler(db, cfg, log)
+	adminAuthHandler := handlers2.NewAdminAuthHandler(db, cfg, log)
+	adminUserHandler := handlers2.NewAdminUserHandler(db, log)
+	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
 	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
 	aiConfigHandler := handlers2.NewAIConfigHandler(db, cfg, log)
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
@@ -68,8 +71,30 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			auth.POST("/login", authHandler.Login)
 		}
 
+		adminAuth := api.Group("/admin/auth")
+		{
+			adminAuth.POST("/login", adminAuthHandler.Login)
+		}
+
 		secured := api.Group("")
 		secured.Use(middlewares2.AuthMiddleware(authService))
+
+		adminSecured := api.Group("/admin")
+		adminSecured.Use(middlewares2.AdminAuthMiddleware(authService))
+		{
+			adminUsers := adminSecured.Group("/users")
+			{
+				adminUsers.GET("", adminUserHandler.ListUsers)
+				adminUsers.PATCH("/:id/status", adminUserHandler.UpdateUserStatus)
+				adminUsers.PATCH("/:id/role", adminUserHandler.UpdateUserRole)
+			}
+
+			adminBilling := adminSecured.Group("/billing")
+			{
+				adminBilling.POST("/recharge", adminBillingHandler.Recharge)
+				adminBilling.GET("/transactions", adminBillingHandler.ListTransactions)
+			}
+		}
 
 		dramas := secured.Group("/dramas")
 		{

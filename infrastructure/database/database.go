@@ -74,6 +74,7 @@ func AutoMigrate(db *gorm.DB) error {
 		// 用户与计费
 		&models.User{},
 		&models.CreditTransaction{},
+		&models.AdminAuditLog{},
 
 		// 核心模型
 		&models.Drama{},

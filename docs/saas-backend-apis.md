@@ -52,6 +52,10 @@
 Authorization: Bearer <token>
 ```
 
+- 普通用户登录返回 `aud=user` 的 token，仅可访问普通业务接口（`/api/v1/*`）。
+- 管理员登录返回 `aud=admin` 的 token，仅可访问管理端接口（`/api/v1/admin/*`）。
+- `aud` 不匹配会被中间件拒绝（`403`），例如 admin token 不能访问普通用户业务接口。
+
 ---
 
 ## 3. 已接入多租户隔离的接口分组
@@ -90,6 +94,7 @@ Authorization: Bearer <token>
 
 - `users`
 - `credit_transactions`
+- `admin_audit_logs`
 
 已增加 `user_id` 字段（并用于隔离）：
 
@@ -127,6 +132,55 @@ Authorization: Bearer <token>
 - `auth.initial_credits`
 - `billing.image_generation_credits`
 - `billing.frame_prompt_credits`
+
+---
+
+## 平台管理端 API（新增）
+
+### 管理员登录
+
+- **Method**: `POST`
+- **Path**: `/api/v1/admin/auth/login`
+- **Body**:
+
+```json
+{
+  "email": "admin@example.com",
+  "password": "Passw0rd123"
+}
+```
+
+- **说明**:
+  - 仅 `role=platform_admin`（兼容 `role=admin`）可登录成功
+  - 返回 `aud=admin` 的 JWT token
+
+### 用户管理
+
+- `GET /api/v1/admin/users?page=1&page_size=20`
+  - 分页查询用户列表
+- `PATCH /api/v1/admin/users/:id/status`
+  - 请求体：`{"status":"active"|"disabled"}`
+  - 更新用户状态
+- `PATCH /api/v1/admin/users/:id/role`
+  - 请求体：`{"role":"user"|"vip"|"admin"|"platform_admin"}`
+  - 更新用户角色
+
+### 计费管理
+
+- `POST /api/v1/admin/billing/recharge`
+  - 请求体：`{"user_id": 123, "amount": 100, "note": "manual recharge"}`
+  - 给指定用户加积分并写入 `credit_transactions` 充值流水
+- `GET /api/v1/admin/billing/transactions?user_id=123&page=1&page_size=20`
+  - 分页查询积分流水（`user_id` 可选）
+
+### 审计日志行为与约束
+
+- 以下管理写操作会写入 `admin_audit_logs`：
+  - 用户状态更新（`user.update_status`）
+  - 用户角色更新（`user.update_role`）
+  - 管理员充值（`billing.recharge`）
+- 审计日志与业务写操作在同一数据库事务内提交，确保一致性。
+- 日志字段包含：管理员 ID、动作、目标类型/ID、变更前后快照（JSON）、IP、User-Agent、时间。
 
 ---
 

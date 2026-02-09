@@ -127,6 +127,10 @@ func (s *AuthService) Login(req *LoginRequest) (*AuthResponse, error) {
 		return nil, errors.New("invalid credentials")
 	}
 
+	if user.Status == models.UserStatusDisabled {
+		return nil, errors.New("user disabled")
+	}
+
 	token, err := s.GenerateToken(user)
 	if err != nil {
 		return nil, err
@@ -136,6 +140,14 @@ func (s *AuthService) Login(req *LoginRequest) (*AuthResponse, error) {
 }
 
 func (s *AuthService) GenerateToken(user models.User) (string, error) {
+	return s.generateTokenWithAudience(user, "user")
+}
+
+func (s *AuthService) GenerateAdminToken(user models.User) (string, error) {
+	return s.generateTokenWithAudience(user, "admin")
+}
+
+func (s *AuthService) generateTokenWithAudience(user models.User, audience string) (string, error) {
 	now := time.Now()
 	claims := TokenClaims{
 		UserID: user.ID,
@@ -144,12 +156,34 @@ func (s *AuthService) GenerateToken(user models.User) (string, error) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpire)),
+			Audience:  []string{audience},
 			Subject:   fmt.Sprintf("%d", user.ID),
 		},
 	}
 
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString([]byte(s.jwtSecret))
+}
+
+func (s *AuthService) AdminLogin(req *LoginRequest) (*AuthResponse, error) {
+	resp, err := s.Login(req)
+	if err != nil {
+		return nil, err
+	}
+	if !IsPlatformAdminRole(resp.User.Role) {
+		return nil, errors.New("admin access denied")
+	}
+
+	token, err := s.GenerateAdminToken(resp.User)
+	if err != nil {
+		return nil, err
+	}
+	resp.Token = token
+	return resp, nil
+}
+
+func IsPlatformAdminRole(role models.UserRole) bool {
+	return role == models.RolePlatformAdmin || role == models.RoleAdmin
 }
 
 func (s *AuthService) ParseToken(token string) (*TokenClaims, error) {
