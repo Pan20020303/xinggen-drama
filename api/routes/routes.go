@@ -40,7 +40,6 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
 	adminAIConfigHandler := handlers2.NewAdminAIConfigHandler(db, cfg, log)
 	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
-	aiConfigHandler := handlers2.NewAIConfigHandler(db, cfg, log)
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
 	imageGenService := services2.NewImageGenerationService(db, cfg, transferService, localStoragePtr, log)
 	imageGenHandler := handlers2.NewImageGenerationHandler(db, cfg, log, transferService, localStoragePtr)
@@ -121,16 +120,6 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			dramas.PUT("/:id/episodes", dramaHandler.SaveEpisodes)
 			dramas.PUT("/:id/progress", dramaHandler.SaveProgress)
 			dramas.GET("/:id/props", propHandler.ListProps) // Added prop list route
-		}
-
-		aiConfigs := secured.Group("/ai-configs")
-		{
-			aiConfigs.GET("", aiConfigHandler.ListConfigs)
-			aiConfigs.POST("", aiConfigHandler.CreateConfig)
-			aiConfigs.POST("/test", aiConfigHandler.TestConnection)
-			aiConfigs.GET("/:id", aiConfigHandler.GetConfig)
-			aiConfigs.PUT("/:id", aiConfigHandler.UpdateConfig)
-			aiConfigs.DELETE("/:id", aiConfigHandler.DeleteConfig)
 		}
 
 		generation := secured.Group("/generation")
