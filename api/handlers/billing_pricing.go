@@ -56,6 +56,9 @@ func (h *BillingPricingHandler) GetPricing(c *gin.Context) {
 		if model != "" {
 			if pcfg, perr := h.aiService.GetConfigForModel(st, model); perr == nil {
 				priceCfg = pcfg
+			} else if dcfg, derr := h.aiService.GetDefaultConfig(st); derr == nil {
+				// If the model isn't priced explicitly on the platform, fall back to platform default pricing.
+				priceCfg = dcfg
 			}
 		}
 		defaults = append(defaults, ServicePricing{

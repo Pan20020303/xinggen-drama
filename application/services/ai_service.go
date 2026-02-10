@@ -609,16 +609,36 @@ func (s *AIService) GetConfigForModel(serviceType string, modelName string, user
 // GetBillingConfig resolves which AIServiceConfig will be used for a request, and returns the effective model name.
 // If modelName is empty, the default config's first model is used.
 func (s *AIService) GetBillingConfig(serviceType string, modelName string, userID uint) (*models.AIServiceConfig, string, error) {
+	// Pricing is always platform-defined. User-owned configs can define auth/base_url/etc, but not prices.
+	applyPlatformPricing := func(userCfg *models.AIServiceConfig, model string) (*models.AIServiceConfig, error) {
+		// Prefer exact per-model platform pricing when available.
+		if model != "" {
+			if pcfg, perr := s.GetConfigForModel(serviceType, model); perr == nil {
+				c := *userCfg
+				c.CreditCost = pcfg.CreditCost
+				return &c, nil
+			}
+		}
+
+		// Fallback to platform default pricing for the service type.
+		pdef, derr := s.GetDefaultConfig(serviceType /* platform */)
+		if derr != nil {
+			return nil, derr
+		}
+		c := *userCfg
+		c.CreditCost = pdef.CreditCost
+		return &c, nil
+	}
+
 	if modelName != "" {
 		cfg, err := s.GetConfigForModel(serviceType, modelName, userID)
 		if err == nil {
-			// Pricing should come from platform config when available.
 			if cfg.UserID != 0 {
-				if pcfg, perr := s.GetConfigForModel(serviceType, modelName); perr == nil {
-					c := *cfg
-					c.CreditCost = pcfg.CreditCost
-					return &c, modelName, nil
+				pcfg, perr := applyPlatformPricing(cfg, modelName)
+				if perr != nil {
+					return nil, "", perr
 				}
+				return pcfg, modelName, nil
 			}
 			return cfg, modelName, nil
 		}
@@ -632,12 +652,12 @@ func (s *AIService) GetBillingConfig(serviceType string, modelName string, userI
 	if actual == "" && len(cfg.Model) > 0 {
 		actual = cfg.Model[0]
 	}
-	if cfg.UserID != 0 && actual != "" {
-		if pcfg, perr := s.GetConfigForModel(serviceType, actual); perr == nil {
-			c := *cfg
-			c.CreditCost = pcfg.CreditCost
-			return &c, actual, nil
+	if cfg.UserID != 0 {
+		pcfg, perr := applyPlatformPricing(cfg, actual)
+		if perr != nil {
+			return nil, "", perr
 		}
+		return pcfg, actual, nil
 	}
 	return cfg, actual, nil
 }
