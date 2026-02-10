@@ -39,6 +39,12 @@ const (
 	CreditTxnRecharge         CreditTransactionType = "RECHARGE"
 	CreditTxnGenerateFrame    CreditTransactionType = "GENERATE_FRAME_PROMPT"
 	CreditTxnGenerateImage    CreditTransactionType = "GENERATE_IMAGE"
+	CreditTxnAIText           CreditTransactionType = "AI_TEXT"
+	CreditTxnAITextRefund     CreditTransactionType = "AI_TEXT_REFUND"
+	CreditTxnAIImage          CreditTransactionType = "AI_IMAGE"
+	CreditTxnAIImageRefund    CreditTransactionType = "AI_IMAGE_REFUND"
+	CreditTxnAIVideo          CreditTransactionType = "AI_VIDEO"
+	CreditTxnAIVideoRefund    CreditTransactionType = "AI_VIDEO_REFUND"
 )
 
 type CreditTransaction struct {
@@ -46,6 +52,9 @@ type CreditTransaction struct {
 	UserID      uint                  `gorm:"not null;index" json:"user_id"`
 	Amount      int                   `gorm:"not null" json:"amount"`
 	Type        CreditTransactionType `gorm:"type:varchar(50);not null" json:"type"`
+	ReferenceID *string               `gorm:"type:varchar(64);index" json:"reference_id,omitempty"`
+	ServiceType *string               `gorm:"type:varchar(20);index" json:"service_type,omitempty"` // text, image, video
+	Model       *string               `gorm:"type:varchar(100);index" json:"model,omitempty"`
 	Description *string               `gorm:"type:varchar(255)" json:"description,omitempty"`
 	CreatedAt   time.Time             `gorm:"not null;autoCreateTime" json:"created_at"`
 }

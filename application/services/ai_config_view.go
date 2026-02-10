@@ -13,6 +13,7 @@ type AIServiceConfigView struct {
 	APIKey        string            `json:"api_key"`
 	APIKeySet     bool              `json:"api_key_set"`
 	Model         models.ModelField `json:"model"`
+	CreditCost    int               `json:"credit_cost"`
 	Endpoint      string            `json:"endpoint"`
 	QueryEndpoint string            `json:"query_endpoint"`
 	Priority      int               `json:"priority"`
@@ -34,6 +35,7 @@ func ToAIServiceConfigView(cfg models.AIServiceConfig) AIServiceConfigView {
 		APIKey:        "", // never expose
 		APIKeySet:     cfg.APIKey != "",
 		Model:         cfg.Model,
+		CreditCost:    cfg.CreditCost,
 		Endpoint:      cfg.Endpoint,
 		QueryEndpoint: cfg.QueryEndpoint,
 		Priority:      cfg.Priority,

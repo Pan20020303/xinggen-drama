@@ -29,6 +29,7 @@ type CreateAIConfigRequest struct {
 	BaseURL       string            `json:"base_url" binding:"required,url"`
 	APIKey        string            `json:"api_key" binding:"required"`
 	Model         models.ModelField `json:"model" binding:"required"`
+	CreditCost    int               `json:"credit_cost"`
 	Endpoint      string            `json:"endpoint"`
 	QueryEndpoint string            `json:"query_endpoint"`
 	Priority      int               `json:"priority"`
@@ -42,6 +43,7 @@ type UpdateAIConfigRequest struct {
 	BaseURL       string             `json:"base_url" binding:"omitempty,url"`
 	APIKey        string             `json:"api_key"`
 	Model         *models.ModelField `json:"model"`
+	CreditCost    *int               `json:"credit_cost"`
 	Endpoint      string             `json:"endpoint"`
 	QueryEndpoint string             `json:"query_endpoint"`
 	Priority      *int               `json:"priority"`
@@ -62,6 +64,12 @@ func (s *AIService) CreateConfig(req *CreateAIConfigRequest, userIDs ...uint) (*
 	userID := uint(0)
 	if len(userIDs) > 0 {
 		userID = userIDs[0]
+	}
+	if len(req.Model) != 1 {
+		return nil, errors.New("exactly one model is required per config")
+	}
+	if req.CreditCost < 0 {
+		return nil, errors.New("credit_cost must be >= 0")
 	}
 	// 根据 provider 和 service_type 自动设置 endpoint
 	endpoint := req.Endpoint
@@ -126,6 +134,8 @@ func (s *AIService) CreateConfig(req *CreateAIConfigRequest, userIDs ...uint) (*
 		BaseURL:       req.BaseURL,
 		APIKey:        req.APIKey,
 		Model:         req.Model,
+		// Pricing is platform-defined. User configs can change provider/key/model, but not per-call pricing.
+		CreditCost:    func() int { if userID == 0 { return req.CreditCost }; return 0 }(),
 		Endpoint:      endpoint,
 		QueryEndpoint: queryEndpoint,
 		Priority:      req.Priority,
@@ -238,7 +248,18 @@ func (s *AIService) UpdatePlatformConfig(configID uint, req *UpdateAIConfigReque
 		updates["api_key"] = req.APIKey
 	}
 	if req.Model != nil && len(*req.Model) > 0 {
+		if len(*req.Model) != 1 {
+			tx.Rollback()
+			return nil, errors.New("exactly one model is required per config")
+		}
 		updates["model"] = *req.Model
+	}
+	if req.CreditCost != nil {
+		if *req.CreditCost < 0 {
+			tx.Rollback()
+			return nil, errors.New("credit_cost must be >= 0")
+		}
+		updates["credit_cost"] = *req.CreditCost
 	}
 	if req.Priority != nil {
 		updates["priority"] = *req.Priority
@@ -303,7 +324,12 @@ func (s *AIService) UpdatePlatformConfig(configID uint, req *UpdateAIConfigReque
 	}
 
 	s.log.Infow("Platform AI config updated", "config_id", configID)
-	return &config, nil
+	// Reload to ensure returned object reflects DB state (Updates doesn't reliably mutate struct).
+	var updated models.AIServiceConfig
+	if err := s.db.Where("id = ? AND user_id = ?", configID, 0).First(&updated).Error; err != nil {
+		return nil, err
+	}
+	return &updated, nil
 }
 
 func (s *AIService) DeletePlatformConfig(configID uint) error {
@@ -353,7 +379,21 @@ func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest, user
 		updates["api_key"] = req.APIKey
 	}
 	if req.Model != nil && len(*req.Model) > 0 {
+		if len(*req.Model) != 1 {
+			tx.Rollback()
+			return nil, errors.New("exactly one model is required per config")
+		}
 		updates["model"] = *req.Model
+	}
+	if req.CreditCost != nil {
+		if *req.CreditCost < 0 {
+			tx.Rollback()
+			return nil, errors.New("credit_cost must be >= 0")
+		}
+		// Pricing is platform-defined. Ignore credit_cost updates for user configs.
+		if config.UserID == 0 {
+			updates["credit_cost"] = *req.CreditCost
+		}
 	}
 	if req.Priority != nil {
 		updates["priority"] = *req.Priority
@@ -420,7 +460,16 @@ func (s *AIService) UpdateConfig(configID uint, req *UpdateAIConfigRequest, user
 	}
 
 	s.log.Infow("AI config updated", "config_id", configID)
-	return &config, nil
+	// Reload to ensure returned object reflects DB state (Updates doesn't reliably mutate struct).
+	var updated models.AIServiceConfig
+	q := s.db.Where("id = ?", configID)
+	if userID > 0 {
+		q = q.Where("user_id = ?", userID)
+	}
+	if err := q.First(&updated).Error; err != nil {
+		return nil, err
+	}
+	return &updated, nil
 }
 
 func (s *AIService) DeleteConfig(configID uint, userIDs ...uint) error {
@@ -497,8 +546,23 @@ func (s *AIService) TestConnection(req *TestConnectionRequest) error {
 
 func (s *AIService) GetDefaultConfig(serviceType string, userIDs ...uint) (*models.AIServiceConfig, error) {
 	var config models.AIServiceConfig
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
 	// 按优先级降序获取第一个激活的配置
-	query := s.db.Where("service_type = ? AND is_active = ? AND user_id = ?", serviceType, true, 0)
+	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
+	if userID > 0 {
+		query = query.Where("user_id IN ?", []uint{userID, 0})
+		// Prefer user-scoped configs when present.
+		err := query.Order("user_id DESC, priority DESC, created_at DESC").First(&config).Error
+		if err == nil {
+			return &config, nil
+		}
+	} else {
+		query = query.Where("user_id = ?", 0)
+	}
+
 	err := query.Order("priority DESC, created_at DESC").First(&config).Error
 
 	if err != nil {
@@ -514,8 +578,17 @@ func (s *AIService) GetDefaultConfig(serviceType string, userIDs ...uint) (*mode
 // GetConfigForModel 根据服务类型和模型名称获取优先级最高的激活配置
 func (s *AIService) GetConfigForModel(serviceType string, modelName string, userIDs ...uint) (*models.AIServiceConfig, error) {
 	var configs []models.AIServiceConfig
-	query := s.db.Where("service_type = ? AND is_active = ? AND user_id = ?", serviceType, true, 0)
-	err := query.Order("priority DESC, created_at DESC").Find(&configs).Error
+	userID := uint(0)
+	if len(userIDs) > 0 {
+		userID = userIDs[0]
+	}
+	query := s.db.Where("service_type = ? AND is_active = ?", serviceType, true)
+	if userID > 0 {
+		query = query.Where("user_id IN ?", []uint{userID, 0}).Order("user_id DESC, priority DESC, created_at DESC")
+	} else {
+		query = query.Where("user_id = ?", 0).Order("priority DESC, created_at DESC")
+	}
+	err := query.Find(&configs).Error
 
 	if err != nil {
 		return nil, err
@@ -531,6 +604,42 @@ func (s *AIService) GetConfigForModel(serviceType string, modelName string, user
 	}
 
 	return nil, errors.New("no active config found for model: " + modelName)
+}
+
+// GetBillingConfig resolves which AIServiceConfig will be used for a request, and returns the effective model name.
+// If modelName is empty, the default config's first model is used.
+func (s *AIService) GetBillingConfig(serviceType string, modelName string, userID uint) (*models.AIServiceConfig, string, error) {
+	if modelName != "" {
+		cfg, err := s.GetConfigForModel(serviceType, modelName, userID)
+		if err == nil {
+			// Pricing should come from platform config when available.
+			if cfg.UserID != 0 {
+				if pcfg, perr := s.GetConfigForModel(serviceType, modelName); perr == nil {
+					c := *cfg
+					c.CreditCost = pcfg.CreditCost
+					return &c, modelName, nil
+				}
+			}
+			return cfg, modelName, nil
+		}
+	}
+
+	cfg, err := s.GetDefaultConfig(serviceType, userID)
+	if err != nil {
+		return nil, "", err
+	}
+	actual := modelName
+	if actual == "" && len(cfg.Model) > 0 {
+		actual = cfg.Model[0]
+	}
+	if cfg.UserID != 0 && actual != "" {
+		if pcfg, perr := s.GetConfigForModel(serviceType, actual); perr == nil {
+			c := *cfg
+			c.CreditCost = pcfg.CreditCost
+			return &c, actual, nil
+		}
+	}
+	return cfg, actual, nil
 }
 
 func (s *AIService) GetAIClient(serviceType string) (ai.AIClient, error) {
@@ -590,6 +699,31 @@ func (s *AIService) GetAIClientForModel(serviceType string, modelName string) (a
 		return ai.NewGeminiClient(config.BaseURL, config.APIKey, modelName, endpoint), nil
 	default:
 		// openai, chatfire 等其他厂商都使用 OpenAI 格式
+		return ai.NewOpenAIClient(config.BaseURL, config.APIKey, modelName, endpoint), nil
+	}
+}
+
+// GetAIClientForModelWithUser selects user config first (fallback to platform) and returns an AI client for the model.
+func (s *AIService) GetAIClientForModelWithUser(serviceType string, modelName string, userID uint) (ai.AIClient, error) {
+	config, err := s.GetConfigForModel(serviceType, modelName, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := config.Endpoint
+	if endpoint == "" {
+		switch config.Provider {
+		case "gemini", "google":
+			endpoint = "/v1beta/models/{model}:generateContent"
+		default:
+			endpoint = "/chat/completions"
+		}
+	}
+
+	switch config.Provider {
+	case "gemini", "google":
+		return ai.NewGeminiClient(config.BaseURL, config.APIKey, modelName, endpoint), nil
+	default:
 		return ai.NewOpenAIClient(config.BaseURL, config.APIKey, modelName, endpoint), nil
 	}
 }

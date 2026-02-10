@@ -16,6 +16,7 @@ type AIServiceConfig struct {
 	BaseURL       string     `gorm:"type:varchar(255);not null" json:"base_url"`
 	APIKey        string     `gorm:"type:varchar(255);not null" json:"api_key"`
 	Model         ModelField `gorm:"type:text" json:"model"`
+	CreditCost    int        `gorm:"not null;default:0" json:"credit_cost"`
 	Endpoint      string     `gorm:"type:varchar(255)" json:"endpoint"`
 	QueryEndpoint string     `gorm:"type:varchar(255)" json:"query_endpoint"`
 	Priority      int        `gorm:"default:0" json:"priority"` // 优先级，数值越大优先级越高
