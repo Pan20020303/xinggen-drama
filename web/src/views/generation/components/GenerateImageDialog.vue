@@ -126,6 +126,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { useAuthStore } from '@/stores/auth'
 import { usePricingStore } from '@/stores/pricing'
 import type { Drama, Scene } from '@/types/drama'
 import type { GenerateImageRequest } from '@/types/image'
@@ -142,6 +143,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 const pricingStore = usePricingStore()
 const imageDefaultCost = computed(() => pricingStore.getDefaultCost('image'))
 const imageDefaultModel = computed(() => pricingStore.getDefaultModel('image'))
@@ -289,7 +291,9 @@ const handleGenerate = async () => {
       }
 
       await imageAPI.generateImage(params)
-      
+      // 扣分发生在任务提交阶段，这里刷新一次用户积分展示
+      await authStore.refreshMe()
+       
       ElMessage.success(t('imageDialog.taskSubmitted'))
       emit('success')
       handleClose()

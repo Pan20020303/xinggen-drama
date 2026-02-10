@@ -1166,6 +1166,7 @@ import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
 import { characterLibraryAPI } from "@/api/character-library";
 import { imageAPI } from "@/api/image";
+import { useAuthStore } from "@/stores/auth";
 import { usePricingStore } from "@/stores/pricing";
 import type { Drama } from "@/types/drama";
 import { AppHeader } from "@/components/common";
@@ -1178,6 +1179,7 @@ const dramaId = route.params.id as string;
 const episodeNumber = parseInt(route.params.episodeNumber as string);
 
 const drama = ref<Drama>();
+const authStore = useAuthStore();
 const pricingStore = usePricingStore();
 const textDefaultCost = computed(() => pricingStore.getDefaultCost("text"));
 const textDefaultModel = computed(() => pricingStore.getDefaultModel("text"));
@@ -1514,6 +1516,9 @@ const extractCharactersAndBackgrounds = async () => {
       dramaAPI.extractBackgrounds(episodeId.toString()),
     ]);
 
+    // 扣分发生在任务创建阶段，这里立即刷新一次用户积分展示
+    await authStore.refreshMe();
+
     ElMessage.success("任务已创建，正在后台处理...");
 
     // 并行轮询两个任务
@@ -1769,6 +1774,8 @@ const generateShots = async () => {
 
     // 创建异步任务
     const response = await generationAPI.generateStoryboard(episodeId);
+    // 扣分发生在任务创建阶段，这里立即刷新一次用户积分展示
+    await authStore.refreshMe();
 
     taskMessage.value = response.message || "任务已创建";
 

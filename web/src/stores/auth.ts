@@ -55,6 +55,13 @@ export const useAuthStore = defineStore('auth', {
         credits
       }
       localStorage.setItem(USER_KEY, JSON.stringify(this.user))
+    },
+
+    async refreshMe() {
+      if (!this.token) return
+      const me = await authAPI.me()
+      this.user = me
+      localStorage.setItem(USER_KEY, JSON.stringify(me))
     }
   }
 })

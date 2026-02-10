@@ -7,6 +7,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -67,4 +68,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
+}
+
+// Me returns the current authenticated user.
+func (h *AuthHandler) Me(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
+	user, err := h.authService.GetUserByID(userID)
+	if err != nil {
+		h.log.Errorw("get me failed", "error", err, "user_id", userID)
+		response.InternalError(c, "获取用户信息失败")
+		return
+	}
+
+	response.Success(c, user)
 }

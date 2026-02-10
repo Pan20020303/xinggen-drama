@@ -80,6 +80,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		secured := api.Group("")
 		secured.Use(middlewares2.AuthMiddleware(authService))
 		{
+			secured.GET("/auth/me", authHandler.Me)
 			secured.GET("/billing/pricing", billingPricingHandler.GetPricing)
 		}
 

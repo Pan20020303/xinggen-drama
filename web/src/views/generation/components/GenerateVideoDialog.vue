@@ -146,6 +146,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { videoAPI } from '@/api/video'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { useAuthStore } from '@/stores/auth'
 import { usePricingStore } from '@/stores/pricing'
 import type { Drama } from '@/types/drama'
 import type { ImageGeneration } from '@/types/image'
@@ -163,6 +164,7 @@ const emit = defineEmits<{
 }>()
 
 const pricingStore = usePricingStore()
+const authStore = useAuthStore()
 const videoDefaultCost = computed(() => pricingStore.getDefaultCost('video'))
 const videoDefaultModel = computed(() => pricingStore.getDefaultModel('video'))
 
@@ -299,6 +301,8 @@ const handleGenerate = async () => {
       if (form.image_gen_id) {
         console.log('Generating from image:', form.image_gen_id)
         await videoAPI.generateFromImage(form.image_gen_id)
+        // 扣分发生在任务提交阶段，这里刷新一次用户积分展示
+        await authStore.refreshMe()
       } else {
         const params: GenerateVideoRequest = {
           drama_id: form.drama_id,
@@ -324,6 +328,8 @@ const handleGenerate = async () => {
 
         console.log('Generating video with params:', params)
         await videoAPI.generateVideo(params)
+        // 扣分发生在任务提交阶段，这里刷新一次用户积分展示
+        await authStore.refreshMe()
       }
       
       ElMessage.success('视频生成任务已提交，请稍后查看结果')
