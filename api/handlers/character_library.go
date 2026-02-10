@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strconv"
 
 	services2 "github.com/drama-generator/backend/application/services"
@@ -331,6 +332,10 @@ func (h *CharacterLibraryHandler) ExtractCharacters(c *gin.Context) {
 
 	taskID, err := h.libraryService.ExtractCharactersFromScript(userID, uint(episodeID))
 	if err != nil {
+		if errors.Is(err, services2.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to extract characters", "error", err)
 		response.InternalError(c, err.Error())
 		return

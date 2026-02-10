@@ -16,6 +16,7 @@ import (
 type PropService struct {
 	db                     *gorm.DB
 	aiService              *AIService
+	billing                *BillingService
 	taskService            *TaskService
 	imageGenerationService *ImageGenerationService
 	log                    *logger.Logger
@@ -27,6 +28,7 @@ func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService,
 	return &PropService{
 		db:                     db,
 		aiService:              aiService,
+		billing:                NewBillingService(db, cfg, log),
 		taskService:            taskService,
 		imageGenerationService: imageGenerationService,
 		log:                    log,
@@ -60,9 +62,9 @@ func (s *PropService) DeleteProp(id uint) error {
 }
 
 // ExtractPropsFromScript 从剧本提取道具（异步）
-func (s *PropService) ExtractPropsFromScript(episodeID uint) (string, error) {
+func (s *PropService) ExtractPropsFromScript(userID uint, episodeID uint) (string, error) {
 	var episode models.Episode
-	if err := s.db.First(&episode, episodeID).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", episodeID, userID).First(&episode).Error; err != nil {
 		return "", fmt.Errorf("episode not found: %w", err)
 	}
 
@@ -71,12 +73,12 @@ func (s *PropService) ExtractPropsFromScript(episodeID uint) (string, error) {
 		return "", err
 	}
 
-	go s.processPropExtraction(task.ID, episode)
+	go s.processPropExtraction(userID, task.ID, episode)
 
 	return task.ID, nil
 }
 
-func (s *PropService) processPropExtraction(taskID string, episode models.Episode) {
+func (s *PropService) processPropExtraction(userID uint, taskID string, episode models.Episode) {
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在分析剧本...")
 
 	script := ""
@@ -93,7 +95,7 @@ func (s *PropService) processPropExtraction(taskID string, episode models.Episod
 	promptTemplate := s.promptI18n.GetPropExtractionPrompt(drama.Style)
 	prompt := fmt.Sprintf(promptTemplate, script)
 
-	response, err := s.aiService.GenerateText(prompt, "", ai.WithMaxTokens(2000))
+	response, err := s.generateTextBilled(userID, "", prompt, "", ai.WithMaxTokens(2000))
 	if err != nil {
 		s.taskService.UpdateTaskError(taskID, err)
 		return
@@ -145,10 +147,10 @@ func (s *PropService) processPropExtraction(taskID string, episode models.Episod
 // 所以这里实现一个简化的直接生成逻辑，或者扩展 ImageGenerationService。
 // 鉴于时间，我实现一个简化的直接生成并保存图片的方法。
 
-func (s *PropService) GeneratePropImage(propID uint) (string, error) {
+func (s *PropService) GeneratePropImage(userID uint, propID uint) (string, error) {
 	// 1. 获取道具信息
 	var prop models.Prop
-	if err := s.db.First(&prop, propID).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", propID, userID).First(&prop).Error; err != nil {
 		return "", err
 	}
 
@@ -164,6 +166,31 @@ func (s *PropService) GeneratePropImage(propID uint) (string, error) {
 
 	go s.processPropImageGeneration(task.ID, prop)
 	return task.ID, nil
+}
+
+func (s *PropService) generateTextBilled(userID uint, model string, userPrompt string, systemPrompt string, options ...func(*ai.ChatCompletionRequest)) (string, error) {
+	cfg, actualModel, err := s.aiService.GetBillingConfig("text", model, userID)
+	if err != nil {
+		return "", err
+	}
+
+	refID, err := s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "text:"+actualModel)
+	if err != nil {
+		return "", err
+	}
+
+	client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+
+	out, err := client.GenerateText(userPrompt, systemPrompt, options...)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+	return out, nil
 }
 
 func (s *PropService) processPropImageGeneration(taskID string, prop models.Prop) {

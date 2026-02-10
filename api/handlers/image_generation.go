@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
@@ -47,6 +48,10 @@ func (h *ImageGenerationHandler) GenerateImage(c *gin.Context) {
 
 	imageGen, err := h.imageService.GenerateImage(userID, &req)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate image", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -66,6 +71,10 @@ func (h *ImageGenerationHandler) GenerateImagesForScene(c *gin.Context) {
 
 	images, err := h.imageService.GenerateImagesForScene(userID, sceneID)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate images for scene", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -123,6 +132,10 @@ func (h *ImageGenerationHandler) ExtractBackgroundsForEpisode(c *gin.Context) {
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
 	taskID, err := h.imageService.ExtractBackgroundsForEpisode(userID, episodeID, req.Model, req.Style)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to extract backgrounds", "error", err, "episode_id", episodeID)
 		response.InternalError(c, err.Error())
 		return
@@ -147,6 +160,10 @@ func (h *ImageGenerationHandler) BatchGenerateForEpisode(c *gin.Context) {
 
 	images, err := h.imageService.BatchGenerateImagesForEpisode(userID, episodeID)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to batch generate images", "error", err)
 		response.InternalError(c, err.Error())
 		return

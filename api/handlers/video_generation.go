@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/infrastructure/storage"
+	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -16,14 +19,19 @@ type VideoGenerationHandler struct {
 	log          *logger.Logger
 }
 
-func NewVideoGenerationHandler(db *gorm.DB, transferService *services.ResourceTransferService, localStorage *storage.LocalStorage, aiService *services.AIService, log *logger.Logger, promptI18n *services.PromptI18n) *VideoGenerationHandler {
+func NewVideoGenerationHandler(db *gorm.DB, cfg *config.Config, transferService *services.ResourceTransferService, localStorage *storage.LocalStorage, aiService *services.AIService, log *logger.Logger, promptI18n *services.PromptI18n) *VideoGenerationHandler {
 	return &VideoGenerationHandler{
-		videoService: services.NewVideoGenerationService(db, transferService, localStorage, aiService, log, promptI18n),
+		videoService: services.NewVideoGenerationService(db, cfg, transferService, localStorage, aiService, log, promptI18n),
 		log:          log,
 	}
 }
 
 func (h *VideoGenerationHandler) GenerateVideo(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req services.GenerateVideoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -31,8 +39,12 @@ func (h *VideoGenerationHandler) GenerateVideo(c *gin.Context) {
 		return
 	}
 
-	videoGen, err := h.videoService.GenerateVideo(&req)
+	videoGen, err := h.videoService.GenerateVideo(userID, &req)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate video", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -42,6 +54,11 @@ func (h *VideoGenerationHandler) GenerateVideo(c *gin.Context) {
 }
 
 func (h *VideoGenerationHandler) GenerateVideoFromImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	imageGenID, err := strconv.ParseUint(c.Param("image_gen_id"), 10, 32)
 	if err != nil {
@@ -49,8 +66,12 @@ func (h *VideoGenerationHandler) GenerateVideoFromImage(c *gin.Context) {
 		return
 	}
 
-	videoGen, err := h.videoService.GenerateVideoFromImage(uint(imageGenID))
+	videoGen, err := h.videoService.GenerateVideoFromImage(userID, uint(imageGenID))
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate video from image", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -60,11 +81,20 @@ func (h *VideoGenerationHandler) GenerateVideoFromImage(c *gin.Context) {
 }
 
 func (h *VideoGenerationHandler) BatchGenerateForEpisode(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	episodeID := c.Param("episode_id")
 
-	videos, err := h.videoService.BatchGenerateVideosForEpisode(episodeID)
+	videos, err := h.videoService.BatchGenerateVideosForEpisode(userID, episodeID)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to batch generate videos", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -74,6 +104,11 @@ func (h *VideoGenerationHandler) BatchGenerateForEpisode(c *gin.Context) {
 }
 
 func (h *VideoGenerationHandler) GetVideoGeneration(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	videoGenID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -81,7 +116,7 @@ func (h *VideoGenerationHandler) GetVideoGeneration(c *gin.Context) {
 		return
 	}
 
-	videoGen, err := h.videoService.GetVideoGeneration(uint(videoGenID))
+	videoGen, err := h.videoService.GetVideoGeneration(userID, uint(videoGenID))
 	if err != nil {
 		response.NotFound(c, "视频生成记录不存在")
 		return
@@ -91,6 +126,12 @@ func (h *VideoGenerationHandler) GetVideoGeneration(c *gin.Context) {
 }
 
 func (h *VideoGenerationHandler) ListVideoGenerations(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	var storyboardID *uint
 	// 优先使用storyboard_id参数
 	if storyboardIDStr := c.Query("storyboard_id"); storyboardIDStr != "" {
@@ -120,7 +161,7 @@ func (h *VideoGenerationHandler) ListVideoGenerations(c *gin.Context) {
 
 	// 计算offset：(page - 1) * pageSize
 	offset := (page - 1) * pageSize
-	videos, total, err := h.videoService.ListVideoGenerations(dramaIDUint, storyboardID, status, pageSize, offset)
+	videos, total, err := h.videoService.ListVideoGenerations(userID, dramaIDUint, storyboardID, status, pageSize, offset)
 
 	if err != nil {
 		h.log.Errorw("Failed to list videos", "error", err)
@@ -132,6 +173,11 @@ func (h *VideoGenerationHandler) ListVideoGenerations(c *gin.Context) {
 }
 
 func (h *VideoGenerationHandler) DeleteVideoGeneration(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	videoGenID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -139,7 +185,7 @@ func (h *VideoGenerationHandler) DeleteVideoGeneration(c *gin.Context) {
 		return
 	}
 
-	if err := h.videoService.DeleteVideoGeneration(uint(videoGenID)); err != nil {
+	if err := h.videoService.DeleteVideoGeneration(userID, uint(videoGenID)); err != nil {
 		h.log.Errorw("Failed to delete video", "error", err)
 		response.InternalError(c, err.Error())
 		return

@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -27,6 +29,12 @@ func NewStoryboardHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *
 
 // GenerateStoryboard 生成分镜头（异步）
 func (h *StoryboardHandler) GenerateStoryboard(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	episodeID := c.Param("episode_id")
 
 	// 接收可选的 model 参数
@@ -39,8 +47,12 @@ func (h *StoryboardHandler) GenerateStoryboard(c *gin.Context) {
 	}
 
 	// 调用生成服务，该服务已经是异步的，会返回任务ID
-	taskID, err := h.storyboardService.GenerateStoryboard(episodeID, req.Model)
+	taskID, err := h.storyboardService.GenerateStoryboard(userID, episodeID, req.Model)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate storyboard", "error", err, "episode_id", episodeID)
 		response.InternalError(c, err.Error())
 		return

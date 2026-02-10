@@ -32,6 +32,7 @@ type ImageGeneration struct {
 	Status          ImageGenerationStatus `gorm:"size:20;not null;default:'pending'" json:"status"`
 	TaskID          *string               `gorm:"size:200" json:"task_id,omitempty"`
 	ErrorMsg        *string               `gorm:"type:text" json:"error_msg,omitempty"`
+	BillingRefID    *string               `gorm:"type:varchar(64);index" json:"billing_ref_id,omitempty"`
 	Width           *int                  `json:"width,omitempty"`
 	Height          *int                  `json:"height,omitempty"`
 	ReferenceImages datatypes.JSON        `gorm:"type:json" json:"reference_images,omitempty"`

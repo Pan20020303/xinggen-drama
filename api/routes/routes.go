@@ -38,12 +38,13 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	adminAuthHandler := handlers2.NewAdminAuthHandler(db, cfg, log)
 	adminUserHandler := handlers2.NewAdminUserHandler(db, log)
 	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
+	billingPricingHandler := handlers2.NewBillingPricingHandler(db, log)
 	adminAIConfigHandler := handlers2.NewAdminAIConfigHandler(db, cfg, log)
 	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
 	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
 	imageGenService := services2.NewImageGenerationService(db, cfg, transferService, localStoragePtr, log)
 	imageGenHandler := handlers2.NewImageGenerationHandler(db, cfg, log, transferService, localStoragePtr)
-	videoGenHandler := handlers2.NewVideoGenerationHandler(db, transferService, localStoragePtr, aiService, log, promptI18n)
+	videoGenHandler := handlers2.NewVideoGenerationHandler(db, cfg, transferService, localStoragePtr, aiService, log, promptI18n)
 	videoMergeHandler := handlers2.NewVideoMergeHandler(db, nil, cfg.Storage.LocalPath, cfg.Storage.BaseURL, log)
 	assetHandler := handlers2.NewAssetHandler(db, cfg, log)
 	characterLibraryService := services2.NewCharacterLibraryService(db, log, cfg)
@@ -78,6 +79,9 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 
 		secured := api.Group("")
 		secured.Use(middlewares2.AuthMiddleware(authService))
+		{
+			secured.GET("/billing/pricing", billingPricingHandler.GetPricing)
+		}
 
 		adminSecured := api.Group("/admin")
 		adminSecured.Use(middlewares2.AdminAuthMiddleware(authService))

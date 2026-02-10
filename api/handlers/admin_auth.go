@@ -32,11 +32,11 @@ func (h *AdminAuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.authService.AdminLogin(&req)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "invalid credentials" || err.Error() == "admin access denied" {
+		if errors.Is(err, services.ErrInvalidCredentials) || errors.Is(err, services.ErrAdminAccessDenied) {
 			response.Unauthorized(c, "账号或密码错误，或非管理员")
 			return
 		}
-		if err.Error() == "user disabled" {
+		if errors.Is(err, services.ErrUserDisabled) {
 			response.Forbidden(c, "账号已禁用")
 			return
 		}

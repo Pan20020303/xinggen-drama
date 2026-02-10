@@ -18,6 +18,7 @@ type CharacterLibraryService struct {
 	log         *logger.Logger
 	config      *config.Config
 	aiService   *AIService
+	billing     *BillingService
 	taskService *TaskService
 	promptI18n  *PromptI18n
 }
@@ -28,6 +29,7 @@ func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Con
 		log:         log,
 		config:      cfg,
 		aiService:   NewAIService(db, log),
+		billing:     NewBillingService(db, cfg, log),
 		taskService: NewTaskService(db, log),
 		promptI18n:  NewPromptI18n(cfg),
 	}
@@ -497,8 +499,16 @@ func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID
 	prompt := s.promptI18n.GetCharacterExtractionPrompt(drama.Style)
 	userPrompt := fmt.Sprintf("【剧本内容】\n%s", script)
 
-	response, err := s.aiService.GenerateText(userPrompt, prompt, ai.WithMaxTokens(3000))
+	client, _, billingRefID, err := reserveTextClient(s.aiService, s.billing, userID, "", "character_extraction:"+fmt.Sprintf("%d", episode.ID))
 	if err != nil {
+		s.taskService.UpdateTaskError(taskID, err)
+		return
+	}
+	response, err := client.GenerateText(userPrompt, prompt, ai.WithMaxTokens(3000))
+	if err != nil {
+		if billingRefID != "" {
+			_ = s.billing.RefundAI(billingRefID)
+		}
 		s.taskService.UpdateTaskError(taskID, err)
 		return
 	}
@@ -515,9 +525,33 @@ func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID
 
 	if err := utils.SafeParseAIJSON(response, &extractedCharacters); err != nil {
 		s.log.Errorw("Failed to parse AI response for characters", "error", err, "response", response)
+		if billingRefID != "" {
+			_ = s.billing.RefundAI(billingRefID)
+		}
 		s.taskService.UpdateTaskError(taskID, fmt.Errorf("解析AI响应失败"))
 		return
 	}
+
+	// Deduplicate AI output by name to avoid duplicate association rows (episode_characters).
+	seenName := make(map[string]struct{}, len(extractedCharacters))
+	uniqueExtracted := make([]struct {
+		Name        string `json:"name"`
+		Role        string `json:"role"`
+		Appearance  string `json:"appearance"`
+		Personality string `json:"personality"`
+		Description string `json:"description"`
+	}, 0, len(extractedCharacters))
+	for _, c := range extractedCharacters {
+		if c.Name == "" {
+			continue
+		}
+		if _, ok := seenName[c.Name]; ok {
+			continue
+		}
+		seenName[c.Name] = struct{}{}
+		uniqueExtracted = append(uniqueExtracted, c)
+	}
+	extractedCharacters = uniqueExtracted
 
 	var savedCharacters []models.Character
 	for _, charData := range extractedCharacters {
@@ -526,10 +560,7 @@ func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID
 		err := s.db.Where("drama_id = ? AND user_id = ? AND name = ?", episode.DramaID, userID, charData.Name).First(&existingCharacter).Error
 
 		if err == nil {
-			// 如果存在，只关联，不更新（或者可以选更新，这里暂不更新）
-			if err := s.db.Model(&episode).Association("Characters").Append(&existingCharacter); err != nil {
-				s.log.Warnw("Failed to associate existing character", "error", err)
-			}
+			// 只复用已有角色。Episode 关联在最后统一 Replace，避免重复 join rows。
 			savedCharacters = append(savedCharacters, existingCharacter)
 		} else {
 			// 创建新角色
@@ -547,11 +578,34 @@ func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID
 				continue
 			}
 
-			// 关联到分集
-			if err := s.db.Model(&episode).Association("Characters").Append(&newCharacter); err != nil {
-				s.log.Warnw("Failed to associate new character", "error", err)
-			}
 			savedCharacters = append(savedCharacters, newCharacter)
+		}
+	}
+
+	// Ensure episode characters association is unique and matches extracted result.
+	// This also cleans up existing duplicate rows in episode_characters.
+	if episode.ID != 0 {
+		uniq := make([]models.Character, 0, len(savedCharacters))
+		seenID := make(map[uint]struct{}, len(savedCharacters))
+		for _, c := range savedCharacters {
+			if c.ID == 0 {
+				continue
+			}
+			if _, ok := seenID[c.ID]; ok {
+				continue
+			}
+			seenID[c.ID] = struct{}{}
+			uniq = append(uniq, c)
+		}
+		if len(uniq) > 0 {
+			if err := s.db.Model(&episode).Association("Characters").Replace(&uniq); err != nil {
+				s.log.Warnw("Failed to replace episode characters association", "error", err, "episode_id", episode.ID)
+			}
+		} else {
+			// If nothing extracted, clear associations to prevent stale data.
+			if err := s.db.Model(&episode).Association("Characters").Clear(); err != nil {
+				s.log.Warnw("Failed to clear episode characters association", "error", err, "episode_id", episode.ID)
+			}
 		}
 	}
 

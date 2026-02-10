@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
@@ -52,6 +54,10 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
 	taskID, err := h.framePromptService.GenerateFramePrompt(userID, serviceReq, req.Model)
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate frame prompt", "error", err)
 		response.InternalError(c, err.Error())
 		return

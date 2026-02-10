@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"errors"
+
+	services2 "github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
@@ -25,6 +28,10 @@ func (h *CharacterLibraryHandler) GenerateCharacterImage(c *gin.Context) {
 
 	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style)
 	if err != nil {
+		if errors.Is(err, services2.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		if err.Error() == "character not found" {
 			response.NotFound(c, "角色不存在")
 			return

@@ -100,7 +100,12 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	}
 	// 注意：SceneID可能指向Scene或Storyboard表，调用方已经做过权限验证，这里不再重复验证
 
-	if err := s.billingService.ConsumeForImageGeneration(userID, BillingDetail("drama", request.DramaID)); err != nil {
+	cfg, actualModel, err := s.aiService.GetBillingConfig("image", request.Model, userID)
+	if err != nil {
+		return nil, err
+	}
+	billingRefID, err := s.billingService.ReserveAI(userID, "image", actualModel, cfg.CreditCost, "image_generation:"+request.DramaID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -139,7 +144,7 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 		Provider:        provider,
 		Prompt:          request.Prompt,
 		NegPrompt:       request.NegativePrompt,
-		Model:           request.Model,
+		Model:           actualModel,
 		Size:            request.Size,
 		ReferenceImages: referenceImagesJSON,
 		Quality:         request.Quality,
@@ -152,8 +157,14 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 		LocalPath:       request.ImageLocalPath,
 		Status:          models.ImageStatusPending,
 	}
+	if billingRefID != "" {
+		imageGen.BillingRefID = &billingRefID
+	}
 
 	if err := s.db.Create(imageGen).Error; err != nil {
+		if billingRefID != "" {
+			_ = s.billingService.RefundAI(billingRefID)
+		}
 		return nil, fmt.Errorf("failed to create record: %w", err)
 	}
 
@@ -484,6 +495,13 @@ func (s *ImageGenerationService) updateImageGenError(imageGenID uint, errorMsg s
 		"error_msg": errorMsg,
 	})
 	s.log.Errorw("Image generation failed", "id", imageGenID, "error", errorMsg)
+
+	// Refund reserved credits (idempotent) if this generation was billed.
+	if imageGen.BillingRefID != nil && *imageGen.BillingRefID != "" {
+		if err := s.billingService.RefundAI(*imageGen.BillingRefID); err != nil {
+			s.log.Warnw("Failed to refund image generation billing", "error", err, "billing_ref_id", *imageGen.BillingRefID, "id", imageGenID)
+		}
+	}
 
 	// 如果关联了scene，同步更新scene为失败状态
 	if imageGen.SceneID != nil {
@@ -869,7 +887,7 @@ func (s *ImageGenerationService) processBackgroundExtraction(userID uint, taskID
 	dramaID := episode.DramaID
 
 	// 使用AI从剧本内容中提取场景
-	backgroundsInfo, err := s.extractBackgroundsFromScript(*episode.ScriptContent, dramaID, model, style)
+	backgroundsInfo, err := s.extractBackgroundsFromScript(userID, *episode.ScriptContent, dramaID, model, style)
 	if err != nil {
 		s.log.Errorw("Failed to extract backgrounds from script", "error", err, "task_id", taskID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "AI提取场景失败: "+err.Error())
@@ -938,26 +956,14 @@ func (s *ImageGenerationService) processBackgroundExtraction(userID uint, taskID
 }
 
 // extractBackgroundsFromScript 从剧本内容中使用AI提取场景信息
-func (s *ImageGenerationService) extractBackgroundsFromScript(scriptContent string, dramaID uint, model string, style string) ([]BackgroundInfo, error) {
+func (s *ImageGenerationService) extractBackgroundsFromScript(userID uint, scriptContent string, dramaID uint, model string, style string) ([]BackgroundInfo, error) {
 	if scriptContent == "" {
 		return []BackgroundInfo{}, nil
 	}
 
-	// 获取AI客户端（如果指定了模型则使用指定的模型）
-	var client ai.AIClient
-	var err error
-	if model != "" {
-		s.log.Infow("Using specified model for background extraction", "model", model)
-		client, err = s.aiService.GetAIClientForModel("text", model)
-		if err != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", err)
-			client, err = s.aiService.GetAIClient("text")
-		}
-	} else {
-		client, err = s.aiService.GetAIClient("text")
-	}
+	client, actualModel, billingRefID, err := reserveTextClient(s.aiService, s.billingService, userID, model, "background_extraction:"+fmt.Sprintf("%d", dramaID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get AI client: %w", err)
+		return nil, err
 	}
 
 	// 使用国际化提示词
@@ -1054,11 +1060,15 @@ Please strictly follow the JSON format and ensure all fields use English.`
 	// 打印完整提示词用于调试
 	s.log.Infow("=== AI Prompt for Background Extraction (extractBackgroundsFromScript) ===",
 		"language", s.promptI18n.GetLanguage(),
+		"model", actualModel,
 		"prompt_length", len(prompt),
 		"full_prompt", prompt)
 
 	response, err := client.GenerateText(prompt, "", ai.WithTemperature(0.7))
 	if err != nil {
+		if billingRefID != "" {
+			_ = s.billingService.RefundAI(billingRefID)
+		}
 		s.log.Errorw("Failed to extract backgrounds with AI", "error", err)
 		return nil, fmt.Errorf("AI提取场景失败: %w", err)
 	}
@@ -1080,6 +1090,9 @@ Please strictly follow the JSON format and ensure all fields use English.`
 			Backgrounds []BackgroundInfo `json:"backgrounds"`
 		}
 		if err := utils.SafeParseAIJSON(response, &result); err != nil {
+			if billingRefID != "" {
+				_ = s.billingService.RefundAI(billingRefID)
+			}
 			s.log.Errorw("Failed to parse AI response in both formats", "error", err, "response", response[:min(len(response), 500)])
 			return nil, fmt.Errorf("解析AI响应失败: %w", err)
 		}
@@ -1095,7 +1108,7 @@ Please strictly follow the JSON format and ensure all fields use English.`
 }
 
 // extractBackgroundsWithAI 使用AI智能分析场景并提取唯一背景
-func (s *ImageGenerationService) extractBackgroundsWithAI(storyboards []models.Storyboard, style string) ([]BackgroundInfo, error) {
+func (s *ImageGenerationService) extractBackgroundsWithAI(userID uint, storyboards []models.Storyboard, style string) ([]BackgroundInfo, error) {
 	if len(storyboards) == 0 {
 		return []BackgroundInfo{}, nil
 	}
@@ -1217,9 +1230,17 @@ Please strictly follow the JSON format and ensure:
 		"prompt_length", len(prompt),
 		"full_prompt", prompt)
 
-	// 调用AI服务
-	text, err := s.aiService.GenerateText(prompt, "")
+	client, _, billingRefID, err := reserveTextClient(s.aiService, s.billingService, userID, "", "background_extraction_ai")
 	if err != nil {
+		return nil, err
+	}
+
+	// 调用AI服务
+	text, err := client.GenerateText(prompt, "")
+	if err != nil {
+		if billingRefID != "" {
+			_ = s.billingService.RefundAI(billingRefID)
+		}
 		return nil, fmt.Errorf("AI analysis failed: %w", err)
 	}
 
@@ -1239,6 +1260,9 @@ Please strictly follow the JSON format and ensure:
 	}
 
 	if err := utils.SafeParseAIJSON(text, &result); err != nil {
+		if billingRefID != "" {
+			_ = s.billingService.RefundAI(billingRefID)
+		}
 		return nil, fmt.Errorf("failed to parse AI response: %w", err)
 	}
 

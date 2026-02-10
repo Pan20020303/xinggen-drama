@@ -13,6 +13,13 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	ErrEmailAlreadyExists  = errors.New("email already exists")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrUserDisabled        = errors.New("user disabled")
+	ErrAdminAccessDenied   = errors.New("admin access denied")
+)
+
 type AuthService struct {
 	db            *gorm.DB
 	log           *logger.Logger
@@ -69,7 +76,7 @@ func NewAuthService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AuthSe
 func (s *AuthService) Register(req *RegisterRequest) (*AuthResponse, error) {
 	var existed models.User
 	if err := s.db.Where("email = ?", req.Email).First(&existed).Error; err == nil {
-		return nil, errors.New("email already exists")
+		return nil, ErrEmailAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -118,17 +125,17 @@ func (s *AuthService) Login(req *LoginRequest) (*AuthResponse, error) {
 	var user models.User
 	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("invalid credentials")
+			return nil, ErrInvalidCredentials
 		}
 		return nil, err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	if user.Status == models.UserStatusDisabled {
-		return nil, errors.New("user disabled")
+		return nil, ErrUserDisabled
 	}
 
 	token, err := s.GenerateToken(user)
@@ -171,7 +178,7 @@ func (s *AuthService) AdminLogin(req *LoginRequest) (*AuthResponse, error) {
 		return nil, err
 	}
 	if !IsPlatformAdminRole(resp.User.Role) {
-		return nil, errors.New("admin access denied")
+		return nil, ErrAdminAccessDenied
 	}
 
 	token, err := s.GenerateAdminToken(resp.User)

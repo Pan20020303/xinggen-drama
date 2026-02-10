@@ -80,10 +80,6 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 		return "", fmt.Errorf("storyboard not found: %w", err)
 	}
 
-	if err := s.billing.ConsumeForFramePrompt(userID, BillingDetail("storyboard", req.StoryboardID)); err != nil {
-		return "", err
-	}
-
 	// 创建任务
 	task, err := s.taskService.CreateTask("frame_prompt_generation", req.StoryboardID)
 	if err != nil {
@@ -135,21 +131,21 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 	// 生成提示词
 	switch req.FrameType {
 	case FrameTypeFirst:
-		response.SingleFrame = s.generateFirstFrame(storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateFirstFrame(userID, storyboard, scene, dramaStyle, model)
 		// 保存单帧提示词
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeKey:
-		response.SingleFrame = s.generateKeyFrame(storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateKeyFrame(userID, storyboard, scene, dramaStyle, model)
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeLast:
-		response.SingleFrame = s.generateLastFrame(storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateLastFrame(userID, storyboard, scene, dramaStyle, model)
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypePanel:
 		count := req.PanelCount
 		if count == 0 {
 			count = 3
 		}
-		response.MultiFrame = s.generatePanelFrames(storyboard, scene, count, dramaStyle, model)
+		response.MultiFrame = s.generatePanelFrames(userID, storyboard, scene, count, dramaStyle, model)
 		// 保存多帧提示词（合并为一条记录）
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
@@ -158,7 +154,7 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 		combinedPrompt := strings.Join(prompts, "\n---\n")
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
 	case FrameTypeAction:
-		response.MultiFrame = s.generateActionSequence(storyboard, scene, dramaStyle, model)
+		response.MultiFrame = s.generateActionSequence(userID, storyboard, scene, dramaStyle, model)
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
 			prompts = append(prompts, frame.Prompt)
@@ -213,8 +209,32 @@ func mustParseUint(s string) uint64 {
 	return result
 }
 
+func (s *FramePromptService) generateTextBilled(userID uint, model string, userPrompt string, systemPrompt string, detail string) (string, error) {
+	cfg, actualModel, err := s.aiService.GetBillingConfig("text", model, userID)
+	if err != nil {
+		return "", err
+	}
+	refID, err := s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, detail)
+	if err != nil {
+		return "", err
+	}
+
+	client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+
+	out, err := client.GenerateText(userPrompt, systemPrompt)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+	return out, nil
+}
+
 // generateFirstFrame 生成首帧提示词
-func (s *FramePromptService) generateFirstFrame(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
+func (s *FramePromptService) generateFirstFrame(userID uint, sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
 	// 构建上下文信息
 	contextInfo := s.buildStoryboardContext(sb, scene)
 
@@ -222,20 +242,7 @@ func (s *FramePromptService) generateFirstFrame(sb models.Storyboard, scene *mod
 	systemPrompt := s.promptI18n.GetFirstFramePrompt(dramaStyle)
 	userPrompt := s.promptI18n.FormatUserPrompt("frame_info", contextInfo)
 
-	// 调用AI生成（如果指定了模型则使用指定的模型）
-	var aiResponse string
-	var err error
-	if model != "" {
-		client, getErr := s.aiService.GetAIClientForModel("text", model)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", getErr)
-			aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-		} else {
-			aiResponse, err = client.GenerateText(userPrompt, systemPrompt)
-		}
-	} else {
-		aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-	}
+	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:first:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		// 降级方案：使用简单拼接
@@ -262,7 +269,7 @@ func (s *FramePromptService) generateFirstFrame(sb models.Storyboard, scene *mod
 }
 
 // generateKeyFrame 生成关键帧提示词
-func (s *FramePromptService) generateKeyFrame(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
+func (s *FramePromptService) generateKeyFrame(userID uint, sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
 	// 构建上下文信息
 	contextInfo := s.buildStoryboardContext(sb, scene)
 
@@ -270,20 +277,7 @@ func (s *FramePromptService) generateKeyFrame(sb models.Storyboard, scene *model
 	systemPrompt := s.promptI18n.GetKeyFramePrompt(dramaStyle)
 	userPrompt := s.promptI18n.FormatUserPrompt("key_frame_info", contextInfo)
 
-	// 调用AI生成（如果指定了模型则使用指定的模型）
-	var aiResponse string
-	var err error
-	if model != "" {
-		client, getErr := s.aiService.GetAIClientForModel("text", model)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", getErr)
-			aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-		} else {
-			aiResponse, err = client.GenerateText(userPrompt, systemPrompt)
-		}
-	} else {
-		aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-	}
+	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:key:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "key frame, dynamic action")
@@ -309,7 +303,7 @@ func (s *FramePromptService) generateKeyFrame(sb models.Storyboard, scene *model
 }
 
 // generateLastFrame 生成尾帧提示词
-func (s *FramePromptService) generateLastFrame(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
+func (s *FramePromptService) generateLastFrame(userID uint, sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *SingleFramePrompt {
 	// 构建上下文信息
 	contextInfo := s.buildStoryboardContext(sb, scene)
 
@@ -317,20 +311,7 @@ func (s *FramePromptService) generateLastFrame(sb models.Storyboard, scene *mode
 	systemPrompt := s.promptI18n.GetLastFramePrompt(dramaStyle)
 	userPrompt := s.promptI18n.FormatUserPrompt("last_frame_info", contextInfo)
 
-	// 调用AI生成（如果指定了模型则使用指定的模型）
-	var aiResponse string
-	var err error
-	if model != "" {
-		client, getErr := s.aiService.GetAIClientForModel("text", model)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", getErr)
-			aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-		} else {
-			aiResponse, err = client.GenerateText(userPrompt, systemPrompt)
-		}
-	} else {
-		aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-	}
+	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:last:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "last frame, final state")
@@ -356,27 +337,27 @@ func (s *FramePromptService) generateLastFrame(sb models.Storyboard, scene *mode
 }
 
 // generatePanelFrames 生成分镜板提示词（多格组合）
-func (s *FramePromptService) generatePanelFrames(sb models.Storyboard, scene *models.Scene, count int, dramaStyle string, model string) *MultiFramePrompt {
+func (s *FramePromptService) generatePanelFrames(userID uint, sb models.Storyboard, scene *models.Scene, count int, dramaStyle string, model string) *MultiFramePrompt {
 	layout := fmt.Sprintf("horizontal_%d", count)
 
 	frames := make([]SingleFramePrompt, count)
 
 	// 固定生成：首帧 -> 关键帧 -> 尾帧
 	if count == 3 {
-		frames[0] = *s.generateFirstFrame(sb, scene, dramaStyle, model)
+		frames[0] = *s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
 		frames[0].Description = "第1格：初始状态"
 
-		frames[1] = *s.generateKeyFrame(sb, scene, dramaStyle, model)
+		frames[1] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
 		frames[1].Description = "第2格：动作高潮"
 
-		frames[2] = *s.generateLastFrame(sb, scene, dramaStyle, model)
+		frames[2] = *s.generateLastFrame(userID, sb, scene, dramaStyle, model)
 		frames[2].Description = "第3格：最终状态"
 	} else if count == 4 {
 		// 4格：首帧 -> 中间帧1 -> 中间帧2 -> 尾帧
-		frames[0] = *s.generateFirstFrame(sb, scene, dramaStyle, model)
-		frames[1] = *s.generateKeyFrame(sb, scene, dramaStyle, model)
-		frames[2] = *s.generateKeyFrame(sb, scene, dramaStyle, model)
-		frames[3] = *s.generateLastFrame(sb, scene, dramaStyle, model)
+		frames[0] = *s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
+		frames[1] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		frames[2] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		frames[3] = *s.generateLastFrame(userID, sb, scene, dramaStyle, model)
 	}
 
 	return &MultiFramePrompt{
@@ -386,7 +367,7 @@ func (s *FramePromptService) generatePanelFrames(sb models.Storyboard, scene *mo
 }
 
 // generateActionSequence 生成动作序列提示词（3x3宫格）
-func (s *FramePromptService) generateActionSequence(sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *MultiFramePrompt {
+func (s *FramePromptService) generateActionSequence(userID uint, sb models.Storyboard, scene *models.Scene, dramaStyle string, model string) *MultiFramePrompt {
 	// 构建上下文信息
 	contextInfo := s.buildStoryboardContext(sb, scene)
 
@@ -394,20 +375,7 @@ func (s *FramePromptService) generateActionSequence(sb models.Storyboard, scene 
 	systemPrompt := s.promptI18n.GetActionSequenceFramePrompt(dramaStyle)
 	userPrompt := s.promptI18n.FormatUserPrompt("frame_info", contextInfo)
 
-	// 调用AI生成（如果指定了模型则使用指定的模型）
-	var aiResponse string
-	var err error
-	if model != "" {
-		client, getErr := s.aiService.GetAIClientForModel("text", model)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", model, "error", getErr)
-			aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-		} else {
-			aiResponse, err = client.GenerateText(userPrompt, systemPrompt)
-		}
-	} else {
-		aiResponse, err = s.aiService.GenerateText(userPrompt, systemPrompt)
-	}
+	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:action:"+fmt.Sprintf("%d", sb.ID))
 
 	if err != nil {
 		s.log.Warnw("AI generation failed for action sequence, using fallback", "error", err)

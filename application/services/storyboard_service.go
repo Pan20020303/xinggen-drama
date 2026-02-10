@@ -19,6 +19,7 @@ type StoryboardService struct {
 	db          *gorm.DB
 	aiService   *AIService
 	taskService *TaskService
+	billing     *BillingService
 	log         *logger.Logger
 	config      *config.Config
 	promptI18n  *PromptI18n
@@ -29,6 +30,7 @@ func NewStoryboardService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *
 		db:          db,
 		aiService:   NewAIService(db, log),
 		taskService: NewTaskService(db, log),
+		billing:     NewBillingService(db, cfg, log),
 		log:         log,
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
@@ -61,7 +63,7 @@ type GenerateStoryboardResult struct {
 	Total       int          `json:"total"`
 }
 
-func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (string, error) {
+func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, model string) (string, error) {
 	// 从数据库获取剧集信息
 	var episode struct {
 		ID            string
@@ -73,7 +75,7 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 	err := s.db.Table("episodes").
 		Select("episodes.id, episodes.script_content, episodes.description, episodes.drama_id").
 		Joins("INNER JOIN dramas ON dramas.id = episodes.drama_id").
-		Where("episodes.id = ?", episodeID).
+		Where("episodes.id = ? AND dramas.user_id = ?", episodeID, userID).
 		First(&episode).Error
 
 	if err != nil {
@@ -337,14 +339,14 @@ func (s *StoryboardService) GenerateStoryboard(episodeID string, model string) (
 		"scenes", sceneList)
 
 	// 启动后台goroutine处理AI调用和后续逻辑
-	go s.processStoryboardGeneration(task.ID, episodeID, model, prompt)
+	go s.processStoryboardGeneration(userID, task.ID, episodeID, model, prompt)
 
 	// 立即返回任务ID
 	return task.ID, nil
 }
 
 // processStoryboardGeneration 后台处理故事板生成
-func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model, prompt string) {
+func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, episodeID, model, prompt string) {
 	// 更新任务状态为处理中
 	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 10, "开始生成分镜头..."); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
@@ -381,24 +383,76 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 	// 调用AI服务流式生成
 	var text string
 	var err error
+
+	billingRefID := ""
+	success := false
+	defer func() {
+		if !success && billingRefID != "" {
+			_ = s.billing.RefundAI(billingRefID)
+		}
+	}()
+	fail := func(e error, userMessage string) {
+		if updateErr := s.taskService.UpdateTaskError(taskID, fmt.Errorf(userMessage+": %w", e)); updateErr != nil {
+			s.log.Errorw("Failed to update task error", "error", updateErr, "task_id", taskID)
+		}
+	}
+
 	if model != "" {
 		s.log.Infow("Using specified model for storyboard generation", "model", model, "task_id", taskID)
-		client, getErr := s.aiService.GetAIClientForModel("text", model)
+		client, getErr := s.aiService.GetAIClientForModelWithUser("text", model, userID)
 		if getErr != nil {
 			s.log.Warnw("Failed to get client for specified model, using default streaming", "model", model, "error", getErr, "task_id", taskID)
-			text, err = s.aiService.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
+			cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", "", userID)
+			if cfgErr != nil {
+				fail(cfgErr, "生成分镜头失败")
+				return
+			}
+			billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
+			if err != nil {
+				fail(err, "生成分镜头失败")
+				return
+			}
+			defaultClient, clientErr := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+			if clientErr != nil {
+				fail(clientErr, "生成分镜头失败")
+				return
+			}
+			text, err = defaultClient.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 		} else {
+			cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", model, userID)
+			if cfgErr != nil {
+				fail(cfgErr, "生成分镜头失败")
+				return
+			}
+			billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
+			if err != nil {
+				fail(err, "生成分镜头失败")
+				return
+			}
 			text, err = client.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 		}
 	} else {
-		text, err = s.aiService.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
+		cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", "", userID)
+		if cfgErr != nil {
+			fail(cfgErr, "生成分镜头失败")
+			return
+		}
+		billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
+		if err != nil {
+			fail(err, "生成分镜头失败")
+			return
+		}
+		defaultClient, clientErr := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+		if clientErr != nil {
+			fail(clientErr, "生成分镜头失败")
+			return
+		}
+		text, err = defaultClient.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
 	}
 
 	if err != nil {
 		s.log.Errorw("Failed to generate storyboard", "error", err, "task_id", taskID)
-		if updateErr := s.taskService.UpdateTaskError(taskID, fmt.Errorf("生成分镜头失败: %w", err)); updateErr != nil {
-			s.log.Errorw("Failed to update task error", "error", updateErr, "task_id", taskID)
-		}
+		fail(err, "生成分镜头失败")
 		return
 	}
 
@@ -425,9 +479,7 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 		// 尝试解析为对象格式
 		if err := utils.SafeParseAIJSON(text, &result); err != nil {
 			s.log.Errorw("Failed to parse storyboard JSON in both formats", "error", err, "response", text[:min(500, len(text))], "task_id", taskID)
-			if updateErr := s.taskService.UpdateTaskError(taskID, fmt.Errorf("解析分镜头结果失败: %w", err)); updateErr != nil {
-				s.log.Errorw("Failed to update task error", "error", updateErr, "task_id", taskID)
-			}
+			fail(err, "解析分镜头结果失败")
 			return
 		}
 		result.Total = len(result.Storyboards)
@@ -455,9 +507,7 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 	// 保存分镜头到数据库
 	if err := s.saveStoryboards(episodeID, result.Storyboards); err != nil {
 		s.log.Errorw("Failed to save storyboards", "error", err, "task_id", taskID)
-		if updateErr := s.taskService.UpdateTaskError(taskID, fmt.Errorf("保存分镜头失败: %w", err)); updateErr != nil {
-			s.log.Errorw("Failed to update task error", "error", updateErr, "task_id", taskID)
-		}
+		fail(err, "保存分镜头失败")
 		return
 	}
 
@@ -493,6 +543,7 @@ func (s *StoryboardService) processStoryboardGeneration(taskID, episodeID, model
 		return
 	}
 
+	success = true
 	s.log.Infow("Storyboard generation completed", "task_id", taskID, "episode_id", episodeID)
 }
 

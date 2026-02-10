@@ -12,6 +12,8 @@ type VideoGeneration struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
+	UserID uint `gorm:"not null;default:0;index" json:"user_id"`
+
 	StoryboardID *uint       `gorm:"index" json:"storyboard_id,omitempty"`
 	Storyboard   *Storyboard `gorm:"foreignKey:StoryboardID" json:"storyboard,omitempty"`
 
@@ -21,6 +23,8 @@ type VideoGeneration struct {
 	Provider string `gorm:"type:varchar(50);not null;index" json:"provider"`
 	Prompt   string `gorm:"type:text;not null" json:"prompt"`
 	Model    string `gorm:"type:varchar(100)" json:"model,omitempty"`
+
+	BillingRefID *string `gorm:"type:varchar(64);index" json:"billing_ref_id,omitempty"`
 
 	ImageGenID *uint           `gorm:"index" json:"image_gen_id,omitempty"`
 	ImageGen   ImageGeneration `gorm:"foreignKey:ImageGenID" json:"image_gen,omitempty"`

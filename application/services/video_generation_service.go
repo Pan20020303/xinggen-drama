@@ -10,6 +10,7 @@ import (
 	models "github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/infrastructure/external/ffmpeg"
 	"github.com/drama-generator/backend/infrastructure/storage"
+	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/utils"
 	"github.com/drama-generator/backend/pkg/video"
@@ -22,16 +23,18 @@ type VideoGenerationService struct {
 	log             *logger.Logger
 	localStorage    *storage.LocalStorage
 	aiService       *AIService
+	billingService  *BillingService
 	ffmpeg          *ffmpeg.FFmpeg
 	promptI18n      *PromptI18n
 }
 
-func NewVideoGenerationService(db *gorm.DB, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
+func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
 	service := &VideoGenerationService{
 		db:              db,
 		localStorage:    localStorage,
 		transferService: transferService,
 		aiService:       aiService,
+		billingService:  NewBillingService(db, cfg, log),
 		log:             log,
 		ffmpeg:          ffmpeg.NewFFmpeg(log),
 		promptI18n:      promptI18n,
@@ -75,10 +78,10 @@ type GenerateVideoRequest struct {
 	Seed         *int64  `json:"seed"`
 }
 
-func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*models.VideoGeneration, error) {
+func (s *VideoGenerationService) GenerateVideo(userID uint, request *GenerateVideoRequest) (*models.VideoGeneration, error) {
 	if request.StoryboardID != nil {
 		var storyboard models.Storyboard
-		if err := s.db.Preload("Episode").Where("id = ?", *request.StoryboardID).First(&storyboard).Error; err != nil {
+		if err := s.db.Preload("Episode").Where("id = ? AND user_id = ?", *request.StoryboardID, userID).First(&storyboard).Error; err != nil {
 			return nil, fmt.Errorf("storyboard not found")
 		}
 		if fmt.Sprintf("%d", storyboard.Episode.DramaID) != request.DramaID {
@@ -88,7 +91,7 @@ func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*
 
 	if request.ImageGenID != nil {
 		var imageGen models.ImageGeneration
-		if err := s.db.Where("id = ?", *request.ImageGenID).First(&imageGen).Error; err != nil {
+		if err := s.db.Where("id = ? AND user_id = ?", *request.ImageGenID, userID).First(&imageGen).Error; err != nil {
 			return nil, fmt.Errorf("image generation not found")
 		}
 	}
@@ -100,13 +103,23 @@ func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*
 
 	dramaID, _ := strconv.ParseUint(request.DramaID, 10, 32)
 
+	cfg, actualModel, err := s.aiService.GetBillingConfig("video", request.Model, userID)
+	if err != nil {
+		return nil, err
+	}
+	billingRefID, err := s.billingService.ReserveAI(userID, "video", actualModel, cfg.CreditCost, "video_generation:"+request.DramaID)
+	if err != nil {
+		return nil, err
+	}
+
 	videoGen := &models.VideoGeneration{
+		UserID:       userID,
 		StoryboardID: request.StoryboardID,
 		DramaID:      uint(dramaID),
 		ImageGenID:   request.ImageGenID,
 		Provider:     provider,
 		Prompt:       request.Prompt,
-		Model:        request.Model,
+		Model:        actualModel,
 		Duration:     request.Duration,
 		FPS:          request.FPS,
 		AspectRatio:  request.AspectRatio,
@@ -115,6 +128,9 @@ func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*
 		CameraMotion: request.CameraMotion,
 		Seed:         request.Seed,
 		Status:       models.VideoStatusPending,
+	}
+	if billingRefID != "" {
+		videoGen.BillingRefID = &billingRefID
 	}
 
 	// 根据参考图模式处理不同的参数
@@ -176,6 +192,9 @@ func (s *VideoGenerationService) GenerateVideo(request *GenerateVideoRequest) (*
 	}
 
 	if err := s.db.Create(videoGen).Error; err != nil {
+		if billingRefID != "" {
+			_ = s.billingService.RefundAI(billingRefID)
+		}
 		return nil, fmt.Errorf("failed to create record: %w", err)
 	}
 
@@ -202,7 +221,7 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 
 	s.db.Model(&videoGen).Update("status", models.VideoStatusProcessing)
 
-	client, err := s.getVideoClient(videoGen.Provider, videoGen.Model)
+	client, err := s.getVideoClient(videoGen.UserID, videoGen.Provider, videoGen.Model)
 	if err != nil {
 		s.log.Errorw("Failed to get video client", "error", err, "provider", videoGen.Provider, "model", videoGen.Model)
 		s.updateVideoGenError(videoGenID, err.Error())
@@ -373,7 +392,13 @@ func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, 
 		return
 	}
 
-	client, err := s.getVideoClient(provider, model)
+	var initial models.VideoGeneration
+	if err := s.db.First(&initial, videoGenID).Error; err != nil {
+		s.log.Errorw("Failed to load video generation for polling", "error", err, "id", videoGenID)
+		return
+	}
+
+	client, err := s.getVideoClient(initial.UserID, provider, model)
 	if err != nil {
 		s.log.Errorw("Failed to get video client for polling", "error", err)
 		s.updateVideoGenError(videoGenID, "failed to get video client")
@@ -564,30 +589,43 @@ func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoU
 }
 
 func (s *VideoGenerationService) updateVideoGenError(videoGenID uint, errorMsg string) {
+	var videoGen models.VideoGeneration
+	if err := s.db.First(&videoGen, videoGenID).Error; err != nil {
+		s.log.Errorw("Failed to load video generation for error update", "error", err, "id", videoGenID)
+		return
+	}
+
 	if err := s.db.Model(&models.VideoGeneration{}).Where("id = ?", videoGenID).Updates(map[string]interface{}{
 		"status":    models.VideoStatusFailed,
 		"error_msg": errorMsg,
 	}).Error; err != nil {
 		s.log.Errorw("Failed to update video generation error", "error", err, "id", videoGenID)
 	}
+
+	// Refund reserved credits (idempotent) if this generation was billed.
+	if videoGen.BillingRefID != nil && *videoGen.BillingRefID != "" {
+		if err := s.billingService.RefundAI(*videoGen.BillingRefID); err != nil {
+			s.log.Warnw("Failed to refund video generation billing", "error", err, "billing_ref_id", *videoGen.BillingRefID, "id", videoGenID)
+		}
+	}
 }
 
-func (s *VideoGenerationService) getVideoClient(provider string, modelName string) (video.VideoClient, error) {
+func (s *VideoGenerationService) getVideoClient(userID uint, provider string, modelName string) (video.VideoClient, error) {
 	// 根据模型名称获取AI配置
 	var config *models.AIServiceConfig
 	var err error
 
 	if modelName != "" {
-		config, err = s.aiService.GetConfigForModel("video", modelName)
+		config, err = s.aiService.GetConfigForModel("video", modelName, userID)
 		if err != nil {
 			s.log.Warnw("Failed to get config for model, using default", "model", modelName, "error", err)
-			config, err = s.aiService.GetDefaultConfig("video")
+			config, err = s.aiService.GetDefaultConfig("video", userID)
 			if err != nil {
 				return nil, fmt.Errorf("no video AI config found: %w", err)
 			}
 		}
 	} else {
-		config, err = s.aiService.GetDefaultConfig("video")
+		config, err = s.aiService.GetDefaultConfig("video", userID)
 		if err != nil {
 			return nil, fmt.Errorf("no video AI config found: %w", err)
 		}
@@ -654,19 +692,19 @@ func (s *VideoGenerationService) RecoverPendingTasks() {
 	}
 }
 
-func (s *VideoGenerationService) GetVideoGeneration(id uint) (*models.VideoGeneration, error) {
+func (s *VideoGenerationService) GetVideoGeneration(userID uint, id uint) (*models.VideoGeneration, error) {
 	var videoGen models.VideoGeneration
-	if err := s.db.First(&videoGen, id).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&videoGen).Error; err != nil {
 		return nil, err
 	}
 	return &videoGen, nil
 }
 
-func (s *VideoGenerationService) ListVideoGenerations(dramaID *uint, storyboardID *uint, status string, limit int, offset int) ([]*models.VideoGeneration, int64, error) {
+func (s *VideoGenerationService) ListVideoGenerations(userID uint, dramaID *uint, storyboardID *uint, status string, limit int, offset int) ([]*models.VideoGeneration, int64, error) {
 	var videos []*models.VideoGeneration
 	var total int64
 
-	query := s.db.Model(&models.VideoGeneration{})
+	query := s.db.Model(&models.VideoGeneration{}).Where("user_id = ?", userID)
 
 	if dramaID != nil {
 		query = query.Where("drama_id = ?", *dramaID)
@@ -689,9 +727,9 @@ func (s *VideoGenerationService) ListVideoGenerations(dramaID *uint, storyboardI
 	return videos, total, nil
 }
 
-func (s *VideoGenerationService) GenerateVideoFromImage(imageGenID uint) (*models.VideoGeneration, error) {
+func (s *VideoGenerationService) GenerateVideoFromImage(userID uint, imageGenID uint) (*models.VideoGeneration, error) {
 	var imageGen models.ImageGeneration
-	if err := s.db.First(&imageGen, imageGenID).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", imageGenID, userID).First(&imageGen).Error; err != nil {
 		return nil, fmt.Errorf("image generation not found")
 	}
 
@@ -721,12 +759,12 @@ func (s *VideoGenerationService) GenerateVideoFromImage(imageGenID uint) (*model
 		Duration:     duration,
 	}
 
-	return s.GenerateVideo(req)
+	return s.GenerateVideo(userID, req)
 }
 
-func (s *VideoGenerationService) BatchGenerateVideosForEpisode(episodeID string) ([]*models.VideoGeneration, error) {
+func (s *VideoGenerationService) BatchGenerateVideosForEpisode(userID uint, episodeID string) ([]*models.VideoGeneration, error) {
 	var episode models.Episode
-	if err := s.db.Preload("Storyboards").Where("id = ?", episodeID).First(&episode).Error; err != nil {
+	if err := s.db.Preload("Storyboards").Where("id = ? AND user_id = ?", episodeID, userID).First(&episode).Error; err != nil {
 		return nil, fmt.Errorf("episode not found")
 	}
 
@@ -743,7 +781,7 @@ func (s *VideoGenerationService) BatchGenerateVideosForEpisode(episodeID string)
 			continue
 		}
 
-		videoGen, err := s.GenerateVideoFromImage(imageGen.ID)
+		videoGen, err := s.GenerateVideoFromImage(userID, imageGen.ID)
 		if err != nil {
 			s.log.Errorw("Failed to generate video", "storyboard_id", storyboard.ID, "error", err)
 			continue
@@ -755,8 +793,8 @@ func (s *VideoGenerationService) BatchGenerateVideosForEpisode(episodeID string)
 	return results, nil
 }
 
-func (s *VideoGenerationService) DeleteVideoGeneration(id uint) error {
-	return s.db.Delete(&models.VideoGeneration{}, id).Error
+func (s *VideoGenerationService) DeleteVideoGeneration(userID uint, id uint) error {
+	return s.db.Where("id = ? AND user_id = ?", id, userID).Delete(&models.VideoGeneration{}).Error
 }
 
 // convertImageToBase64 将图片转换为base64格式

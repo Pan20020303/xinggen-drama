@@ -15,6 +15,7 @@ import (
 type ScriptGenerationService struct {
 	db          *gorm.DB
 	aiService   *AIService
+	billing     *BillingService
 	log         *logger.Logger
 	config      *config.Config
 	promptI18n  *PromptI18n
@@ -25,6 +26,7 @@ func NewScriptGenerationService(db *gorm.DB, cfg *config.Config, log *logger.Log
 	return &ScriptGenerationService{
 		db:          db,
 		aiService:   NewAIService(db, log),
+		billing:     NewBillingService(db, cfg, log),
 		log:         log,
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
@@ -41,9 +43,9 @@ type GenerateCharactersRequest struct {
 	Model       string  `json:"model"` // 指定使用的文本模型
 }
 
-func (s *ScriptGenerationService) GenerateCharacters(req *GenerateCharactersRequest) (string, error) {
+func (s *ScriptGenerationService) GenerateCharacters(userID uint, req *GenerateCharactersRequest) (string, error) {
 	var drama models.Drama
-	if err := s.db.Where("id = ? ", req.DramaID).First(&drama).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", req.DramaID, userID).First(&drama).Error; err != nil {
 		return "", fmt.Errorf("drama not found")
 	}
 
@@ -55,14 +57,14 @@ func (s *ScriptGenerationService) GenerateCharacters(req *GenerateCharactersRequ
 	}
 
 	// 异步处理角色生成
-	go s.processCharacterGeneration(task.ID, req)
+	go s.processCharacterGeneration(userID, task.ID, req)
 
 	s.log.Infow("Character generation task created", "task_id", task.ID, "drama_id", req.DramaID)
 	return task.ID, nil
 }
 
 // processCharacterGeneration 异步处理角色生成
-func (s *ScriptGenerationService) processCharacterGeneration(taskID string, req *GenerateCharactersRequest) {
+func (s *ScriptGenerationService) processCharacterGeneration(userID uint, taskID string, req *GenerateCharactersRequest) {
 	// 更新任务状态为处理中
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在生成角色...")
 
@@ -98,15 +100,9 @@ func (s *ScriptGenerationService) processCharacterGeneration(taskID string, req 
 	var err error
 	if req.Model != "" {
 		s.log.Infow("Using specified model for character generation", "model", req.Model, "task_id", taskID)
-		client, getErr := s.aiService.GetAIClientForModel("text", req.Model)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default", "model", req.Model, "error", getErr, "task_id", taskID)
-			text, err = s.aiService.GenerateText(userPrompt, systemPrompt, ai.WithTemperature(temperature))
-		} else {
-			text, err = client.GenerateText(userPrompt, systemPrompt, ai.WithTemperature(temperature))
-		}
+		text, err = s.generateTextBilled(userID, req.Model, userPrompt, systemPrompt, ai.WithTemperature(temperature))
 	} else {
-		text, err = s.aiService.GenerateText(userPrompt, systemPrompt, ai.WithTemperature(temperature))
+		text, err = s.generateTextBilled(userID, "", userPrompt, systemPrompt, ai.WithTemperature(temperature))
 	}
 
 	if err != nil {
@@ -188,6 +184,30 @@ func (s *ScriptGenerationService) processCharacterGeneration(taskID string, req 
 	s.taskService.UpdateTaskResult(taskID, resultData)
 
 	s.log.Infow("Character generation completed", "task_id", taskID, "drama_id", req.DramaID, "character_count", len(characters))
+}
+
+func (s *ScriptGenerationService) generateTextBilled(userID uint, model string, userPrompt string, systemPrompt string, options ...func(*ai.ChatCompletionRequest)) (string, error) {
+	cfg, actualModel, err := s.aiService.GetBillingConfig("text", model, userID)
+	if err != nil {
+		return "", err
+	}
+	refID, err := s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "text:"+actualModel)
+	if err != nil {
+		return "", err
+	}
+
+	client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+
+	out, err := client.GenerateText(userPrompt, systemPrompt, options...)
+	if err != nil {
+		_ = s.billing.RefundAI(refID)
+		return "", err
+	}
+	return out, nil
 }
 
 // GenerateScenesForEpisode 已废弃，使用 StoryboardService.GenerateStoryboard 替代

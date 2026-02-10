@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
@@ -8,6 +9,7 @@ import (
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -105,6 +107,12 @@ func (h *PropHandler) DeleteProp(c *gin.Context) {
 
 // ExtractProps 提取道具
 func (h *PropHandler) ExtractProps(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	episodeIDStr := c.Param("episode_id")
 	episodeID, err := strconv.ParseUint(episodeIDStr, 10, 32)
 	if err != nil {
@@ -112,8 +120,12 @@ func (h *PropHandler) ExtractProps(c *gin.Context) {
 		return
 	}
 
-	taskID, err := h.propService.ExtractPropsFromScript(uint(episodeID))
+	taskID, err := h.propService.ExtractPropsFromScript(userID, uint(episodeID))
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -123,6 +135,12 @@ func (h *PropHandler) ExtractProps(c *gin.Context) {
 
 // GenerateImage 生成道具图片
 func (h *PropHandler) GenerateImage(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
@@ -130,8 +148,12 @@ func (h *PropHandler) GenerateImage(c *gin.Context) {
 		return
 	}
 
-	taskID, err := h.propService.GeneratePropImage(uint(id))
+	taskID, err := h.propService.GeneratePropImage(userID, uint(id))
 	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
 		h.log.Errorw("Failed to generate prop image", "error", err)
 		response.InternalError(c, err.Error())
 		return

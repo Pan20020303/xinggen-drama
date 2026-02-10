@@ -32,7 +32,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	resp, err := h.authService.Register(&req)
 	if err != nil {
-		if err.Error() == "email already exists" {
+		if errors.Is(err, services.ErrEmailAlreadyExists) {
 			response.BadRequest(c, "邮箱已被注册")
 			return
 		}
@@ -53,8 +53,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.authService.Login(&req)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "invalid credentials" {
+		if errors.Is(err, services.ErrInvalidCredentials) {
 			response.Unauthorized(c, "邮箱或密码错误")
+			return
+		}
+		if errors.Is(err, services.ErrUserDisabled) {
+			response.Forbidden(c, "账号已禁用")
 			return
 		}
 		h.log.Errorw("login failed", "error", err)
