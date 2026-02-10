@@ -104,10 +104,18 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="handleClose">{{ $t('common.cancel') }}</el-button>
-      <el-button type="primary" :loading="generating" @click="handleGenerate">
-        {{ $t('imageDialog.generate') }}
-      </el-button>
+      <div class="dialog-footer">
+        <div v-if="imageDefaultCost > 0" class="credit-hint">
+          预计扣除：{{ imageDefaultCost }} 积分
+          <span v-if="imageDefaultModel"> ({{ imageDefaultModel }})</span>
+        </div>
+        <div class="footer-actions">
+          <el-button @click="handleClose">{{ $t('common.cancel') }}</el-button>
+          <el-button type="primary" :loading="generating" @click="handleGenerate">
+            {{ $t('imageDialog.generate') }}
+          </el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -118,6 +126,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { usePricingStore } from '@/stores/pricing'
 import type { Drama, Scene } from '@/types/drama'
 import type { GenerateImageRequest } from '@/types/image'
 
@@ -133,6 +142,9 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const pricingStore = usePricingStore()
+const imageDefaultCost = computed(() => pricingStore.getDefaultCost('image'))
+const imageDefaultModel = computed(() => pricingStore.getDefaultModel('image'))
 
 const visible = computed({
   get: () => props.modelValue,
@@ -185,6 +197,7 @@ const cfgMarks = {
 
 watch(() => props.modelValue, (val) => {
   if (val) {
+    pricingStore.loadPricing()
     loadDramas()
     if (props.dramaId) {
       form.drama_id = props.dramaId
@@ -293,6 +306,24 @@ const handleClose = () => {
   formRef.value?.resetFields()
 }
 </script>
+
+<style scoped>
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.footer-actions {
+  display: flex;
+  gap: 12px;
+}
+.credit-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>
 
 <style scoped>
 .form-tip {

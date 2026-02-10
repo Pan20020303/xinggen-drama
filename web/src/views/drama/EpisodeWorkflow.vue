@@ -633,6 +633,10 @@
             <!-- 未拆分时显示 -->
             <div v-else class="empty-shots">
               <el-empty :description="$t('workflow.splitStoryboardFirst')">
+                <div v-if="textDefaultCost > 0" class="credit-hint">
+                  本次预计扣除 {{ textDefaultCost }} 积分
+                  <span v-if="textDefaultModel"> ({{ textDefaultModel }})</span>
+                </div>
                 <el-button
                   type="primary"
                   @click="generateShots"
@@ -1162,6 +1166,7 @@ import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
 import { characterLibraryAPI } from "@/api/character-library";
 import { imageAPI } from "@/api/image";
+import { usePricingStore } from "@/stores/pricing";
 import type { Drama } from "@/types/drama";
 import { AppHeader } from "@/components/common";
 import { getImageUrl, hasImage } from "@/utils/image";
@@ -1173,6 +1178,9 @@ const dramaId = route.params.id as string;
 const episodeNumber = parseInt(route.params.episodeNumber as string);
 
 const drama = ref<Drama>();
+const pricingStore = usePricingStore();
+const textDefaultCost = computed(() => pricingStore.getDefaultCost("text"));
+const textDefaultModel = computed(() => pricingStore.getDefaultModel("text"));
 
 // 生成 localStorage key
 const getStepStorageKey = () =>
@@ -2206,6 +2214,7 @@ watch(currentStep, (newStep) => {
 });
 
 onMounted(() => {
+  pricingStore.loadPricing();
   loadDramaData();
 });
 </script>
@@ -2246,6 +2255,12 @@ onMounted(() => {
 .content-container {
   height: calc(100% - 134px);
   overflow-y: auto;
+}
+
+.credit-hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .actions-container {

@@ -124,10 +124,18 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" :loading="generating" @click="handleGenerate">
-        生成视频
-      </el-button>
+      <div class="dialog-footer">
+        <div v-if="videoDefaultCost > 0" class="credit-hint">
+          预计扣除：{{ videoDefaultCost }} 积分
+          <span v-if="videoDefaultModel"> ({{ videoDefaultModel }})</span>
+        </div>
+        <div class="footer-actions">
+          <el-button @click="handleClose">取消</el-button>
+          <el-button type="primary" :loading="generating" @click="handleGenerate">
+            生成视频
+          </el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -138,6 +146,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { videoAPI } from '@/api/video'
 import { imageAPI } from '@/api/image'
 import { dramaAPI } from '@/api/drama'
+import { usePricingStore } from '@/stores/pricing'
 import type { Drama } from '@/types/drama'
 import type { ImageGeneration } from '@/types/image'
 import type { GenerateVideoRequest } from '@/types/video'
@@ -152,6 +161,10 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   success: []
 }>()
+
+const pricingStore = usePricingStore()
+const videoDefaultCost = computed(() => pricingStore.getDefaultCost('video'))
+const videoDefaultModel = computed(() => pricingStore.getDefaultModel('video'))
 
 const visible = computed({
   get: () => props.modelValue,
@@ -202,6 +215,7 @@ const motionMarks = {
 
 watch(() => props.modelValue, (val) => {
   if (val) {
+    pricingStore.loadPricing()
     loadDramas()
     if (props.dramaId) {
       form.drama_id = props.dramaId
@@ -332,6 +346,24 @@ const handleClose = () => {
   formRef.value?.resetFields()
 }
 </script>
+
+<style scoped>
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.footer-actions {
+  display: flex;
+  gap: 12px;
+}
+.credit-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>
 
 <style scoped>
 .form-tip {

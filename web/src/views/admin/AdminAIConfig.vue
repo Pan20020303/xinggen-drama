@@ -41,6 +41,7 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column prop="credit_cost" label="扣分/次" min-width="110" />
         <el-table-column prop="priority" label="优先级" min-width="90" />
         <el-table-column label="密钥" min-width="90">
           <template #default="{ row }">
@@ -115,6 +116,7 @@
           <el-select
             v-model="form.model"
             multiple
+            :multiple-limit="1"
             filterable
             allow-create
             default-first-option
@@ -124,6 +126,12 @@
           >
             <el-option v-for="m in suggestedModels" :key="m" :label="m" :value="m" />
           </el-select>
+          <div class="field-tip">每条配置仅支持 1 个 model（扣分按该 model 的单次调用计费）。</div>
+        </el-form-item>
+
+        <el-form-item label="单次扣除积分" prop="credit_cost">
+          <el-input-number v-model="form.credit_cost" :min="0" :max="100000" style="width: 100%" />
+          <div class="field-tip">该配置每次调用会扣除的积分（0 表示不扣分）。</div>
         </el-form-item>
 
         <el-form-item label="优先级" prop="priority">
@@ -201,6 +209,7 @@ const form = reactive({
   api_key: '',
   api_key_set: false,
   model: [] as string[],
+  credit_cost: 0,
   endpoint: '',
   query_endpoint: '',
   priority: 0,
@@ -219,7 +228,8 @@ const rules: FormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   provider: [{ required: true, message: '请输入 provider', trigger: 'change' }],
   base_url: [{ required: true, message: '请输入 base_url', trigger: 'blur' }],
-  model: [{ required: true, message: '请至少填写一个模型', trigger: 'change' }]
+  model: [{ required: true, message: '请至少填写一个模型', trigger: 'change' }],
+  credit_cost: [{ required: true, message: '请输入单次扣分', trigger: 'change' }]
 }
 
 const loadConfigs = async () => {
@@ -243,6 +253,7 @@ const resetForm = () => {
   form.api_key = ''
   form.api_key_set = false
   form.model = []
+  form.credit_cost = 0
   form.endpoint = ''
   form.query_endpoint = ''
   form.priority = 0
@@ -267,6 +278,7 @@ const openEditDialog = (row: AdminAIServiceConfigView) => {
   form.api_key = ''
   form.api_key_set = Boolean(row.api_key_set)
   form.model = Array.isArray(row.model) ? row.model.slice() : []
+  form.credit_cost = row.credit_cost ?? 0
   form.endpoint = row.endpoint || ''
   form.query_endpoint = row.query_endpoint || ''
   form.priority = row.priority || 0
@@ -297,6 +309,7 @@ const handleSubmit = async () => {
         base_url: form.base_url,
         api_key: form.api_key,
         model: form.model,
+        credit_cost: form.credit_cost,
         endpoint: form.endpoint || undefined,
         query_endpoint: form.query_endpoint || undefined,
         priority: form.priority,
@@ -311,6 +324,7 @@ const handleSubmit = async () => {
         base_url: form.base_url,
         api_key: form.api_key.trim() ? form.api_key : undefined,
         model: form.model,
+        credit_cost: form.credit_cost,
         endpoint: form.endpoint || undefined,
         query_endpoint: form.query_endpoint || '',
         priority: form.priority,
@@ -348,6 +362,7 @@ const toggleActive = async (row: AdminAIServiceConfigView, val: boolean) => {
       provider: row.provider,
       base_url: row.base_url,
       model: Array.isArray(row.model) ? row.model : [],
+      credit_cost: row.credit_cost ?? 0,
       endpoint: row.endpoint || undefined,
       query_endpoint: row.query_endpoint || '',
       priority: row.priority || 0,
@@ -483,4 +498,3 @@ onMounted(() => {
   color: var(--text-muted);
 }
 </style>
-

@@ -6,6 +6,7 @@ export interface AIServiceConfig {
   base_url: string
   api_key: string
   model: string | string[]  // 支持单个或多个模型
+  credit_cost?: number
   endpoint: string
   query_endpoint?: string  // 异步查询端点（用于视频等异步任务）
   priority: number  // 优先级，数值越大优先级越高
@@ -24,6 +25,7 @@ export interface CreateAIConfigRequest {
   base_url: string
   api_key: string
   model: string | string[]  // 支持单个或多个模型
+  credit_cost?: number
   endpoint?: string
   query_endpoint?: string  // 异步查询端点（用于视频等异步任务）
   priority?: number  // 优先级，数值越大优先级越高
@@ -36,6 +38,7 @@ export interface UpdateAIConfigRequest {
   base_url?: string
   api_key?: string
   model?: string | string[]  // 支持单个或多个模型
+  credit_cost?: number
   endpoint?: string
   query_endpoint?: string  // 异步查询端点（用于视频等异步任务）
   priority?: number  // 优先级，数值越大优先级越高

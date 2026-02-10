@@ -171,6 +171,7 @@
             v-model="form.model"
             :placeholder="$t('aiConfig.form.modelPlaceholder')"
             multiple
+            :multiple-limit="1"
             filterable
             allow-create
             default-first-option

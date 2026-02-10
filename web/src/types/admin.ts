@@ -73,6 +73,7 @@ export interface AdminAIServiceConfigView {
   api_key: string
   api_key_set: boolean
   model: string[]
+  credit_cost: number
   endpoint: string
   query_endpoint: string
   priority: number
@@ -90,6 +91,7 @@ export interface AdminCreateAIConfigRequest {
   base_url: string
   api_key: string
   model: string[]
+  credit_cost?: number
   endpoint?: string
   query_endpoint?: string
   priority?: number
@@ -103,6 +105,7 @@ export interface AdminUpdateAIConfigRequest {
   base_url: string
   api_key?: string
   model: string[]
+  credit_cost?: number
   endpoint?: string
   query_endpoint: string
   priority: number
