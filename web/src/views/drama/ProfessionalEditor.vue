@@ -4,7 +4,6 @@
     <AppHeader
       :fixed="false"
       :show-logo="false"
-      @config-updated="loadVideoModels"
     >
       <template #left>
         <el-button text @click="goBack" class="back-btn">
@@ -2052,7 +2051,6 @@ import { propAPI } from "@/api/prop";
 import { generateFramePrompt, type FrameType } from "@/api/frame";
 import { imageAPI } from "@/api/image";
 import { videoAPI } from "@/api/video";
-import { aiAPI } from "@/api/ai";
 import { assetAPI } from "@/api/asset";
 import { videoMergeAPI } from "@/api/videoMerge";
 import { taskAPI } from "@/api/task";
@@ -2298,61 +2296,22 @@ const extractProviderFromModel = (modelName: string): string => {
 
 // 加载视频AI配置
 const loadVideoModels = async () => {
-  try {
-    const configs = await aiAPI.list("video");
+  // 用户端不再读取/管理 AI 配置（已迁移到管理端）。
+  // 这里提供一组“可选模型 + 能力”作为 UI 辅助；实际可用性以管理端平台配置为准。
+  videoModelCapabilities.value = Object.entries(defaultModelCapabilities).map(
+    ([modelName, capability]) => ({
+      id: modelName,
+      name: modelName,
+      ...capability,
+    }),
+  );
 
-    // 只显示启用的配置
-    const activeConfigs = configs.filter((c) => c.is_active);
-
-    // 展开模型列表并去重
-    const allModels = activeConfigs
-      .flatMap((config) => {
-        const models = Array.isArray(config.model)
-          ? config.model
-          : [config.model];
-        return models.map((modelName) => ({
-          modelName,
-          configName: config.name,
-          priority: config.priority || 0,
-        }));
-      })
-      .sort((a, b) => b.priority - a.priority);
-
-    // 按模型名称去重
-    const modelMap = new Map<
-      string,
-      { configName: string; priority: number }
-    >();
-    allModels.forEach((model) => {
-      if (!modelMap.has(model.modelName)) {
-        modelMap.set(model.modelName, {
-          configName: model.configName,
-          priority: model.priority,
-        });
-      }
-    });
-
-    // 构建模型能力列表
-    videoModelCapabilities.value = Array.from(modelMap.keys()).map(
-      (modelName) => {
-        const capability = defaultModelCapabilities[modelName] || {
-          supportSingleImage: true,
-          supportMultipleImages: false,
-          supportFirstLastFrame: false,
-          supportTextOnly: true,
-          maxImages: 1,
-        };
-
-        return {
-          id: modelName,
-          name: modelName,
-          ...capability,
-        };
-      },
-    );
-  } catch (error: any) {
-    console.error("加载视频模型配置失败:", error);
-    ElMessage.error("加载视频模型失败");
+  if (!selectedVideoModel.value && videoModelCapabilities.value.length > 0) {
+    const preferred =
+      videoModelCapabilities.value.find((m) =>
+        m.id.toLowerCase().includes("doubao"),
+      )?.id || videoModelCapabilities.value[0].id;
+    selectedVideoModel.value = preferred;
   }
 };
 

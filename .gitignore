@@ -45,6 +45,8 @@ build/
 # Temporary files
 tmp/
 temp/
+tmp_*.sql
+tmp_admin_promote.sql
 
 # Data (database and uploaded files)
 data/drama_generator.db

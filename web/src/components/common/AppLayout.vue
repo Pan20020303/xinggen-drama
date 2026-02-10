@@ -11,11 +11,6 @@
         <div class="header-right">
           <LanguageSwitcher />
           <ThemeToggle />
-          <el-button @click="showAIConfig = true" class="header-btn">
-            <el-icon><Setting /></el-icon>
-            <span class="btn-text">{{ $t('drama.aiConfig') }}</span>
-          </el-button>
-          <!-- <el-button :icon="Setting" circle @click="showAIConfig = true" :title="$t('aiConfig.title')" /> -->
         </div>
       </div>
     </header>
@@ -25,19 +20,12 @@
       <slot />
     </main>
 
-    <!-- AI Config Dialog -->
-    <AIConfigDialog v-model="showAIConfig" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Setting } from '@element-plus/icons-vue'
 import ThemeToggle from './ThemeToggle.vue'
-import AIConfigDialog from './AIConfigDialog.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
-
-const showAIConfig = ref(false)
 </script>
 
 <style scoped>

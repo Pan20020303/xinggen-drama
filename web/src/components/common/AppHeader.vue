@@ -29,12 +29,6 @@
             <span class="btn-text">角色库</span>
           </el-button>
 
-          <!-- AI Config (Model Switch) | AI 配置（模型切换） -->
-          <el-button v-if="showAIConfig" @click="handleOpenAIConfig" class="header-btn">
-            <el-icon><Setting /></el-icon>
-            <span class="btn-text">{{ $t('drama.aiConfig') }}</span>
-          </el-button>
-
           <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goAccountCenter">
             <el-icon><Coin /></el-icon>
             <span class="btn-text">积分 {{ authStore.user?.credits ?? 0 }}</span>
@@ -63,17 +57,14 @@
       </div>
     </header>
     
-    <!-- AI Config Dialog | AI 配置对话框 -->
-    <AIConfigDialog v-model="showConfigDialog" @config-updated="emit('config-updated')" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Collection, Coin, Setting, UserFilled } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { Collection, Coin, UserFilled } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from './ThemeToggle.vue'
-import AIConfigDialog from './AIConfigDialog.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -101,36 +92,20 @@ interface Props {
   showLanguage?: boolean
   /** Show theme toggle | 是否显示主题切换 */
   showTheme?: boolean
-  /** Show AI config button | 是否显示 AI 配置按钮 */
-  showAIConfig?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   fixed: true,
   showLogo: true,
   showLanguage: true,
-  showTheme: true,
-  showAIConfig: true
+  showTheme: true
 })
 
-const emit = defineEmits<{
-  (e: 'open-ai-config'): void
-  (e: 'config-updated'): void
-}>()
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const showNavButtons = computed(() => route.path !== '/login' && route.path !== '/register')
-
-// AI Config dialog state | AI 配置对话框状态
-const showConfigDialog = ref(false)
-
-// Handle open AI config | 处理打开 AI 配置
-const handleOpenAIConfig = () => {
-  showConfigDialog.value = true
-  emit('open-ai-config')
-}
 
 const goCharacterLibrary = () => {
   router.push('/character-library')
@@ -148,13 +123,6 @@ const handleLogout = async () => {
   authStore.logout()
   await router.replace('/login')
 }
-
-// Expose methods for external control | 暴露方法供外部控制
-defineExpose({
-  openAIConfig: () => {
-    showConfigDialog.value = true
-  }
-})
 </script>
 
 <style scoped>

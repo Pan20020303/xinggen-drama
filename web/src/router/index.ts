@@ -25,6 +25,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAdminAuth: true }
   },
   {
+    path: '/admin/ai-config',
+    name: 'AdminAIConfig',
+    component: () => import('../views/admin/AdminAIConfig.vue'),
+    meta: { requiresAdminAuth: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -112,12 +118,6 @@ const routes: RouteRecordRaw[] = [
     path: '/character-library',
     name: 'CharacterLibraryCenter',
     component: () => import('../views/workflow/CharacterLibraryCenter.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/settings/ai-config',
-    name: 'AIConfig',
-    component: () => import('../views/settings/AIConfig.vue'),
     meta: { requiresAuth: true }
   },
   {

@@ -42,15 +42,6 @@
             </div>
           </div>
         </template>
-        <template #right>
-          <el-button
-            :icon="Setting"
-            @click="showModelConfigDialog"
-            :title="$t('workflow.modelConfig')"
-          >
-            图文配置
-          </el-button>
-        </template>
       </AppHeader>
 
       <div class="content-container">
@@ -1016,61 +1007,6 @@
         </div>
       </el-dialog>
 
-      <!-- AI模型配置对话框 -->
-      <el-dialog
-        v-model="modelConfigDialogVisible"
-        :title="$t('workflow.aiModelConfig')"
-        width="600px"
-        :close-on-click-modal="false"
-      >
-        <el-form label-width="120px">
-          <el-form-item :label="$t('workflow.textGenModel')">
-            <el-select
-              v-model="selectedTextModel"
-              :placeholder="$t('workflow.selectTextModel')"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="model in textModels"
-                :key="model.modelName"
-                :label="model.modelName"
-                :value="model.modelName"
-              />
-            </el-select>
-            <div class="model-tip">
-              {{ $t("workflow.textModelTip") }}
-            </div>
-          </el-form-item>
-
-          <el-form-item :label="$t('workflow.imageGenModel')">
-            <el-select
-              v-model="selectedImageModel"
-              :placeholder="$t('workflow.selectImageModel')"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="model in imageModels"
-                :key="model.modelName"
-                :label="model.modelName"
-                :value="model.modelName"
-              />
-            </el-select>
-            <div class="model-tip">
-              {{ $t("workflow.modelConfigTip") }}
-            </div>
-          </el-form-item>
-        </el-form>
-
-        <template #footer>
-          <el-button @click="modelConfigDialogVisible = false">{{
-            $t("common.cancel")
-          }}</el-button>
-          <el-button type="primary" @click="saveModelConfig">{{
-            $t("common.saveConfig")
-          }}</el-button>
-        </template>
-      </el-dialog>
-
       <!-- 图片上传对话框 -->
       <el-dialog
         v-model="uploadDialogVisible"
@@ -1217,7 +1153,6 @@ import {
   Upload,
   Delete,
   FolderAdd,
-  Setting,
   Loading,
   WarningFilled,
   Document,
@@ -1226,8 +1161,6 @@ import {
 import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
 import { characterLibraryAPI } from "@/api/character-library";
-import { aiAPI } from "@/api/ai";
-import type { AIServiceConfig } from "@/types/ai";
 import { imageAPI } from "@/api/image";
 import type { Drama } from "@/types/drama";
 import { AppHeader } from "@/components/common";
@@ -1267,7 +1200,6 @@ const selectAllScenes = ref(false);
 const promptDialogVisible = ref(false);
 const libraryDialogVisible = ref(false);
 const uploadDialogVisible = ref(false);
-const modelConfigDialogVisible = ref(false);
 const addSceneDialogVisible = ref(false);
 const extractScenesDialogVisible = ref(false);
 const currentEditItem = ref<any>({ name: "" });
@@ -1289,19 +1221,6 @@ const uploadAction = computed(() => "/api/v1/upload/image");
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem("token")}`,
 }));
-
-// AI模型配置
-interface ModelOption {
-  modelName: string;
-  configName: string;
-  configId: number;
-  priority: number;
-}
-
-const textModels = ref<ModelOption[]>([]);
-const imageModels = ref<ModelOption[]>([]);
-const selectedTextModel = ref<string>("");
-const selectedImageModel = ref<string>("");
 
 const hasScript = computed(() => {
   const currentEp = currentEpisode.value;
@@ -1357,152 +1276,6 @@ const goBack = () => {
   router.replace(`/dramas/${dramaId}`);
 };
 
-// 加载AI模型配置
-const loadAIConfigs = async () => {
-  try {
-    const [textList, imageList] = await Promise.all([
-      aiAPI.list("text"),
-      aiAPI.list("image"),
-    ]);
-
-    // 只使用激活的配置
-    const activeTextList = textList.filter((c) => c.is_active);
-    const activeImageList = imageList.filter((c) => c.is_active);
-
-    // 展开模型列表并去重（保留优先级最高的）
-    const allTextModels = activeTextList
-      .flatMap((config) => {
-        const models = Array.isArray(config.model)
-          ? config.model
-          : [config.model];
-        return models.map((modelName) => ({
-          modelName,
-          configName: config.name,
-          configId: config.id,
-          priority: config.priority || 0,
-        }));
-      })
-      .sort((a, b) => b.priority - a.priority);
-
-    // 按模型名称去重，保留优先级最高的（已排序，第一个就是优先级最高的）
-    const textModelMap = new Map<string, ModelOption>();
-    allTextModels.forEach((model) => {
-      if (!textModelMap.has(model.modelName)) {
-        textModelMap.set(model.modelName, model);
-      }
-    });
-    textModels.value = Array.from(textModelMap.values());
-
-    const allImageModels = activeImageList
-      .flatMap((config) => {
-        const models = Array.isArray(config.model)
-          ? config.model
-          : [config.model];
-        return models.map((modelName) => ({
-          modelName,
-          configName: config.name,
-          configId: config.id,
-          priority: config.priority || 0,
-        }));
-      })
-      .sort((a, b) => b.priority - a.priority);
-
-    // 按模型名称去重，保留优先级最高的
-    const imageModelMap = new Map<string, ModelOption>();
-    allImageModels.forEach((model) => {
-      if (!imageModelMap.has(model.modelName)) {
-        imageModelMap.set(model.modelName, model);
-      }
-    });
-    imageModels.value = Array.from(imageModelMap.values());
-
-    // 设置默认选择（优先级最高的）
-    if (textModels.value.length > 0 && !selectedTextModel.value) {
-      selectedTextModel.value = textModels.value[0].modelName;
-    }
-    if (imageModels.value.length > 0 && !selectedImageModel.value) {
-      // 优先选择包含 nano 的模型
-      const nanoModel = imageModels.value.find((m) =>
-        m.modelName.toLowerCase().includes("nano"),
-      );
-      selectedImageModel.value = nanoModel
-        ? nanoModel.modelName
-        : imageModels.value[0].modelName;
-    }
-
-    // 验证已选择的模型是否还在可用列表中，如果不在则重置为默认值
-    const availableTextModelNames = textModels.value.map((m) => m.modelName);
-    const availableImageModelNames = imageModels.value.map((m) => m.modelName);
-
-    if (
-      selectedTextModel.value &&
-      !availableTextModelNames.includes(selectedTextModel.value)
-    ) {
-      console.warn(
-        `已选择的文本模型 ${selectedTextModel.value} 不在可用列表中，重置为默认值`,
-      );
-      selectedTextModel.value =
-        textModels.value.length > 0 ? textModels.value[0].modelName : "";
-      // 更新 localStorage
-      if (selectedTextModel.value) {
-        localStorage.setItem(
-          `ai_text_model_${dramaId}`,
-          selectedTextModel.value,
-        );
-      }
-    }
-
-    if (
-      selectedImageModel.value &&
-      !availableImageModelNames.includes(selectedImageModel.value)
-    ) {
-      console.warn(
-        `已选择的图片模型 ${selectedImageModel.value} 不在可用列表中，重置为默认值`,
-      );
-      // 优先选择包含 nano 的模型
-      const nanoModel = imageModels.value.find((m) =>
-        m.modelName.toLowerCase().includes("nano"),
-      );
-      selectedImageModel.value =
-        imageModels.value.length > 0
-          ? nanoModel
-            ? nanoModel.modelName
-            : imageModels.value[0].modelName
-          : "";
-      // 更新 localStorage
-      if (selectedImageModel.value) {
-        localStorage.setItem(
-          `ai_image_model_${dramaId}`,
-          selectedImageModel.value,
-        );
-      }
-    }
-  } catch (error: any) {
-    console.error("加载AI配置失败:", error);
-  }
-};
-
-// 显示模型配置对话框
-const showModelConfigDialog = () => {
-  modelConfigDialogVisible.value = true;
-  loadAIConfigs();
-};
-
-// 保存模型配置
-const saveModelConfig = () => {
-  if (!selectedTextModel.value || !selectedImageModel.value) {
-    ElMessage.warning($t("workflow.pleaseSelectModels"));
-    return;
-  }
-
-  // 保存模型名称到localStorage
-  localStorage.setItem(`ai_text_model_${dramaId}`, selectedTextModel.value);
-  localStorage.setItem(`ai_image_model_${dramaId}`, selectedImageModel.value);
-
-  ElMessage.success($t("workflow.modelConfigSaved"));
-  modelConfigDialogVisible.value = false;
-};
-
 const nextStep = () => {
   if (currentStep.value < 3) {
     currentStep.value++;
@@ -1512,19 +1285,6 @@ const nextStep = () => {
 const prevStep = () => {
   if (currentStep.value > 0) {
     currentStep.value--;
-  }
-};
-
-// 从localStorage加载已保存的模型配置
-const loadSavedModelConfig = () => {
-  const savedTextModel = localStorage.getItem(`ai_text_model_${dramaId}`);
-  const savedImageModel = localStorage.getItem(`ai_image_model_${dramaId}`);
-
-  if (savedTextModel) {
-    selectedTextModel.value = savedTextModel;
-  }
-  if (savedImageModel) {
-    selectedImageModel.value = savedImageModel;
   }
 };
 
@@ -1742,12 +1502,8 @@ const extractCharactersAndBackgrounds = async () => {
         episode_id: episodeId,
         outline: currentEpisode.value.script_content || "",
         count: 0,
-        model: selectedTextModel.value, // 传递用户选择的文本模型
       }),
-      dramaAPI.extractBackgrounds(
-        episodeId.toString(),
-        selectedTextModel.value,
-      ), // 传递用户选择的文本模型
+      dramaAPI.extractBackgrounds(episodeId.toString()),
     ]);
 
     ElMessage.success("任务已创建，正在后台处理...");
@@ -1773,7 +1529,7 @@ const extractCharactersAndBackgrounds = async () => {
     ) {
       ElMessage({
         type: "warning",
-        message: '未配置AI服务，请前往"设置 > AI服务配置"添加文本生成服务',
+        message: "AI服务未配置或不可用，请联系管理员在管理端配置后再试",
         duration: 5000,
         showClose: true,
       });
@@ -1843,11 +1599,8 @@ const generateCharacterImage = async (characterId: number) => {
   generatingCharacterImages.value[characterId] = true;
 
   try {
-    // 获取用户选择的图片生成模型
-    const model = selectedImageModel.value || undefined;
     const response = await characterLibraryAPI.generateCharacterImage(
       characterId.toString(),
-      model,
     );
     const imageGenId = response.image_generation?.id;
 
@@ -1895,13 +1648,9 @@ const batchGenerateCharacterImages = async () => {
 
   batchGeneratingCharacters.value = true;
   try {
-    // 获取用户选择的图片生成模型
-    const model = selectedImageModel.value || undefined;
-
     // 使用批量生成API
     await characterLibraryAPI.batchGenerateCharacterImages(
       selectedCharacterIds.value.map((id) => id.toString()),
-      model,
     );
 
     ElMessage.success($t("workflow.batchTaskSubmitted"));
@@ -1917,11 +1666,8 @@ const generateSceneImage = async (sceneId: string) => {
   generatingSceneImages.value[sceneId] = true;
 
   try {
-    // 获取用户选择的图片生成模型
-    const model = selectedImageModel.value || undefined;
     const response = await dramaAPI.generateSceneImage({
       scene_id: parseInt(sceneId),
-      model,
     });
     const imageGenId = response.image_generation?.id;
 
@@ -2014,10 +1760,7 @@ const generateShots = async () => {
     );
 
     // 创建异步任务
-    const response = await generationAPI.generateStoryboard(
-      episodeId,
-      selectedTextModel.value,
-    );
+    const response = await generationAPI.generateStoryboard(episodeId);
 
     taskMessage.value = response.message || "任务已创建";
 
@@ -2464,8 +2207,6 @@ watch(currentStep, (newStep) => {
 
 onMounted(() => {
   loadDramaData();
-  loadSavedModelConfig();
-  loadAIConfigs();
 });
 </script>
 

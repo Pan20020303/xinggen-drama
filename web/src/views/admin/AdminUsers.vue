@@ -8,6 +8,7 @@
       <div class="header-right">
         <LanguageSwitcher />
         <ThemeToggle />
+        <el-button @click="router.push('/admin/ai-config')">模型配置</el-button>
         <el-button @click="router.push('/admin/billing')">计费管理</el-button>
         <el-button type="danger" @click="handleLogout">退出管理端</el-button>
       </div>

@@ -32,7 +32,6 @@
           </template>
           <div class="actions">
             <el-button @click="router.push('/')">进入项目列表</el-button>
-            <el-button type="primary" @click="router.push('/settings/ai-config')">管理 AI 配置</el-button>
             <el-button type="danger" @click="handleLogout">退出登录</el-button>
           </div>
         </el-card>

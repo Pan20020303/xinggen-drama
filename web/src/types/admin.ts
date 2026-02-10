@@ -57,3 +57,64 @@ export interface AdminRechargeResponse {
 }
 
 export type AdminAuthResponse = AuthResponse
+
+export type AdminAIServiceType = 'text' | 'image' | 'video'
+
+// Backend returns masked secrets for admin AI configs:
+// - api_key is always empty string
+// - api_key_set indicates whether a key exists in storage
+export interface AdminAIServiceConfigView {
+  id: number
+  user_id?: number
+  service_type: AdminAIServiceType
+  provider: string
+  name: string
+  base_url: string
+  api_key: string
+  api_key_set: boolean
+  model: string[]
+  endpoint: string
+  query_endpoint: string
+  priority: number
+  is_default: boolean
+  is_active: boolean
+  settings?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AdminCreateAIConfigRequest {
+  service_type: AdminAIServiceType
+  name: string
+  provider: string
+  base_url: string
+  api_key: string
+  model: string[]
+  endpoint?: string
+  query_endpoint?: string
+  priority?: number
+  is_default?: boolean
+  settings?: string
+}
+
+export interface AdminUpdateAIConfigRequest {
+  name: string
+  provider: string
+  base_url: string
+  api_key?: string
+  model: string[]
+  endpoint?: string
+  query_endpoint: string
+  priority: number
+  is_default: boolean
+  is_active: boolean
+  settings?: string
+}
+
+export interface AdminTestAIConnectionRequest {
+  base_url: string
+  api_key: string
+  model: string[]
+  provider: string
+  endpoint?: string
+}

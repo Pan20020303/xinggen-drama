@@ -84,17 +84,13 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Document, Picture, VideoPlay, Clock, Plus, FolderOpened, Setting } from '@element-plus/icons-vue'
+import { Document, Picture, VideoPlay, Clock, Plus, FolderOpened } from '@element-plus/icons-vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 
 const router = useRouter()
 
 const goToDramas = () => {
   router.push('/dramas')
-}
-
-const goToSettings = () => {
-  router.push('/settings/ai-config')
 }
 </script>
 
