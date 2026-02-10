@@ -82,10 +82,10 @@ func (s *DramaService) CreateDrama(userID uint, req *CreateDramaRequest) (*model
 func (s *DramaService) GetDrama(userID uint, dramaID string) (*models.Drama, error) {
 	var drama models.Drama
 	err := s.db.Where("id = ? AND user_id = ?", dramaID, userID).
-		Preload("Characters").          // 加载Drama级别的角色
+		Preload("Characters", "user_id = ?", userID).          // 加载Drama级别的角色（租户过滤）
 		Preload("Scenes").              // 加载Drama级别的场景
 		Preload("Props").               // 加载Drama级别的道具
-		Preload("Episodes.Characters"). // 加载每个章节关联的角色
+		Preload("Episodes.Characters", "user_id = ?", userID). // 加载每个章节关联的角色（租户过滤，避免历史脏数据导致重复/删不掉）
 		Preload("Episodes.Scenes").     // 加载每个章节关联的场景
 		Preload("Episodes.Storyboards", func(db *gorm.DB) *gorm.DB {
 			return db.Order("storyboards.storyboard_number ASC")
@@ -114,6 +114,20 @@ func (s *DramaService) GetDrama(userID uint, dramaID string) (*models.Drama, err
 		// 如果数据库中的时长与计算的不一致，更新数据库
 		if drama.Episodes[i].Duration != durationMinutes {
 			s.db.Model(&models.Episode{}).Where("id = ?", drama.Episodes[i].ID).Update("duration", durationMinutes)
+		}
+
+		// Defensive dedupe: join table may contain duplicate rows in older data.
+		if len(drama.Episodes[i].Characters) > 1 {
+			seen := make(map[uint]struct{}, len(drama.Episodes[i].Characters))
+			uniq := make([]models.Character, 0, len(drama.Episodes[i].Characters))
+			for _, c := range drama.Episodes[i].Characters {
+				if _, ok := seen[c.ID]; ok {
+					continue
+				}
+				seen[c.ID] = struct{}{}
+				uniq = append(uniq, c)
+			}
+			drama.Episodes[i].Characters = uniq
 		}
 
 		// 查询角色的图片生成状态
@@ -413,13 +427,21 @@ func (s *DramaService) GetCharacters(userID uint, dramaID string, episodeID *str
 	// 如果指定了episodeID，只获取该章节关联的角色
 	if episodeID != nil {
 		var episode models.Episode
-		if err := s.db.Preload("Characters").Where("id = ? AND drama_id = ? AND user_id = ?", *episodeID, dramaID, userID).First(&episode).Error; err != nil {
+		if err := s.db.Preload("Characters", "user_id = ?", userID).Where("id = ? AND drama_id = ? AND user_id = ?", *episodeID, dramaID, userID).First(&episode).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, errors.New("episode not found")
 			}
 			return nil, err
 		}
-		characters = episode.Characters
+		// Defensive dedupe in case the join table already has duplicate rows.
+		seen := make(map[uint]struct{}, len(episode.Characters))
+		for _, c := range episode.Characters {
+			if _, ok := seen[c.ID]; ok {
+				continue
+			}
+			seen[c.ID] = struct{}{}
+			characters = append(characters, c)
+		}
 	} else {
 		// 如果没有指定episodeID，获取项目的所有角色
 		if err := s.db.Where("drama_id = ? AND user_id = ?", dramaID, userID).Find(&characters).Error; err != nil {
@@ -562,8 +584,8 @@ func (s *DramaService) SaveCharacters(userID uint, dramaID string, req *SaveChar
 			return err
 		}
 
-		// 使用GORM的Association API建立多对多关系（会自动去重）
-		if err := s.db.Model(&episode).Association("Characters").Append(&characters); err != nil {
+		// Replace ensures association matches desired set and removes duplicates/stale rows.
+		if err := s.db.Model(&episode).Association("Characters").Replace(&characters); err != nil {
 			s.log.Errorw("Failed to associate characters with episode", "error", err)
 			return err
 		}
