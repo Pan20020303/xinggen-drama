@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -67,6 +68,12 @@ func main() {
 	}
 
 	go func() {
+		// Bind early so we don't log "ready" if the port is already taken.
+		ln, err := net.Listen("tcp", srv.Addr)
+		if err != nil {
+			logr.Fatal("Failed to start server", "error", err)
+		}
+
 		logr.Infow("🚀 Server starting...",
 			"port", cfg.Server.Port,
 			"mode", gin.Mode())
@@ -79,7 +86,7 @@ func main() {
 		logr.Info(fmt.Sprintf("   Assets:    http://localhost:%d/assets", cfg.Server.Port))
 		logr.Info("✅ Server is ready!")
 
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logr.Fatal("Failed to start server", "error", err)
 		}
 	}()
