@@ -2068,6 +2068,7 @@ import { videoAPI } from "@/api/video";
 import { assetAPI } from "@/api/asset";
 import { videoMergeAPI } from "@/api/videoMerge";
 import { taskAPI } from "@/api/task";
+import { useAuthStore } from "@/stores/auth";
 import { usePricingStore } from "@/stores/pricing";
 import type { ImageGeneration } from "@/types/image";
 import type { VideoGeneration } from "@/types/video";
@@ -2087,6 +2088,7 @@ const { t: $t } = useI18n();
 const dramaId = Number(route.params.dramaId);
 const episodeNumber = Number(route.params.episodeNumber);
 const episodeId = ref<number>(0);
+const authStore = useAuthStore();
 const pricingStore = usePricingStore();
 
 const drama = ref<Drama | null>(null);
@@ -2819,6 +2821,7 @@ const extractFramePrompt = async () => {
     };
 
     const result = await pollTask();
+    await authStore.refreshMe();
 
     // 根据返回结果构建提示词字符串
     let extractedPrompt = "";
@@ -3012,6 +3015,7 @@ const generateFrameImage = async () => {
       reference_images:
         referenceImages.length > 0 ? referenceImages : undefined,
     });
+    await authStore.refreshMe();
 
     generatedImages.value.unshift(result);
 
@@ -3417,6 +3421,7 @@ const generateVideo = async () => {
     }
 
     const result = await videoAPI.generateVideo(requestParams);
+    await authStore.refreshMe();
 
     generatedVideos.value.unshift(result);
     ElMessage.success("视频生成任务已提交");

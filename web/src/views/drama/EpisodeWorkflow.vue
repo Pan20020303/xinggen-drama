@@ -1552,6 +1552,7 @@ const extractCharactersAndBackgrounds = async () => {
       pollExtractTask(characterTask.task_id, "character"),
       pollExtractTask(backgroundTask.task_id, "background"),
     ]);
+    await authStore.refreshMe();
 
     ElMessage.success($t("workflow.charactersAndScenesExtractSuccess"));
     await loadDramaData();
@@ -1641,6 +1642,7 @@ const generateCharacterImage = async (characterId: number) => {
     const response = await characterLibraryAPI.generateCharacterImage(
       characterId.toString(),
     );
+    await authStore.refreshMe();
     const imageGenId = response.image_generation?.id;
 
     if (imageGenId) {
@@ -1691,6 +1693,7 @@ const batchGenerateCharacterImages = async () => {
     await characterLibraryAPI.batchGenerateCharacterImages(
       selectedCharacterIds.value.map((id) => id.toString()),
     );
+    await authStore.refreshMe();
 
     ElMessage.success($t("workflow.batchTaskSubmitted"));
     await loadDramaData();
@@ -1708,6 +1711,7 @@ const generateSceneImage = async (sceneId: string) => {
     const response = await dramaAPI.generateSceneImage({
       scene_id: parseInt(sceneId),
     });
+    await authStore.refreshMe();
     const imageGenId = response.image_generation?.id;
 
     if (imageGenId) {
@@ -1834,6 +1838,7 @@ const pollTaskStatus = async (taskId: string) => {
           pollTimer = null;
         }
         generatingShots.value = false;
+        await authStore.refreshMe();
 
         ElMessage.success($t("workflow.splitSuccess"));
 
@@ -1853,6 +1858,7 @@ const pollTaskStatus = async (taskId: string) => {
           pollTimer = null;
         }
         generatingShots.value = false;
+        await authStore.refreshMe();
         ElMessage.error(task.error || "分镜拆分失败");
         return true; // 标记已完成
       }
@@ -2219,6 +2225,7 @@ const handleExtractScenes = async () => {
   try {
     extractingScenes.value = true;
     await dramaAPI.extractBackgrounds(currentEpisode.value.id.toString());
+    await authStore.refreshMe();
 
     ElMessage.success($t("workflow.sceneExtractSubmitted"));
     extractScenesDialogVisible.value = false;
