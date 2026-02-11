@@ -42,6 +42,23 @@ func main() {
 	}
 	logr.Info("Database tables migrated successfully")
 
+	// 启动时执行历史数据修复与一致性自检（兼容旧数据 storyboards.user_id=0）
+	if report, err := database.BackfillStoryboardUserID(db); err != nil {
+		logr.Warnw("Storyboard user ownership backfill failed", "error", err)
+	} else {
+		logr.Infow("Storyboard user ownership check",
+			"backfilled_rows", report.BackfilledRows,
+			"remaining_zero_rows", report.RemainingZeroRows,
+			"mismatch_rows", report.MismatchRows,
+			"orphan_rows", report.OrphanRows)
+		if report.RemainingZeroRows > 0 || report.MismatchRows > 0 || report.OrphanRows > 0 {
+			logr.Warnw("Storyboard ownership integrity warnings detected",
+				"remaining_zero_rows", report.RemainingZeroRows,
+				"mismatch_rows", report.MismatchRows,
+				"orphan_rows", report.OrphanRows)
+		}
+	}
+
 	// 初始化本地存储
 	var localStorage *storage.LocalStorage
 	if cfg.Storage.Type == "local" {
