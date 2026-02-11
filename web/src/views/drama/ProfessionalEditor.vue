@@ -493,6 +493,12 @@
                     >
                       {{ $t("editor.extractPrompt") }}
                     </el-button>
+                    <span v-if="framePromptEstimatedCost > 0" class="inline-credit-hint">
+                      预计扣除 {{ framePromptEstimatedCost }} 积分
+                      <span v-if="textDefaultModel">
+                        ({{ textDefaultModel }} x {{ framePromptCallCount }})
+                      </span>
+                    </span>
                   </div>
                   <el-input
                     v-model="currentFramePrompt"
@@ -504,6 +510,10 @@
 
                 <!-- 生成控制 -->
                 <div class="generation-controls">
+                  <span v-if="imageDefaultCost > 0" class="inline-credit-hint">
+                    预计扣除 {{ imageDefaultCost }} 积分
+                    <span v-if="imageDefaultModel">({{ imageDefaultModel }})</span>
+                  </span>
                   <el-button
                     type="success"
                     :icon="MagicStick"
@@ -1472,6 +1482,10 @@
                   class="generation-controls"
                   style="margin-top: 32px; text-align: center"
                 >
+                  <span v-if="videoDefaultCost > 0" class="inline-credit-hint">
+                    预计扣除 {{ videoDefaultCost }} 积分
+                    <span v-if="videoDefaultModel">({{ videoDefaultModel }})</span>
+                  </span>
                   <el-button
                     type="primary"
                     :icon="VideoCamera"
@@ -2054,6 +2068,7 @@ import { videoAPI } from "@/api/video";
 import { assetAPI } from "@/api/asset";
 import { videoMergeAPI } from "@/api/videoMerge";
 import { taskAPI } from "@/api/task";
+import { usePricingStore } from "@/stores/pricing";
 import type { ImageGeneration } from "@/types/image";
 import type { VideoGeneration } from "@/types/video";
 import type { AIServiceConfig } from "@/types/ai";
@@ -2072,6 +2087,7 @@ const { t: $t } = useI18n();
 const dramaId = Number(route.params.dramaId);
 const episodeNumber = Number(route.params.episodeNumber);
 const episodeId = ref<number>(0);
+const pricingStore = usePricingStore();
 
 const drama = ref<Drama | null>(null);
 const episode = ref<Episode | null>(null);
@@ -2106,6 +2122,21 @@ const narrativeTab = ref("shot-prompt");
 // 图片生成相关状态
 const selectedFrameType = ref<FrameType>("first");
 const panelCount = ref(3);
+const textDefaultCost = computed(() => pricingStore.getDefaultCost("text"));
+const textDefaultModel = computed(() => pricingStore.getDefaultModel("text"));
+const imageDefaultCost = computed(() => pricingStore.getDefaultCost("image"));
+const imageDefaultModel = computed(() => pricingStore.getDefaultModel("image"));
+const videoDefaultCost = computed(() => pricingStore.getDefaultCost("video"));
+const videoDefaultModel = computed(() => pricingStore.getDefaultModel("video"));
+const framePromptCallCount = computed(() => {
+  if (selectedFrameType.value === "panel") {
+    return panelCount.value === 4 ? 4 : 3;
+  }
+  return 1;
+});
+const framePromptEstimatedCost = computed(
+  () => textDefaultCost.value * framePromptCallCount.value,
+);
 const generatingPromptStates = ref<Record<string, boolean>>({}); // 按 "镜头ID_帧类型" 记录生成状态
 const framePrompts = ref<Record<string, string>>({
   key: "",
@@ -4117,6 +4148,7 @@ const formatDateTime = (dateStr: string) => {
 };
 
 onMounted(async () => {
+  await pricingStore.loadPricing();
   await loadData();
   await loadVideoModels();
   await loadVideoMerges();
@@ -6342,5 +6374,11 @@ onBeforeUnmount(() => {
   max-width: 100%;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.inline-credit-hint {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>

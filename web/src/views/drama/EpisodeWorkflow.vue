@@ -187,6 +187,13 @@
                   >
                     {{ $t("workflow.selectAll") }}
                   </el-checkbox>
+                  <span
+                    v-if="batchCharacterImageTotalCost > 0"
+                    class="inline-credit-hint"
+                  >
+                    预计扣除 {{ batchCharacterImageTotalCost }} 积分
+                    <span v-if="imageDefaultModel">({{ imageDefaultModel }})</span>
+                  </span>
                   <el-button
                     type="primary"
                     @click="batchGenerateCharacterImages"
@@ -372,6 +379,10 @@
                   >
                     {{ $t("workflow.selectAll") }}
                   </el-checkbox>
+                  <span v-if="batchSceneImageTotalCost > 0" class="inline-credit-hint">
+                    预计扣除 {{ batchSceneImageTotalCost }} 积分
+                    <span v-if="imageDefaultModel">({{ imageDefaultModel }})</span>
+                  </span>
                   <el-button
                     type="primary"
                     @click="batchGenerateSceneImages"
@@ -680,6 +691,12 @@
 
       <div class="actions-container">
         <div class="action-buttons" v-show="currentStep === 0">
+          <div v-if="extractCharactersAndBackgroundsCost > 0" class="credit-hint">
+            本次预计扣除 {{ extractCharactersAndBackgroundsCost }} 积分
+            <span v-if="textDefaultModel">
+              ({{ textDefaultModel }}，按 2 次文本调用估算)
+            </span>
+          </div>
           <el-button
             type="primary"
             size="large"
@@ -1183,6 +1200,9 @@ const authStore = useAuthStore();
 const pricingStore = usePricingStore();
 const textDefaultCost = computed(() => pricingStore.getDefaultCost("text"));
 const textDefaultModel = computed(() => pricingStore.getDefaultModel("text"));
+const imageDefaultCost = computed(() => pricingStore.getDefaultCost("image"));
+const imageDefaultModel = computed(() => pricingStore.getDefaultModel("image"));
+const extractCharactersAndBackgroundsCost = computed(() => textDefaultCost.value * 2);
 
 // 生成 localStorage key
 const getStepStorageKey = () =>
@@ -1205,6 +1225,12 @@ const selectedCharacterIds = ref<number[]>([]);
 const selectedSceneIds = ref<number[]>([]);
 const selectAllCharacters = ref(false);
 const selectAllScenes = ref(false);
+const batchCharacterImageTotalCost = computed(
+  () => imageDefaultCost.value * selectedCharacterIds.value.length,
+);
+const batchSceneImageTotalCost = computed(
+  () => imageDefaultCost.value * selectedSceneIds.value.length,
+);
 
 // 对话框状态
 const promptDialogVisible = ref(false);
@@ -2468,6 +2494,10 @@ onMounted(() => {
   align-items: center;
 }
 
+.action-buttons .credit-hint {
+  margin-bottom: 0;
+}
+
 .action-buttons-inline {
   display: flex;
   gap: 12px;
@@ -2526,8 +2556,15 @@ onMounted(() => {
     .section-actions {
       display: flex;
       align-items: center;
+      gap: 8px;
     }
   }
+}
+
+.inline-credit-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 
 .empty-shots {
