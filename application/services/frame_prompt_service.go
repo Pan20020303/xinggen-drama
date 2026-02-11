@@ -82,6 +82,27 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 		return "", err
 	}
 
+	callCount, err := estimateFramePromptCallCount(req.FrameType, req.PanelCount)
+	if err != nil {
+		return "", err
+	}
+
+	// 任务创建前做余额预检，避免余额不足时仍创建异步任务并走降级文案。
+	cfg, _, err := s.aiService.GetBillingConfig("text", model, userID)
+	if err != nil {
+		return "", err
+	}
+	requiredCredits := cfg.CreditCost * callCount
+	if requiredCredits > 0 {
+		var user models.User
+		if err := s.db.Select("id", "credits").First(&user, userID).Error; err != nil {
+			return "", err
+		}
+		if user.Credits < requiredCredits {
+			return "", ErrInsufficientCredits
+		}
+	}
+
 	// 创建任务
 	task, err := s.taskService.CreateTask("frame_prompt_generation", req.StoryboardID)
 	if err != nil {
@@ -94,6 +115,21 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 
 	s.log.Infow("Frame prompt generation task created", "task_id", task.ID, "storyboard_id", req.StoryboardID, "frame_type", req.FrameType)
 	return task.ID, nil
+}
+
+func estimateFramePromptCallCount(frameType FrameType, panelCount int) (int, error) {
+	switch frameType {
+	case FrameTypeFirst, FrameTypeKey, FrameTypeLast, FrameTypeAction:
+		return 1, nil
+	case FrameTypePanel:
+		// 当前实现支持 3 或 4；默认按 3 计费预检。
+		if panelCount == 4 {
+			return 4, nil
+		}
+		return 3, nil
+	default:
+		return 0, fmt.Errorf("unsupported frame type: %s", frameType)
+	}
 }
 
 func (s *FramePromptService) findStoryboardForUser(userID uint, storyboardID string) (*models.Storyboard, error) {
@@ -150,13 +186,25 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 	switch req.FrameType {
 	case FrameTypeFirst:
 		response.SingleFrame = s.generateFirstFrame(userID, *storyboard, scene, dramaStyle, model)
+		if response.SingleFrame == nil {
+			s.taskService.UpdateTaskStatus(taskID, "failed", 0, "积分不足")
+			return
+		}
 		// 保存单帧提示词
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeKey:
 		response.SingleFrame = s.generateKeyFrame(userID, *storyboard, scene, dramaStyle, model)
+		if response.SingleFrame == nil {
+			s.taskService.UpdateTaskStatus(taskID, "failed", 0, "积分不足")
+			return
+		}
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeLast:
 		response.SingleFrame = s.generateLastFrame(userID, *storyboard, scene, dramaStyle, model)
+		if response.SingleFrame == nil {
+			s.taskService.UpdateTaskStatus(taskID, "failed", 0, "积分不足")
+			return
+		}
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypePanel:
 		count := req.PanelCount
@@ -164,6 +212,10 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 			count = 3
 		}
 		response.MultiFrame = s.generatePanelFrames(userID, *storyboard, scene, count, dramaStyle, model)
+		if response.MultiFrame == nil {
+			s.taskService.UpdateTaskStatus(taskID, "failed", 0, "积分不足")
+			return
+		}
 		// 保存多帧提示词（合并为一条记录）
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
@@ -173,6 +225,10 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
 	case FrameTypeAction:
 		response.MultiFrame = s.generateActionSequence(userID, *storyboard, scene, dramaStyle, model)
+		if response.MultiFrame == nil {
+			s.taskService.UpdateTaskStatus(taskID, "failed", 0, "积分不足")
+			return
+		}
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
 			prompts = append(prompts, frame.Prompt)
@@ -262,6 +318,9 @@ func (s *FramePromptService) generateFirstFrame(userID uint, sb models.Storyboar
 
 	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:first:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
+		if errors.Is(err, ErrInsufficientCredits) {
+			return nil
+		}
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		// 降级方案：使用简单拼接
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "first frame, static shot")
@@ -297,6 +356,9 @@ func (s *FramePromptService) generateKeyFrame(userID uint, sb models.Storyboard,
 
 	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:key:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
+		if errors.Is(err, ErrInsufficientCredits) {
+			return nil
+		}
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "key frame, dynamic action")
 		return &SingleFramePrompt{
@@ -331,6 +393,9 @@ func (s *FramePromptService) generateLastFrame(userID uint, sb models.Storyboard
 
 	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:last:"+fmt.Sprintf("%d", sb.ID))
 	if err != nil {
+		if errors.Is(err, ErrInsufficientCredits) {
+			return nil
+		}
 		s.log.Warnw("AI generation failed, using fallback", "error", err)
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "last frame, final state")
 		return &SingleFramePrompt{
@@ -362,20 +427,48 @@ func (s *FramePromptService) generatePanelFrames(userID uint, sb models.Storyboa
 
 	// 固定生成：首帧 -> 关键帧 -> 尾帧
 	if count == 3 {
-		frames[0] = *s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
+		first := s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
+		if first == nil {
+			return nil
+		}
+		frames[0] = *first
 		frames[0].Description = "第1格：初始状态"
 
-		frames[1] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		key := s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		if key == nil {
+			return nil
+		}
+		frames[1] = *key
 		frames[1].Description = "第2格：动作高潮"
 
-		frames[2] = *s.generateLastFrame(userID, sb, scene, dramaStyle, model)
+		last := s.generateLastFrame(userID, sb, scene, dramaStyle, model)
+		if last == nil {
+			return nil
+		}
+		frames[2] = *last
 		frames[2].Description = "第3格：最终状态"
 	} else if count == 4 {
 		// 4格：首帧 -> 中间帧1 -> 中间帧2 -> 尾帧
-		frames[0] = *s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
-		frames[1] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
-		frames[2] = *s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
-		frames[3] = *s.generateLastFrame(userID, sb, scene, dramaStyle, model)
+		first := s.generateFirstFrame(userID, sb, scene, dramaStyle, model)
+		if first == nil {
+			return nil
+		}
+		key1 := s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		if key1 == nil {
+			return nil
+		}
+		key2 := s.generateKeyFrame(userID, sb, scene, dramaStyle, model)
+		if key2 == nil {
+			return nil
+		}
+		last := s.generateLastFrame(userID, sb, scene, dramaStyle, model)
+		if last == nil {
+			return nil
+		}
+		frames[0] = *first
+		frames[1] = *key1
+		frames[2] = *key2
+		frames[3] = *last
 	}
 
 	return &MultiFramePrompt{
@@ -396,6 +489,9 @@ func (s *FramePromptService) generateActionSequence(userID uint, sb models.Story
 	aiResponse, err := s.generateTextBilled(userID, model, userPrompt, systemPrompt, "frame_prompt:action:"+fmt.Sprintf("%d", sb.ID))
 
 	if err != nil {
+		if errors.Is(err, ErrInsufficientCredits) {
+			return nil
+		}
 		s.log.Warnw("AI generation failed for action sequence, using fallback", "error", err)
 		// 降级方案：使用简单拼接
 		fallbackPrompt := s.buildFallbackPrompt(sb, scene, "3x3 storyboard grid action sequence, character consistency, continuous movement progression")
