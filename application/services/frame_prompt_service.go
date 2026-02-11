@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/drama-generator/backend/pkg/logger"
 	"gorm.io/gorm"
 )
+
+var ErrStoryboardNotFound = errors.New("storyboard not found")
 
 // FramePromptService 处理帧提示词生成
 type FramePromptService struct {
@@ -74,10 +77,9 @@ type MultiFramePrompt struct {
 
 // GenerateFramePrompt 生成指定类型的帧提示词并保存到frame_prompts表
 func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFramePromptRequest, model string) (string, error) {
-	// 查询分镜信息
-	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").Where("id = ? AND user_id = ?", req.StoryboardID, userID).First(&storyboard).Error; err != nil {
-		return "", fmt.Errorf("storyboard not found: %w", err)
+	// 查询分镜信息（按 episode.user_id 校验归属，兼容历史 storyboard.user_id=0 数据）
+	if _, err := s.findStoryboardForUser(userID, req.StoryboardID); err != nil {
+		return "", err
 	}
 
 	// 创建任务
@@ -94,14 +96,30 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 	return task.ID, nil
 }
 
+func (s *FramePromptService) findStoryboardForUser(userID uint, storyboardID string) (*models.Storyboard, error) {
+	var storyboard models.Storyboard
+	err := s.db.
+		Preload("Characters").
+		Joins("JOIN episodes ON episodes.id = storyboards.episode_id").
+		Where("storyboards.id = ? AND episodes.user_id = ?", storyboardID, userID).
+		First(&storyboard).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrStoryboardNotFound
+		}
+		return nil, err
+	}
+	return &storyboard, nil
+}
+
 // processFramePromptGeneration 异步处理帧提示词生成
 func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID string, req GenerateFramePromptRequest, model string) {
 	// 更新任务状态为处理中
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在生成帧提示词...")
 
-	// 查询分镜信息
-	var storyboard models.Storyboard
-	if err := s.db.Preload("Characters").Where("id = ? AND user_id = ?", req.StoryboardID, userID).First(&storyboard).Error; err != nil {
+	// 查询分镜信息（按 episode.user_id 校验归属，兼容历史 storyboard.user_id=0 数据）
+	storyboard, err := s.findStoryboardForUser(userID, req.StoryboardID)
+	if err != nil {
 		s.log.Errorw("Storyboard not found during frame prompt generation", "error", err, "storyboard_id", req.StoryboardID)
 		s.taskService.UpdateTaskStatus(taskID, "failed", 0, "分镜信息不存在")
 		return
@@ -131,21 +149,21 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 	// 生成提示词
 	switch req.FrameType {
 	case FrameTypeFirst:
-		response.SingleFrame = s.generateFirstFrame(userID, storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateFirstFrame(userID, *storyboard, scene, dramaStyle, model)
 		// 保存单帧提示词
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeKey:
-		response.SingleFrame = s.generateKeyFrame(userID, storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateKeyFrame(userID, *storyboard, scene, dramaStyle, model)
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypeLast:
-		response.SingleFrame = s.generateLastFrame(userID, storyboard, scene, dramaStyle, model)
+		response.SingleFrame = s.generateLastFrame(userID, *storyboard, scene, dramaStyle, model)
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), response.SingleFrame.Prompt, response.SingleFrame.Description, "")
 	case FrameTypePanel:
 		count := req.PanelCount
 		if count == 0 {
 			count = 3
 		}
-		response.MultiFrame = s.generatePanelFrames(userID, storyboard, scene, count, dramaStyle, model)
+		response.MultiFrame = s.generatePanelFrames(userID, *storyboard, scene, count, dramaStyle, model)
 		// 保存多帧提示词（合并为一条记录）
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
@@ -154,7 +172,7 @@ func (s *FramePromptService) processFramePromptGeneration(userID uint, taskID st
 		combinedPrompt := strings.Join(prompts, "\n---\n")
 		s.saveFramePrompt(userID, req.StoryboardID, string(req.FrameType), combinedPrompt, "分镜板组合提示词", response.MultiFrame.Layout)
 	case FrameTypeAction:
-		response.MultiFrame = s.generateActionSequence(userID, storyboard, scene, dramaStyle, model)
+		response.MultiFrame = s.generateActionSequence(userID, *storyboard, scene, dramaStyle, model)
 		var prompts []string
 		for _, frame := range response.MultiFrame.Frames {
 			prompts = append(prompts, frame.Prompt)

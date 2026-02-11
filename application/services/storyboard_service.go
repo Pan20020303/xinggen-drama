@@ -894,6 +894,7 @@ func (s *StoryboardService) saveStoryboards(episodeID string, storyboards []Stor
 			}
 
 			scene := models.Storyboard{
+				UserID:           episode.UserID,
 				EpisodeID:        uint(epID),
 				SceneID:          sb.SceneID,
 				StoryboardNumber: sb.ShotNumber,

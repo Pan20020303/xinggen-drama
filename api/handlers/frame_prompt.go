@@ -54,6 +54,10 @@ func (h *FramePromptHandler) GenerateFramePrompt(c *gin.Context) {
 	// 直接调用服务层的异步方法，该方法会创建任务并返回任务ID
 	taskID, err := h.framePromptService.GenerateFramePrompt(userID, serviceReq, req.Model)
 	if err != nil {
+		if errors.Is(err, services.ErrStoryboardNotFound) {
+			response.NotFound(c, "分镜不存在")
+			return
+		}
 		if errors.Is(err, services.ErrInsufficientCredits) {
 			response.Forbidden(c, "积分不足")
 			return
