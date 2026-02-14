@@ -62,6 +62,21 @@
             </template>
           </el-table-column>
           <el-table-column prop="type" label="类型" min-width="160" />
+          <el-table-column prop="service_type" label="服务" min-width="90">
+            <template #default="{ row }">
+              <span>{{ row.service_type || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="model" label="模型" min-width="180">
+            <template #default="{ row }">
+              <span class="mono">{{ row.model || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reference_id" label="引用ID" min-width="240">
+            <template #default="{ row }">
+              <span class="mono">{{ row.reference_id || '-' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="description" label="说明" min-width="220" />
           <el-table-column prop="created_at" label="时间" min-width="180" />
         </el-table>
@@ -256,6 +271,11 @@ onMounted(() => {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
 }
 
 @media (max-width: 1024px) {

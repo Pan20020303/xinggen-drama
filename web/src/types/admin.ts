@@ -47,6 +47,9 @@ export interface CreditTransaction {
   user_id: number
   amount: number
   type: string
+  reference_id?: string
+  service_type?: string
+  model?: string
   description?: string
   created_at?: string
 }
