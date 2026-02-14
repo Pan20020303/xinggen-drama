@@ -2,7 +2,7 @@
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <h1>注册火爆剧</h1>
+        <h1>注册星亘剧</h1>
         <p>新用户注册后自动发放初始积分</p>
       </div>
 

@@ -1,8 +1,8 @@
-# Huobao Drama 项目架构文档
+# 星亘 Drama 项目架构文档
 
 ## 概述
 
-Huobao Drama 是一个基于 **Go + Vue3** 的全栈 AI 短剧自动化生产平台，采用 **DDD（领域驱动设计）** 架构模式，实现从剧本生成、角色设计、分镜制作到视频合成的全流程自动化。
+星亘 Drama 是一个基于 **Go + Vue3** 的全栈 AI 短剧自动化生产平台，采用 **DDD（领域驱动设计）** 架构模式，实现从剧本生成、角色设计、分镜制作到视频合成的全流程自动化。
 
 ---
 
@@ -20,7 +20,7 @@ Huobao Drama 是一个基于 **Go + Vue3** 的全栈 AI 短剧自动化生产平
 ## 目录结构
 
 ```
-huobao-drama/
+xinggen-drama/
 ├── main.go                 # 应用入口
 ├── go.mod / go.sum         # Go 依赖管理
 ├── docker-compose.yml      # Docker 编排配置

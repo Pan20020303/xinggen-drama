@@ -5,7 +5,7 @@
         <!-- Left section: Logo + Left slot -->
         <div class="header-left">
           <router-link v-if="showLogo" to="/" class="logo">
-            <span class="logo-text">🎬 HuoBao Drama</span>
+            <span class="logo-text">🎬 星亘 Drama</span>
           </router-link>
           <!-- Left slot for business content | 左侧插槽用于业务内容 -->
           <slot name="left" />

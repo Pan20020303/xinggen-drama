@@ -29,3 +29,6 @@
 - [ ] Backend `go test ./...` after this final patch set:
   - Not executable from current shell context (local `go` missing; WSL command output channel unstable in this session).
 
+## Next Step Note (2026-02-14)
+- [ ] Project desensitization:
+  - Replace brand label `星亘` with `星亘` in user-facing naming and related docs/config branding text.

@@ -2,7 +2,7 @@
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <h1>登录火爆剧</h1>
+        <h1>登录星亘剧</h1>
         <p>登录后可使用多租户隔离与积分能力</p>
       </div>
 
