@@ -1482,9 +1482,9 @@
                   class="generation-controls"
                   style="margin-top: 32px; text-align: center"
                 >
-                  <span v-if="videoDefaultCost > 0" class="inline-credit-hint">
-                    预计扣除 {{ videoDefaultCost }} 积分
-                    <span v-if="videoDefaultModel">({{ videoDefaultModel }})</span>
+                  <span v-if="videoEstimatedCost > 0" class="inline-credit-hint">
+                    预计扣除 {{ videoEstimatedCost }} 积分
+                    <span v-if="videoEstimatedModel">({{ videoEstimatedModel }})</span>
                   </span>
                   <el-button
                     type="primary"
@@ -2128,8 +2128,13 @@ const textDefaultCost = computed(() => pricingStore.getDefaultCost("text"));
 const textDefaultModel = computed(() => pricingStore.getDefaultModel("text"));
 const imageDefaultCost = computed(() => pricingStore.getDefaultCost("image"));
 const imageDefaultModel = computed(() => pricingStore.getDefaultModel("image"));
-const videoDefaultCost = computed(() => pricingStore.getDefaultCost("video"));
 const videoDefaultModel = computed(() => pricingStore.getDefaultModel("video"));
+const videoEstimatedModel = computed(
+  () => selectedVideoModel.value || videoDefaultModel.value,
+);
+const videoEstimatedCost = computed(() =>
+  pricingStore.getModelCost("video", videoEstimatedModel.value),
+);
 const framePromptCallCount = computed(() => {
   if (selectedFrameType.value === "panel") {
     return panelCount.value === 4 ? 4 : 3;

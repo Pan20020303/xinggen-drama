@@ -21,6 +21,18 @@ export const usePricingStore = defineStore('pricing', () => {
     return defaultsMap.value.get(serviceType)?.credit_cost ?? 0
   }
 
+  const getModelCost = (serviceType: AIServiceType, modelName?: string): number => {
+    const normalized = (modelName || '').trim().toLowerCase()
+    if (normalized) {
+      const matched = (pricing.value?.platform_configs ?? []).find((cfg) => {
+        if (cfg.service_type !== serviceType || !cfg.is_active || !Array.isArray(cfg.model)) return false
+        return cfg.model.some((m) => (m || '').trim().toLowerCase() === normalized)
+      })
+      if (matched) return matched.credit_cost ?? 0
+    }
+    return getDefaultCost(serviceType)
+  }
+
   const getDefaultModel = (serviceType: AIServiceType): string => {
     return defaultsMap.value.get(serviceType)?.model ?? ''
   }
@@ -42,8 +54,8 @@ export const usePricingStore = defineStore('pricing', () => {
     loading,
     pricing,
     getDefaultCost,
+    getModelCost,
     getDefaultModel,
     loadPricing
   }
 })
-
