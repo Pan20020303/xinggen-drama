@@ -321,11 +321,15 @@ func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, mo
 - 为视频生成AI提供足够的画面构建信息
 - 避免抽象词汇，使用具象的视觉化描述`, systemPrompt, scriptLabel, taskLabel, taskInstruction, charListLabel, characterList, charConstraint, sceneListLabel, sceneList, sceneConstraint, scriptContent)
 
-	// 创建异步任务
-	task, err := s.taskService.CreateTask("storyboard_generation", episodeID)
+	// 创建异步任务（若存在同资源进行中的任务则复用，避免重复扣分）
+	task, created, err := s.taskService.CreateOrGetActiveTask("storyboard_generation", episodeID)
 	if err != nil {
 		s.log.Errorw("Failed to create task", "error", err)
 		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+	if !created {
+		s.log.Infow("Reusing active storyboard generation task", "task_id", task.ID, "episode_id", episodeID)
+		return task.ID, nil
 	}
 
 	s.log.Infow("Generating storyboard asynchronously",

@@ -49,11 +49,15 @@ func (s *ScriptGenerationService) GenerateCharacters(userID uint, req *GenerateC
 		return "", fmt.Errorf("drama not found")
 	}
 
-	// 创建任务
-	task, err := s.taskService.CreateTask("character_generation", req.DramaID)
+	// 创建任务（若存在同资源进行中的任务则复用，避免重复扣分）
+	task, created, err := s.taskService.CreateOrGetActiveTask("character_generation", req.DramaID)
 	if err != nil {
 		s.log.Errorw("Failed to create character generation task", "error", err)
 		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+	if !created {
+		s.log.Infow("Reusing active character generation task", "task_id", task.ID, "drama_id", req.DramaID)
+		return task.ID, nil
 	}
 
 	// 异步处理角色生成

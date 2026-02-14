@@ -103,11 +103,15 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 		}
 	}
 
-	// 创建任务
-	task, err := s.taskService.CreateTask("frame_prompt_generation", req.StoryboardID)
+	// 创建任务（若存在同资源进行中的任务则复用，避免重复扣分）
+	task, created, err := s.taskService.CreateOrGetActiveTask("frame_prompt_generation", req.StoryboardID)
 	if err != nil {
 		s.log.Errorw("Failed to create frame prompt generation task", "error", err, "storyboard_id", req.StoryboardID)
 		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+	if !created {
+		s.log.Infow("Reusing active frame prompt generation task", "task_id", task.ID, "storyboard_id", req.StoryboardID, "frame_type", req.FrameType)
+		return task.ID, nil
 	}
 
 	// 异步处理帧提示词生成

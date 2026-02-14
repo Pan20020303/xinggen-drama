@@ -851,11 +851,15 @@ func (s *ImageGenerationService) ExtractBackgroundsForEpisode(userID uint, episo
 		return "", fmt.Errorf("episode has no script content")
 	}
 
-	// 创建任务
-	task, err := s.taskService.CreateTask("background_extraction", episodeID)
+	// 创建任务（若存在同资源进行中的任务则复用，避免重复扣分）
+	task, created, err := s.taskService.CreateOrGetActiveTask("background_extraction", episodeID)
 	if err != nil {
 		s.log.Errorw("Failed to create background extraction task", "error", err, "episode_id", episodeID)
 		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+	if !created {
+		s.log.Infow("Reusing active background extraction task", "task_id", task.ID, "episode_id", episodeID)
+		return task.ID, nil
 	}
 
 	// 异步处理场景提取

@@ -68,9 +68,13 @@ func (s *PropService) ExtractPropsFromScript(userID uint, episodeID uint) (strin
 		return "", fmt.Errorf("episode not found: %w", err)
 	}
 
-	task, err := s.taskService.CreateTask("prop_extraction", fmt.Sprintf("%d", episodeID))
+	task, created, err := s.taskService.CreateOrGetActiveTask("prop_extraction", fmt.Sprintf("%d", episodeID))
 	if err != nil {
 		return "", err
+	}
+	if !created {
+		s.log.Infow("Reusing active prop extraction task", "task_id", task.ID, "episode_id", episodeID)
+		return task.ID, nil
 	}
 
 	go s.processPropExtraction(userID, task.ID, episode)
@@ -159,9 +163,13 @@ func (s *PropService) GeneratePropImage(userID uint, propID uint) (string, error
 	}
 
 	// 2. 创建任务
-	task, err := s.taskService.CreateTask("prop_image_generation", fmt.Sprintf("%d", propID))
+	task, created, err := s.taskService.CreateOrGetActiveTask("prop_image_generation", fmt.Sprintf("%d", propID))
 	if err != nil {
 		return "", err
+	}
+	if !created {
+		s.log.Infow("Reusing active prop image generation task", "task_id", task.ID, "prop_id", propID)
+		return task.ID, nil
 	}
 
 	go s.processPropImageGeneration(task.ID, prop)

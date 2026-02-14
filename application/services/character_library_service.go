@@ -472,9 +472,13 @@ func (s *CharacterLibraryService) ExtractCharactersFromScript(userID uint, episo
 		return "", fmt.Errorf("剧本内容为空")
 	}
 
-	task, err := s.taskService.CreateTask("character_extraction", fmt.Sprintf("%d", episode.DramaID))
+	task, created, err := s.taskService.CreateOrGetActiveTask("character_extraction", fmt.Sprintf("%d", episode.DramaID))
 	if err != nil {
 		return "", fmt.Errorf("创建任务失败: %w", err)
+	}
+	if !created {
+		s.log.Infow("Reusing active character extraction task", "task_id", task.ID, "drama_id", episode.DramaID)
+		return task.ID, nil
 	}
 
 	go s.processCharacterExtraction(userID, task.ID, episode)

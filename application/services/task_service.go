@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +39,28 @@ func (s *TaskService) CreateTask(taskType, resourceID string) (*models.AsyncTask
 	}
 
 	return task, nil
+}
+
+// CreateOrGetActiveTask returns an existing active task (pending/processing) for the same type+resource.
+// The returned bool indicates whether a new task row was created.
+func (s *TaskService) CreateOrGetActiveTask(taskType, resourceID string) (*models.AsyncTask, bool, error) {
+	var existing models.AsyncTask
+	err := s.db.
+		Where("type = ? AND resource_id = ? AND status IN ?", taskType, resourceID, []string{"pending", "processing"}).
+		Order("created_at DESC").
+		First(&existing).Error
+	if err == nil {
+		return &existing, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, fmt.Errorf("failed to query active task: %w", err)
+	}
+
+	task, createErr := s.CreateTask(taskType, resourceID)
+	if createErr != nil {
+		return nil, false, createErr
+	}
+	return task, true, nil
 }
 
 // UpdateTaskStatus 更新任务状态
