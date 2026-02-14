@@ -609,15 +609,35 @@ func (s *AIService) GetConfigForModel(serviceType string, modelName string, user
 // GetBillingConfig resolves which AIServiceConfig will be used for a request, and returns the effective model name.
 // If modelName is empty, the default config's first model is used.
 func (s *AIService) GetBillingConfig(serviceType string, modelName string, userID uint) (*models.AIServiceConfig, string, error) {
+	getPositivePlatformPricing := func() (*models.AIServiceConfig, error) {
+		var cfg models.AIServiceConfig
+		if err := s.db.
+			Where("service_type = ? AND user_id = ? AND is_active = ? AND credit_cost > 0", serviceType, 0, true).
+			Order("priority DESC, created_at DESC").
+			First(&cfg).Error; err != nil {
+			return nil, err
+		}
+		return &cfg, nil
+	}
+
 	// Pricing is always platform-defined. User-owned configs can define auth/base_url/etc, but not prices.
 	applyPlatformPricing := func(userCfg *models.AIServiceConfig, model string) (*models.AIServiceConfig, error) {
 		// Prefer exact per-model platform pricing when available.
 		if model != "" {
 			if pcfg, perr := s.GetConfigForModel(serviceType, model); perr == nil {
 				c := *userCfg
-				c.CreditCost = pcfg.CreditCost
-				return &c, nil
+				if pcfg.CreditCost > 0 {
+					c.CreditCost = pcfg.CreditCost
+					return &c, nil
+				}
 			}
+		}
+
+		// Fallback to any active positive platform pricing for this service type.
+		if ppos, perr := getPositivePlatformPricing(); perr == nil {
+			c := *userCfg
+			c.CreditCost = ppos.CreditCost
+			return &c, nil
 		}
 
 		// Fallback to platform default pricing for the service type.
@@ -657,7 +677,21 @@ func (s *AIService) GetBillingConfig(serviceType string, modelName string, userI
 		if perr != nil {
 			return nil, "", perr
 		}
+		if pcfg.CreditCost <= 0 {
+			s.log.Warnw("billing cost resolved to non-positive value", "service_type", serviceType, "model", actual, "user_id", userID, "credit_cost", pcfg.CreditCost)
+		}
 		return pcfg, actual, nil
+	}
+
+	if cfg.CreditCost <= 0 {
+		if ppos, perr := getPositivePlatformPricing(); perr == nil {
+			c := *cfg
+			c.CreditCost = ppos.CreditCost
+			cfg = &c
+		}
+	}
+	if cfg.CreditCost <= 0 {
+		s.log.Warnw("billing cost resolved to non-positive value", "service_type", serviceType, "model", actual, "user_id", userID, "credit_cost", cfg.CreditCost)
 	}
 	return cfg, actual, nil
 }

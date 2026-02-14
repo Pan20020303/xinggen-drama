@@ -26,7 +26,7 @@ func newAITestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func seedAIConfig(t *testing.T, db *gorm.DB, userID uint, serviceType, provider, name, model string, priority int) models.AIServiceConfig {
+func seedAIConfig(t *testing.T, db *gorm.DB, userID uint, serviceType, provider, name, model string, priority int, creditCost int) models.AIServiceConfig {
 	t.Helper()
 
 	cfg := models.AIServiceConfig{
@@ -37,6 +37,7 @@ func seedAIConfig(t *testing.T, db *gorm.DB, userID uint, serviceType, provider,
 		BaseURL:     "https://api.example.com",
 		APIKey:      "secret",
 		Model:       models.ModelField{model},
+		CreditCost:  creditCost,
 		Priority:    priority,
 		IsActive:    true,
 	}
@@ -51,8 +52,8 @@ func TestPlatformAIConfig_GetDefaultConfig_IgnoresUserOwnedConfigs(t *testing.T)
 	svc := NewAIService(db, logger.NewLogger(true))
 
 	// User-owned config has higher priority but must be ignored.
-	_ = seedAIConfig(t, db, 123, "text", "openai", "user-high", "gpt-user", 100)
-	platform := seedAIConfig(t, db, 0, "text", "openai", "platform-low", "gpt-platform", 1)
+	_ = seedAIConfig(t, db, 123, "text", "openai", "user-high", "gpt-user", 100, 0)
+	platform := seedAIConfig(t, db, 0, "text", "openai", "platform-low", "gpt-platform", 1, 0)
 
 	got, err := svc.GetDefaultConfig("text")
 	if err != nil {
@@ -71,8 +72,8 @@ func TestPlatformAIConfig_GetConfigForModel_IgnoresUserOwnedConfigs(t *testing.T
 	svc := NewAIService(db, logger.NewLogger(true))
 
 	// Same model exists in both, but user-owned must be ignored.
-	_ = seedAIConfig(t, db, 456, "text", "openai", "user-high", "gpt-1", 999)
-	platform := seedAIConfig(t, db, 0, "text", "openai", "platform", "gpt-1", 1)
+	_ = seedAIConfig(t, db, 456, "text", "openai", "user-high", "gpt-1", 999, 0)
+	platform := seedAIConfig(t, db, 0, "text", "openai", "platform", "gpt-1", 1, 0)
 
 	got, err := svc.GetConfigForModel("text", "gpt-1")
 	if err != nil {
@@ -83,5 +84,30 @@ func TestPlatformAIConfig_GetConfigForModel_IgnoresUserOwnedConfigs(t *testing.T
 	}
 	if got.ID != platform.ID {
 		t.Fatalf("expected platform config id=%d, got %d", platform.ID, got.ID)
+	}
+}
+
+func TestGetBillingConfig_FallbacksToPositivePlatformPrice(t *testing.T) {
+	db := newAITestDB(t)
+	svc := NewAIService(db, logger.NewLogger(true))
+
+	// User config selected at runtime, but pricing is platform-defined.
+	// Its model has no explicit priced platform config.
+	_ = seedAIConfig(t, db, 1001, "text", "openai", "user-text", "gpt-user-only", 50, 0)
+
+	// Highest-priority platform default has zero cost (bad config).
+	_ = seedAIConfig(t, db, 0, "text", "openai", "platform-zero", "gpt-zero", 100, 0)
+	// Another active platform config for same service has positive cost.
+	_ = seedAIConfig(t, db, 0, "text", "openai", "platform-priced", "gpt-priced", 1, 7)
+
+	cfg, actualModel, err := svc.GetBillingConfig("text", "", 1001)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if actualModel != "gpt-user-only" {
+		t.Fatalf("expected actualModel=gpt-user-only, got %s", actualModel)
+	}
+	if cfg.CreditCost != 7 {
+		t.Fatalf("expected fallback positive credit cost=7, got %d", cfg.CreditCost)
 	}
 }
