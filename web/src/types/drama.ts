@@ -130,6 +130,7 @@ export interface UpdateDramaRequest {
   genre?: string
   style?: string
   tags?: string
+  thumbnail?: string
   status?: DramaStatus
 }
 

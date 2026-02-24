@@ -41,6 +41,7 @@ type UpdateDramaRequest struct {
 	Genre       string `json:"genre"`
 	Style       string `json:"style"`
 	Tags        string `json:"tags"`
+	Thumbnail   string `json:"thumbnail" binding:"omitempty,max=500"`
 	Status      string `json:"status" binding:"omitempty,oneof=draft planning production completed archived"`
 }
 
@@ -296,6 +297,9 @@ func (s *DramaService) UpdateDrama(userID uint, dramaID string, req *UpdateDrama
 	}
 	if req.Tags != "" {
 		updates["tags"] = req.Tags
+	}
+	if req.Thumbnail != "" {
+		updates["thumbnail"] = req.Thumbnail
 	}
 	if req.Status != "" {
 		updates["status"] = req.Status

@@ -2,17 +2,59 @@
   <div class="page-container">
     <div class="content-wrapper animate-fade-in">
       <!-- Page Header / 页面头部 -->
-      <AppHeader :fixed="false" :show-logo="false">
+      <AppHeader
+        :fixed="false"
+        :show-logo="false"
+        :show-language="false"
+        :show-theme="false"
+        :show-user-actions="false"
+      >
         <template #left>
-          <el-button text @click="$router.back()" class="back-btn">
-            <el-icon><ArrowLeft /></el-icon>
-            <span>{{ $t("common.back") }}</span>
-          </el-button>
-          <div class="page-title">
+          <div class="management-header-left">
+            <el-breadcrumb separator="/" class="management-breadcrumb">
+              <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
+              <el-breadcrumb-item :to="{ path: '/dramas' }"
+                >项目管理</el-breadcrumb-item
+              >
+              <el-breadcrumb-item>{{
+                drama?.title || "项目详情"
+              }}</el-breadcrumb-item>
+            </el-breadcrumb>
             <h1>{{ drama?.title || "" }}</h1>
-            <span class="subtitle">{{
-              drama?.description || $t("drama.management.overview")
-            }}</span>
+          </div>
+        </template>
+        <template #right>
+          <div class="management-header-right">
+            <div class="points-chip">
+              <el-icon><Medal /></el-icon>
+              <span>积分 {{ authStore.user?.credits ?? 0 }}</span>
+            </div>
+            <el-dropdown trigger="click">
+              <el-button class="profile-btn">
+                <el-avatar :size="26">{{
+                  (authStore.user?.email || "U").slice(0, 1).toUpperCase()
+                }}</el-avatar>
+                <span class="profile-email">{{
+                  authStore.user?.email || "未登录"
+                }}</span>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="goCharacterLibrary">
+                    <el-icon><Collection /></el-icon>
+                    <span>角色库</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item @click="goAccountCenter">
+                    <el-icon><Setting /></el-icon>
+                    <span>账户设置</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item divided @click="handleLogout">
+                    <el-icon><SwitchButton /></el-icon>
+                    <span>退出登录</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </template>
       </AppHeader>
@@ -52,12 +94,14 @@
               />
               <StatCard
                 :label="$t('drama.management.propStats')"
-                :value="propsCount"
+                :value="propsCount === 0 ? '暂无数据' : propsCount"
                 :icon="Box"
                 icon-color="var(--primary)"
                 icon-bg="var(--primary-light)"
                 value-color="var(--primary)"
-                :description="$t('drama.management.propsCreated')"
+                :description="
+                  propsCount === 0 ? '暂无道具，请先创建' : $t('drama.management.propsCreated')
+                "
               />
             </div>
 
@@ -84,38 +128,47 @@
               </template>
             </el-alert>
 
-            <el-card shadow="never" class="project-info-card">
-              <template #header>
-                <div class="card-header">
-                  <h3 class="card-title">
+            <section class="project-info-panel">
+              <div class="project-info-header">
+                <div class="project-info-title-wrap">
+                  <h3 class="project-info-title">
                     {{ $t("drama.management.projectInfo") }}
                   </h3>
-                  <el-tag :type="getStatusType(drama?.status)" size="small">{{
-                    getStatusText(drama?.status)
-                  }}</el-tag>
+                  <el-tag :type="getStatusType(drama?.status)" size="small">
+                    {{ getStatusText(drama?.status) }}
+                  </el-tag>
                 </div>
-              </template>
-              <el-descriptions :column="2" border class="project-descriptions">
-                <el-descriptions-item
-                  :label="$t('drama.management.projectName')"
+                <el-button
+                  type="primary"
+                  :icon="Edit"
+                  :loading="projectEditLoading"
+                  @click="openProjectEditDialog"
                 >
-                  <span class="info-value">{{ drama?.title }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item :label="$t('common.createdAt')">
-                  <span class="info-value">{{
-                    formatDate(drama?.created_at)
-                  }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item
-                  :label="$t('drama.management.projectDesc')"
-                  :span="2"
-                >
-                  <span class="info-desc">{{
-                    drama?.description || $t("drama.management.noDescription")
-                  }}</span>
-                </el-descriptions-item>
-              </el-descriptions>
-            </el-card>
+                  {{ $t("common.edit") }}
+                </el-button>
+              </div>
+
+              <div class="project-info-grid">
+                <div class="info-row">
+                  <div class="info-label">
+                    {{ $t("drama.management.projectName") }}
+                  </div>
+                  <div class="info-content">{{ drama?.title || "-" }}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">
+                    {{ $t("drama.management.projectDesc") }}
+                  </div>
+                  <div class="info-content">
+                    {{ drama?.description || $t("drama.management.noDescription") }}
+                  </div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">{{ $t("common.createdAt") }}</div>
+                  <div class="info-content">{{ formatDate(drama?.created_at) }}</div>
+                </div>
+              </div>
+            </section>
           </el-tab-pane>
 
           <!-- 章节管理 -->
@@ -405,6 +458,42 @@
           </el-tab-pane>
         </el-tabs>
       </div>
+
+      <!-- 编辑项目信息对话框 -->
+      <el-dialog
+        v-model="projectEditDialogVisible"
+        :title="$t('drama.editProject')"
+        width="520px"
+      >
+        <el-form :model="projectEditForm" label-position="top">
+          <el-form-item :label="$t('drama.projectName')" required>
+            <el-input
+              v-model="projectEditForm.title"
+              :placeholder="$t('drama.projectNamePlaceholder')"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('drama.projectDesc')">
+            <el-input
+              v-model="projectEditForm.description"
+              type="textarea"
+              :rows="4"
+              :placeholder="$t('drama.projectDescPlaceholder')"
+            />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="projectEditDialogVisible = false">
+            {{ $t("common.cancel") }}
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="projectEditLoading"
+            @click="saveProjectInfo"
+          >
+            {{ $t("common.save") }}
+          </el-button>
+        </template>
+      </el-dialog>
 
       <!-- 添加/编辑角色对话框 -->
       <el-dialog
@@ -768,31 +857,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  ArrowLeft,
+  Edit,
   Document,
   User,
   Picture,
   Plus,
   Box,
+  Medal,
+  Collection,
+  Setting,
+  SwitchButton,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { characterLibraryAPI } from "@/api/character-library";
 import { propAPI } from "@/api/prop";
 import type { Drama } from "@/types/drama";
+import { useAuthStore } from "@/stores/auth";
 import {
   AppHeader,
   StatCard,
-  EmptyState,
   ImagePreview,
 } from "@/components/common";
 import { getImageUrl, hasImage } from "@/utils/image";
 
 const router = useRouter();
 const route = useRoute();
+const authStore = useAuthStore();
 
 const drama = ref<Drama>();
 const activeTab = ref((route.query.tab as string) || "overview");
@@ -806,11 +900,17 @@ const addPropDialogVisible = ref(false);
 const extractPropsDialogVisible = ref(false);
 const extractCharactersDialogVisible = ref(false);
 const extractScenesDialogVisible = ref(false);
+const projectEditDialogVisible = ref(false);
+const projectEditLoading = ref(false);
 
 const editingCharacter = ref<any>(null);
 const editingScene = ref<any>(null);
 const editingProp = ref<any>(null);
 const selectedExtractEpisodeId = ref<number | null>(null);
+const projectEditForm = ref({
+  title: "",
+  description: "",
+});
 
 const newCharacter = ref({
   name: "",
@@ -927,6 +1027,50 @@ const getEpisodeStatusText = (episode: any) => {
 const formatDate = (date?: string) => {
   if (!date) return "-";
   return new Date(date).toLocaleString("zh-CN");
+};
+
+const goCharacterLibrary = () => {
+  router.push("/character-library");
+};
+
+const goAccountCenter = () => {
+  router.push("/settings/account");
+};
+
+const handleLogout = async () => {
+  authStore.logout();
+  await router.replace("/login");
+};
+
+const openProjectEditDialog = () => {
+  projectEditForm.value = {
+    title: drama.value?.title || "",
+    description: drama.value?.description || "",
+  };
+  projectEditDialogVisible.value = true;
+};
+
+const saveProjectInfo = async () => {
+  if (!drama.value?.id) return;
+  if (!projectEditForm.value.title.trim()) {
+    ElMessage.warning("请输入项目名称");
+    return;
+  }
+
+  projectEditLoading.value = true;
+  try {
+    await dramaAPI.update(drama.value.id, {
+      title: projectEditForm.value.title,
+      description: projectEditForm.value.description,
+    });
+    ElMessage.success("项目信息已更新");
+    projectEditDialogVisible.value = false;
+    await loadDramaData();
+  } catch (error: any) {
+    ElMessage.error(error.message || "更新失败");
+  } finally {
+    projectEditLoading.value = false;
+  }
 };
 
 const createNewEpisode = () => {
@@ -1479,43 +1623,152 @@ onMounted(() => {
 }
 
 /* ========================================
-   Stats Grid / 统计网格 - 紧凑间距
+   Management Header / 管理页头部
+   ======================================== */
+.management-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.management-breadcrumb {
+  font-size: 12px;
+}
+
+.management-header-left h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1d2129;
+  letter-spacing: -0.01em;
+}
+
+.management-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.points-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(22, 93, 255, 0.08);
+  color: #165dff;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(22, 93, 255, 0.2);
+}
+
+.profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+}
+
+.profile-email {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========================================
+   Stats Grid / 统计网格
    ======================================== */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(1, 1fr);
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 @media (min-width: 640px) {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-3);
   }
 }
 
-@media (min-width: 1024px) {
-  .stats-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+.stats-grid :deep(.stat-card) {
+  min-height: 126px;
+  border-radius: 8px;
+  border: 1px solid #e5e6eb;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.stats-grid :deep(.stat-card:hover) {
+  border-color: rgba(22, 93, 255, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(22, 93, 255, 0.12);
+}
+
+.stats-grid :deep(.stat-label) {
+  font-size: 14px;
+  color: #4e5969;
+}
+
+.stats-grid :deep(.stat-value) {
+  font-size: 24px;
+  font-weight: 700;
+  color: #165dff !important;
+}
+
+.stats-grid :deep(.stat-description) {
+  font-size: 12px;
+  color: #86909c;
 }
 
 /* ========================================
-   Tabs Wrapper / 标签页容器 - 紧凑内边距
+   Tabs Wrapper / 标签页容器
    ======================================== */
 .tabs-wrapper {
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
-  box-shadow: var(--shadow-card);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
 }
 
 @media (min-width: 768px) {
   .tabs-wrapper {
-    padding: var(--space-4);
+    padding: 24px;
   }
+}
+
+/* 胶囊式 Tab */
+.management-tabs :deep(.el-tabs__header) {
+  margin: 0 0 24px;
+  border-bottom: 1px solid #e5e6eb;
+  padding-bottom: 12px;
+}
+
+.management-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.management-tabs :deep(.el-tabs__item) {
+  height: 34px;
+  line-height: 34px;
+  border-radius: 999px;
+  border: 1px solid #e5e6eb;
+  padding: 0 16px;
+  margin-right: 10px;
+  color: #4e5969;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.management-tabs :deep(.el-tabs__item.is-active) {
+  background: #165dff;
+  border-color: #165dff;
+  color: #fff;
+}
+
+.management-tabs :deep(.el-tabs__active-bar) {
+  display: none;
 }
 
 /* ========================================
@@ -1542,6 +1795,97 @@ onMounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+}
+
+/* ========================================
+   Project Info Panel / 项目信息区
+   ======================================== */
+.project-info-panel {
+  margin-top: 24px;
+  border: 1px solid #e5e6eb;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.project-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #f2f3f5;
+}
+
+.project-info-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-info-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.project-info-grid {
+  padding: 6px 0;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 18%) 1fr;
+  align-items: center;
+  border-bottom: 1px solid #f2f3f5;
+  min-height: 56px;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  padding: 12px 18px;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+}
+
+.info-content {
+  margin-right: 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f7f8fa;
+  color: #4e5969;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .management-header-right {
+    gap: 8px;
+  }
+
+  .profile-email {
+    display: none;
+  }
+
+  .info-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+
+  .info-label {
+    text-align: left;
+    padding: 0;
+  }
+
+  .info-content {
+    margin-right: 0;
+  }
 }
 
 /* ========================================
@@ -1682,69 +2026,45 @@ onMounted(() => {
   background: var(--bg-card-hover) !important;
 }
 
-.dark :deep(.el-descriptions) {
-  background: var(--bg-card);
+.dark .management-header-left h1,
+.dark .project-info-title {
+  color: var(--text-primary);
 }
 
-.dark :deep(.el-descriptions__label) {
+.dark .points-chip {
+  background: rgba(22, 93, 255, 0.15);
+  border-color: rgba(22, 93, 255, 0.3);
+}
+
+.dark .management-tabs :deep(.el-tabs__item) {
+  border-color: var(--border-primary);
+  color: var(--text-secondary);
+}
+
+.dark .management-tabs :deep(.el-tabs__item.is-active) {
+  color: #ffffff;
+}
+
+.dark .project-info-panel {
+  background: var(--bg-card);
+  border-color: var(--border-primary);
+}
+
+.dark .project-info-header {
+  border-color: var(--border-primary);
+}
+
+.dark .info-row {
+  border-color: var(--border-primary);
+}
+
+.dark .info-label {
+  color: var(--text-secondary);
+}
+
+.dark .info-content {
   background: var(--bg-secondary);
-  color: var(--text-secondary);
-  border-color: var(--border-primary);
-}
-
-.dark :deep(.el-descriptions__content) {
-  background: var(--bg-card);
   color: var(--text-primary);
-  border-color: var(--border-primary);
-}
-
-.dark :deep(.el-descriptions__cell) {
-  border-color: var(--border-primary);
-}
-
-/* ========================================
-   Project Info Card / 项目信息卡片
-   ======================================== */
-.project-info-card {
-  margin-top: var(--space-5);
-  border-radius: var(--radius-lg);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.card-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.project-descriptions {
-  width: 100%;
-}
-
-:deep(.project-descriptions .el-descriptions__label) {
-  width: 120px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-:deep(.project-descriptions .el-descriptions__content) {
-  min-width: 150px;
-}
-
-.info-value {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.info-desc {
-  color: var(--text-secondary);
-  line-height: 1.6;
 }
 
 .dark :deep(.el-dialog) {

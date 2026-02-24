@@ -54,11 +54,22 @@
           :key="drama.id"
           :title="drama.title"
           :description="drama.description"
+          :thumbnail="normalizeThumbnail(drama.thumbnail)"
           :updated-at="drama.updated_at"
           :episode-count="drama.total_episodes || 0"
           @click="viewDrama(drama.id)"
         >
           <template #actions>
+            <el-upload
+              :action="`/api/v1/upload/image`"
+              :headers="uploadHeaders"
+              :show-file-list="false"
+              :before-upload="beforeCoverUpload"
+              :on-success="(response) => handleCoverUploadSuccess(response, drama.id)"
+              :on-error="handleCoverUploadError"
+            >
+              <el-button :icon="Upload" class="action-button" link />
+            </el-upload>
             <ActionButton
               :icon="Edit"
               :tooltip="$t('common.edit')"
@@ -197,17 +208,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import {
   Plus,
   Film,
-  Setting,
   Edit,
-  View,
+  Upload,
   Delete,
-  InfoFilled,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import type { Drama, DramaListQuery } from "@/types/drama";
@@ -228,6 +237,76 @@ const queryParams = ref<DramaListQuery>({
   page: 1,
   page_size: 12,
 });
+
+const uploadHeaders = computed(() => {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+});
+
+const beforeCoverUpload = (file: File) => {
+  const isImage = file.type.startsWith("image/");
+  if (!isImage) {
+    ElMessage.error("仅支持图片格式");
+    return false;
+  }
+
+  const isLt10M = file.size / 1024 / 1024 < 10;
+  if (!isLt10M) {
+    ElMessage.error("图片大小不能超过 10MB");
+    return false;
+  }
+
+  return true;
+};
+
+const normalizeThumbnail = (thumbnail?: string) => {
+  if (!thumbnail) return "";
+
+  const value = thumbnail.trim();
+  if (!value) return "";
+
+  if (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:")
+  ) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return value;
+  }
+
+  return `/static/${value.replace(/^\/+/, "")}`;
+};
+
+const handleCoverUploadSuccess = async (response: any, dramaId: string) => {
+  const rawURL = response?.data?.url || response?.url || "";
+  const localPath = response?.data?.local_path || response?.local_path || "";
+  const imageURL = normalizeThumbnail(rawURL || localPath);
+
+  if (!imageURL) {
+    ElMessage.error("上传成功但未返回图片地址");
+    return;
+  }
+
+  const target = dramas.value.find((d) => String(d.id) === String(dramaId));
+  if (target) {
+    target.thumbnail = imageURL;
+  }
+
+  try {
+    await dramaAPI.update(dramaId, { thumbnail: imageURL });
+    ElMessage.success("封面已更新");
+    await loadDramas();
+  } catch (error: any) {
+    ElMessage.error(error.message || "更新封面失败");
+  }
+};
+
+const handleCoverUploadError = () => {
+  ElMessage.error("封面上传失败");
+};
 
 // Create dialog state / 创建弹窗状态
 const createDialogVisible = ref(false);

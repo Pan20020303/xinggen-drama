@@ -18,38 +18,40 @@
 
         <!-- Right section: Actions + Right slot -->
         <div class="header-right">
-          <!-- Language Switcher | 语言切换 -->
-          <LanguageSwitcher v-if="showLanguage" />
+          <template v-if="showUserActions">
+            <!-- Language Switcher | 语言切换 -->
+            <LanguageSwitcher v-if="showLanguage" />
 
-          <!-- Theme Toggle | 主题切换 -->
-          <ThemeToggle v-if="showTheme" />
+            <!-- Theme Toggle | 主题切换 -->
+            <ThemeToggle v-if="showTheme" />
 
-          <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goCharacterLibrary">
-            <el-icon><Collection /></el-icon>
-            <span class="btn-text">角色库</span>
-          </el-button>
-
-          <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goAccountCenter">
-            <el-icon><Coin /></el-icon>
-            <span class="btn-text">积分 {{ authStore.user?.credits ?? 0 }}</span>
-          </el-button>
-
-          <el-dropdown v-if="showNavButtons && isAuthenticated" trigger="click">
-            <el-button class="header-btn">
-              <el-icon><UserFilled /></el-icon>
-              <span class="btn-text user-email">{{ authStore.user?.email }}</span>
+            <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goCharacterLibrary">
+              <el-icon><Collection /></el-icon>
+              <span class="btn-text">角色库</span>
             </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item @click="goAccountCenter">账户中心</el-dropdown-item>
-                <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
 
-          <el-button v-if="showNavButtons && !isAuthenticated" type="primary" class="header-btn" @click="goLogin">
-            登录
-          </el-button>
+            <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goAccountCenter">
+              <el-icon><Coin /></el-icon>
+              <span class="btn-text">积分 {{ authStore.user?.credits ?? 0 }}</span>
+            </el-button>
+
+            <el-dropdown v-if="showNavButtons && isAuthenticated" trigger="click">
+              <el-button class="header-btn">
+                <el-icon><UserFilled /></el-icon>
+                <span class="btn-text user-email">{{ authStore.user?.email }}</span>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="goAccountCenter">账户中心</el-dropdown-item>
+                  <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+
+            <el-button v-if="showNavButtons && !isAuthenticated" type="primary" class="header-btn" @click="goLogin">
+              登录
+            </el-button>
+          </template>
 
           <!-- Right slot for business content (before actions) | 右侧插槽（在操作按钮前） -->
           <slot name="right" />
@@ -92,13 +94,16 @@ interface Props {
   showLanguage?: boolean
   /** Show theme toggle | 是否显示主题切换 */
   showTheme?: boolean
+  /** Show built-in right-side actions | 是否显示默认右侧操作 */
+  showUserActions?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
   fixed: true,
   showLogo: true,
   showLanguage: true,
-  showTheme: true
+  showTheme: true,
+  showUserActions: true
 })
 
 const router = useRouter()

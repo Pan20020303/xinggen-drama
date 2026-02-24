@@ -7,9 +7,15 @@
     tabindex="0"
     @keydown.enter="$emit('click')"
   >
-    <!-- Gradient header with icon / 渐变头部区域 -->
+    <!-- Header area / 头部区域 -->
     <div class="card-header">
-      <el-icon class="header-icon"><Film /></el-icon>
+      <img
+        v-if="thumbnail"
+        :src="thumbnail"
+        class="header-image"
+        alt="project thumbnail"
+      />
+      <el-icon v-else class="header-icon"><Film /></el-icon>
       <!-- Hover actions / 悬停操作区 -->
       <div class="hover-actions" @click.stop>
         <slot name="actions"></slot>
@@ -43,9 +49,11 @@ const props = withDefaults(defineProps<{
   description?: string
   updatedAt: string
   episodeCount?: number
+  thumbnail?: string
 }>(), {
   description: '',
-  episodeCount: 0
+  episodeCount: 0,
+  thumbnail: ''
 })
 
 defineEmits<{
@@ -97,6 +105,12 @@ const formattedDate = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.header-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .header-icon {
