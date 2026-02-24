@@ -636,9 +636,43 @@
           <el-tab-pane :label="$t('video.videoGeneration')" name="video">
             <div class="tab-content" v-if="currentStoryboard">
               <div class="video-generation-section">
-                <!-- 生成提示词展示 -->
+                <!-- 视频提示词编辑 -->
                 <div class="video-prompt-box">
-                  {{ currentStoryboard.video_prompt || "暂无提示词" }}
+                  <div class="video-prompt-toolbar">
+                    <span class="video-prompt-title">视频提示词</span>
+                    <div class="video-prompt-actions">
+                      <el-button size="small" @click="resetVideoPromptEditor"
+                        >重置</el-button
+                      >
+                      <el-button
+                        size="small"
+                        type="primary"
+                        plain
+                        :icon="MagicStick"
+                        :loading="optimizingVideoPrompt"
+                        @click="optimizeVideoPromptWithAI"
+                        >AI优化</el-button
+                      >
+                      <el-button
+                        size="small"
+                        type="primary"
+                        :loading="savingVideoPrompt"
+                        @click="saveVideoPrompt"
+                        >保存提示词</el-button
+                      >
+                    </div>
+                  </div>
+                  <el-input
+                    v-model="editableVideoPrompt"
+                    type="textarea"
+                    :rows="5"
+                    maxlength="2000"
+                    show-word-limit
+                    placeholder="请输入视频提示词，可点击AI优化后再生成视频"
+                  />
+                  <div class="video-prompt-hint">
+                    生成视频时将使用此提示词（含参考图模式）。
+                  </div>
                 </div>
 
                 <!-- 视频参数设置 -->
@@ -1253,6 +1287,202 @@
                       />
                     </div>
                   </div>
+
+                  <!-- 多图模式：本镜头场景参考 -->
+                  <div
+                    v-if="selectedReferenceMode === 'multiple'"
+                    class="character-reference-section"
+                    style="margin-top: 12px"
+                  >
+                    <div
+                      style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        margin-bottom: 8px;
+                      "
+                    >
+                      <span
+                        style="font-size: 13px; color: #303133; font-weight: 600"
+                        >本镜头场景参考</span
+                      >
+                      <span class="hint-text">点击场景图加入多图参考</span>
+                    </div>
+                    <div
+                      class="reference-grid"
+                      style="
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 12px;
+                        max-width: 600px;
+                      "
+                    >
+                      <div
+                        v-for="sceneRef in currentShotSceneReferences"
+                        :key="sceneRef.id"
+                        class="reference-item"
+                        :class="{
+                          selected: selectedImagesForVideo.includes(sceneRef.id),
+                        }"
+                        style="position: relative"
+                        @click="handleImageSelect(sceneRef.id)"
+                      >
+                        <el-image
+                          :src="getImageUrl(sceneRef)"
+                          fit="cover"
+                          style="
+                            max-width: 120px;
+                            width: 100%;
+                            display: block;
+                            pointer-events: none;
+                          "
+                        />
+                        <div
+                          style="
+                            position: absolute;
+                            left: 4px;
+                            bottom: 4px;
+                            max-width: 110px;
+                            background: rgba(0, 0, 0, 0.65);
+                            color: #fff;
+                            border-radius: 4px;
+                            padding: 1px 6px;
+                            font-size: 11px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                          "
+                        >
+                          {{ sceneRef.name || "场景" }}
+                        </div>
+                        <div
+                          class="preview-icon"
+                          @click.stop="previewImage(getImageUrl(sceneRef))"
+                          style="
+                            position: absolute;
+                            top: 4px;
+                            right: 4px;
+                            width: 24px;
+                            height: 24px;
+                            background: rgba(0, 0, 0, 0.6);
+                            border-radius: 4px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            cursor: pointer;
+                            z-index: 10;
+                          "
+                        >
+                          <el-icon :size="14" color="#fff">
+                            <ZoomIn />
+                          </el-icon>
+                        </div>
+                      </div>
+                    </div>
+                    <el-empty
+                      v-if="currentShotSceneReferences.length === 0"
+                      description="本镜头暂无可用场景图"
+                      size="small"
+                    />
+                  </div>
+
+                  <!-- 多图模式：本镜头角色参考 -->
+                  <div
+                    v-if="selectedReferenceMode === 'multiple'"
+                    class="character-reference-section"
+                    style="margin-top: 12px"
+                  >
+                    <div
+                      style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        margin-bottom: 8px;
+                      "
+                    >
+                      <span
+                        style="font-size: 13px; color: #303133; font-weight: 600"
+                        >本镜头角色参考</span
+                      >
+                      <span class="hint-text">点击角色图加入多图参考</span>
+                    </div>
+                    <div
+                      class="reference-grid"
+                      style="
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 12px;
+                        max-width: 600px;
+                      "
+                    >
+                      <div
+                        v-for="charRef in currentShotCharacterReferences"
+                        :key="charRef.id"
+                        class="reference-item"
+                        :class="{
+                          selected: selectedImagesForVideo.includes(charRef.id),
+                        }"
+                        style="position: relative"
+                        @click="handleImageSelect(charRef.id)"
+                      >
+                        <el-image
+                          :src="getImageUrl(charRef)"
+                          fit="cover"
+                          style="
+                            max-width: 120px;
+                            width: 100%;
+                            display: block;
+                            pointer-events: none;
+                          "
+                        />
+                        <div
+                          style="
+                            position: absolute;
+                            left: 4px;
+                            bottom: 4px;
+                            max-width: 80px;
+                            background: rgba(0, 0, 0, 0.65);
+                            color: #fff;
+                            border-radius: 4px;
+                            padding: 1px 6px;
+                            font-size: 11px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                          "
+                        >
+                          {{ charRef.name || "角色" }}
+                        </div>
+                        <div
+                          class="preview-icon"
+                          @click.stop="previewImage(getImageUrl(charRef))"
+                          style="
+                            position: absolute;
+                            top: 4px;
+                            right: 4px;
+                            width: 24px;
+                            height: 24px;
+                            background: rgba(0, 0, 0, 0.6);
+                            border-radius: 4px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            cursor: pointer;
+                            z-index: 10;
+                          "
+                        >
+                          <el-icon :size="14" color="#fff">
+                            <ZoomIn />
+                          </el-icon>
+                        </div>
+                      </div>
+                    </div>
+                    <el-empty
+                      v-if="currentShotCharacterReferences.length === 0"
+                      description="本镜头暂无可用角色图"
+                      size="small"
+                    />
+                  </div>
                 </div>
 
                 <!-- 参考图片设置 -->
@@ -1445,7 +1675,7 @@
                         >
                           <img
                             v-if="selectedImageObjects[index - 1]"
-                            :src="selectedImageObjects[index - 1].image_url"
+                            :src="getImageUrl(selectedImageObjects[index - 1])"
                             alt=""
                             style="width: 100%; height: 100%; object-fit: cover"
                           />
@@ -2185,8 +2415,13 @@ const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
 const videoReferenceImages = ref<ImageGeneration[]>([]);
 const selectedVideoModel = ref<string>("");
 const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, multiple, none
+const editableVideoPrompt = ref<string>("");
+const optimizingVideoPrompt = ref(false);
+const savingVideoPrompt = ref(false);
 const previewImageUrl = ref<string>(""); // 预览大图的URL
 const videoModelCapabilities = ref<VideoModelCapability[]>([]);
+const CHARACTER_REFERENCE_ID_OFFSET = 1000000000;
+const SCENE_REFERENCE_ID_OFFSET = 2000000000;
 let videoPollingTimer: any = null;
 let mergePollingTimer: any = null; // 视频合成列表轮询定时器
 
@@ -2203,6 +2438,16 @@ interface VideoModelCapability {
   supportSingleImage: boolean; // 支持单图
   supportTextOnly: boolean; // 支持纯文本
   maxImages: number; // 最多支持几张图片
+}
+
+interface VideoReferenceCandidate {
+  id: number;
+  image_url?: string;
+  local_path?: string;
+  frame_type?: string;
+  status?: string;
+  source_type?: "image" | "character" | "scene";
+  name?: string;
 }
 
 // 模型能力默认配置（作为后备）
@@ -2233,10 +2478,10 @@ const defaultModelCapabilities: Record<
   },
   "doubao-seedance-1-5-pro-251215": {
     supportSingleImage: true,
-    supportMultipleImages: false,
+    supportMultipleImages: true,
     supportFirstLastFrame: true,
     supportTextOnly: true,
-    maxImages: 2,
+    maxImages: 4,
   },
   "doubao-seedance-1-0-lite-i2v-250428": {
     supportSingleImage: true,
@@ -2644,6 +2889,7 @@ watch(currentStoryboard, (newStoryboard) => {
     // 否则使用默认值5秒
     videoDuration.value = 5;
   }
+  editableVideoPrompt.value = getDefaultVideoPrompt(newStoryboard);
 });
 
 // 监听参考图模式切换，清空已选图片
@@ -2676,6 +2922,79 @@ const currentStoryboardCharacters = computed(() => {
 
   return [];
 });
+
+const toCharacterReferenceId = (characterId: number) =>
+  CHARACTER_REFERENCE_ID_OFFSET + Number(characterId);
+const toSceneReferenceId = (sceneId: number) =>
+  SCENE_REFERENCE_ID_OFFSET + Number(sceneId);
+
+// 当前镜头角色的可用参考图（用于多图模式）
+const currentShotCharacterReferences = computed<VideoReferenceCandidate[]>(() => {
+  return currentStoryboardCharacters.value
+    .filter((char: any) => hasImage(char))
+    .map((char: any) => ({
+      id: toCharacterReferenceId(char.id),
+      image_url: char.image_url,
+      local_path: char.local_path,
+      frame_type: "character",
+      status: "completed",
+      source_type: "character",
+      name: char.name,
+    }));
+});
+
+// 当前镜头场景的可用参考图（用于多图模式）
+const currentShotSceneReferences = computed<VideoReferenceCandidate[]>(() => {
+  const bg = currentStoryboard.value?.background;
+  if (!bg || !hasImage(bg)) return [];
+
+  const rawSceneId =
+    Number(
+      bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || 0,
+    ) || 0;
+  const sceneRefId = toSceneReferenceId(rawSceneId);
+  const sceneName = `${bg.location || "场景"}${bg.time ? ` · ${bg.time}` : ""}`;
+
+  return [
+    {
+      id: sceneRefId,
+      image_url: bg.image_url,
+      local_path: bg.local_path,
+      frame_type: "scene",
+      status: "completed",
+      source_type: "scene",
+      name: sceneName,
+    },
+  ];
+});
+
+const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
+  const imageRefs = videoReferenceImages.value
+    .filter((img) => img.status === "completed" && hasImage(img))
+    .map((img) => ({
+      id: img.id,
+      image_url: img.image_url,
+      local_path: img.local_path,
+      frame_type: img.frame_type,
+      status: img.status,
+      source_type: "image" as const,
+    }));
+
+  return [
+    ...imageRefs,
+    ...currentShotSceneReferences.value,
+    ...currentShotCharacterReferences.value,
+  ];
+});
+
+const findReferenceCandidateById = (
+  id: number,
+): VideoReferenceCandidate | any | undefined => {
+  return (
+    allVideoReferenceCandidates.value.find((img) => img.id === id) ||
+    previousStoryboardLastFrames.value.find((img) => img.id === id)
+  );
+};
 
 // 可选择的角色列表
 const availableCharacters = computed(() => {
@@ -3204,9 +3523,7 @@ const handleImageSelect = (imageId: number) => {
   }
 
   // 获取当前点击的图片对象
-  const clickedImage = videoReferenceImages.value.find(
-    (img) => img.id === imageId,
-  );
+  const clickedImage = findReferenceCandidateById(imageId);
   if (!clickedImage) return;
 
   // 根据选择的参考图模式处理
@@ -3264,33 +3581,21 @@ const previewImage = (url: string) => {
 // 获取已选图片对象列表
 const selectedImageObjects = computed(() => {
   return selectedImagesForVideo.value
-    .map((id) => videoReferenceImages.value.find((img) => img.id === id))
-    .filter((img) => img && img.image_url);
+    .map((id) => findReferenceCandidateById(id))
+    .filter((img) => img && hasImage(img));
 });
 
 // 首尾帧模式：获取首帧图片
 const firstFrameSlotImage = computed(() => {
   if (selectedImagesForVideo.value.length === 0) return null;
   const firstImageId = selectedImagesForVideo.value[0];
-  // 同时搜索当前镜头图片和上一镜头尾帧
-  return (
-    videoReferenceImages.value.find((img) => img.id === firstImageId) ||
-    previousStoryboardLastFrames.value.find((img) => img.id === firstImageId)
-  );
+  return findReferenceCandidateById(firstImageId) || null;
 });
 
 // 首尾帧模式：获取尾帧图片
 const lastFrameSlotImage = computed(() => {
   if (!selectedLastImageForVideo.value) return null;
-  // 同时搜索当前镜头图片和上一镜头尾帧
-  return (
-    videoReferenceImages.value.find(
-      (img) => img.id === selectedLastImageForVideo.value,
-    ) ||
-    previousStoryboardLastFrames.value.find(
-      (img) => img.id === selectedLastImageForVideo.value,
-    )
-  );
+  return findReferenceCandidateById(selectedLastImageForVideo.value) || null;
 });
 
 // 移除已选择的图片
@@ -3305,6 +3610,68 @@ const removeSelectedImage = (imageId: number) => {
   const index = selectedImagesForVideo.value.indexOf(imageId);
   if (index > -1) {
     selectedImagesForVideo.value.splice(index, 1);
+  }
+};
+
+const getDefaultVideoPrompt = (storyboard: any): string => {
+  if (!storyboard) return "";
+  return (
+    storyboard.video_prompt || storyboard.action || storyboard.description || ""
+  ).trim();
+};
+
+const resetVideoPromptEditor = () => {
+  editableVideoPrompt.value = getDefaultVideoPrompt(currentStoryboard.value);
+};
+
+const saveVideoPrompt = async () => {
+  if (!currentStoryboard.value) return;
+  const prompt = (editableVideoPrompt.value || "").trim();
+  if (prompt.length < 5) {
+    ElMessage.warning("提示词至少需要5个字符");
+    return;
+  }
+
+  savingVideoPrompt.value = true;
+  try {
+    await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
+      video_prompt: prompt,
+    });
+    currentStoryboard.value.video_prompt = prompt;
+    ElMessage.success("视频提示词已保存");
+  } catch (error: any) {
+    ElMessage.error(error.message || "保存提示词失败");
+  } finally {
+    savingVideoPrompt.value = false;
+  }
+};
+
+const optimizeVideoPromptWithAI = async () => {
+  if (!currentStoryboard.value) return;
+
+  optimizingVideoPrompt.value = true;
+  try {
+    const result = await dramaAPI.optimizeVideoPrompt(
+      currentStoryboard.value.id.toString(),
+      {
+        prompt: editableVideoPrompt.value || "",
+        model: textDefaultModel.value || undefined,
+      },
+    );
+    const optimized = (result.prompt || "").trim();
+    if (!optimized) {
+      ElMessage.warning("未返回可用的优化提示词");
+      return;
+    }
+
+    editableVideoPrompt.value = optimized;
+    currentStoryboard.value.video_prompt = optimized;
+    ElMessage.success("提示词优化完成");
+    await authStore.refreshMe();
+  } catch (error: any) {
+    ElMessage.error(error.message || "提示词优化失败");
+  } finally {
+    optimizingVideoPrompt.value = false;
   }
 };
 
@@ -3335,15 +3702,8 @@ const generateVideo = async () => {
     selectedReferenceMode.value !== "none" &&
     selectedImagesForVideo.value.length > 0
   ) {
-    // 同时搜索当前镜头图片和上一镜头尾帧
-    selectedImage =
-      videoReferenceImages.value.find(
-        (img) => img.id === selectedImagesForVideo.value[0],
-      ) ||
-      previousStoryboardLastFrames.value.find(
-        (img) => img.id === selectedImagesForVideo.value[0],
-      );
-    if (!selectedImage || !selectedImage.image_url) {
+    selectedImage = findReferenceCandidateById(selectedImagesForVideo.value[0]);
+    if (!selectedImage || !hasImage(selectedImage)) {
       ElMessage.error("请选择有效的参考图片");
       return;
     }
@@ -3353,16 +3713,24 @@ const generateVideo = async () => {
   try {
     // 从模型名称提取正确的provider
     const provider = extractProviderFromModel(selectedVideoModel.value);
+    let promptText = (
+      editableVideoPrompt.value ||
+      getDefaultVideoPrompt(currentStoryboard.value)
+    ).trim();
+    if (promptText.length < 5) {
+      ElMessage.warning("请先填写有效的视频提示词");
+      return;
+    }
+    if (promptText.length > 2000) {
+      promptText = promptText.slice(0, 2000);
+      ElMessage.warning("提示词过长，已自动截断到2000字符");
+    }
 
     // 构建请求参数
     const requestParams: any = {
       drama_id: dramaId.toString(),
       storyboard_id: currentStoryboard.value.id,
-      prompt:
-        currentStoryboard.value.video_prompt ||
-        currentStoryboard.value.action ||
-        currentStoryboard.value.description ||
-        "",
+      prompt: promptText,
       duration: videoDuration.value,
       provider: provider,
       model: selectedVideoModel.value,
@@ -3383,20 +3751,12 @@ const generateVideo = async () => {
 
       case "first_last":
         // 首尾帧模式（同时搜索当前镜头图片和上一镜头尾帧）
-        const firstImage =
-          videoReferenceImages.value.find(
-            (img) => img.id === selectedImagesForVideo.value[0],
-          ) ||
-          previousStoryboardLastFrames.value.find(
-            (img) => img.id === selectedImagesForVideo.value[0],
-          );
-        const lastImage =
-          videoReferenceImages.value.find(
-            (img) => img.id === selectedLastImageForVideo.value,
-          ) ||
-          previousStoryboardLastFrames.value.find(
-            (img) => img.id === selectedLastImageForVideo.value,
-          );
+        const firstImage = findReferenceCandidateById(
+          selectedImagesForVideo.value[0],
+        );
+        const lastImage = selectedLastImageForVideo.value
+          ? findReferenceCandidateById(selectedLastImageForVideo.value)
+          : null;
 
         // 优先使用 local_path
         if (firstImage?.local_path) {
@@ -3414,10 +3774,12 @@ const generateVideo = async () => {
       case "multiple":
         // 多图模式 - 优先使用 local_path
         const selectedImages = selectedImagesForVideo.value
-          .map((id) => videoReferenceImages.value.find((img) => img.id === id))
+          .map((id) => findReferenceCandidateById(id))
           .filter((img) => img?.local_path || img?.image_url)
-          .map((img) => img!.local_path || img!.image_url);
-        requestParams.reference_image_urls = selectedImages;
+          .map((img) => img!.local_path || img!.image_url || getImageUrl(img!));
+        requestParams.reference_image_urls = Array.from(
+          new Set(selectedImages),
+        );
         break;
 
       case "none":
@@ -3434,7 +3796,12 @@ const generateVideo = async () => {
     // 启动视频轮询
     startVideoPolling();
   } catch (error: any) {
-    ElMessage.error("生成失败: " + (error.message || "未知错误"));
+    const message =
+      error?.response?.data?.error?.message ||
+      error?.response?.data?.message ||
+      error?.message ||
+      "未知错误";
+    ElMessage.error("生成失败: " + message);
   } finally {
     generatingVideo.value = false;
   }
@@ -6134,16 +6501,36 @@ onBeforeUnmount(() => {
 <style>
 .video-prompt-box {
   margin-bottom: 10px;
-  padding: 8px 10px;
+  padding: 10px;
   background: var(--bg-secondary);
   border-radius: 6px;
   border: 1px solid var(--border-primary);
+}
+
+.video-prompt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.video-prompt-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.video-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-prompt-hint {
+  margin-top: 8px;
   font-size: 12px;
-  line-height: 1.5;
   color: var(--text-secondary);
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
 }
 
 /* 动作序列图片裁剪图标样式 */
