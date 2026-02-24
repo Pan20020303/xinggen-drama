@@ -20,6 +20,22 @@ type VolcesArkClient struct {
 	HTTPClient    *http.Client
 }
 
+func isSeedance15ProModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(m, "seedance-1-5-pro") ||
+		strings.Contains(m, "seedance-1.5-pro") ||
+		strings.Contains(m, "seedance1.5pro") ||
+		strings.Contains(m, "seedance15pro")
+}
+
+func normalizeSeedance15ProModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "doubao-seedance-1-5-pro" || m == "seedance-1-5-pro" || m == "seedance-1.5-pro" {
+		return "doubao-seedance-1-5-pro-251215"
+	}
+	return model
+}
+
 type VolcesArkContent struct {
 	Type     string                 `json:"type"`
 	Text     string                 `json:"text,omitempty"`
@@ -29,6 +45,7 @@ type VolcesArkContent struct {
 
 type VolcesArkRequest struct {
 	Model         string             `json:"model"`
+	TaskType      string             `json:"task_type,omitempty"`
 	Content       []VolcesArkContent `json:"content"`
 	GenerateAudio bool               `json:"generate_audio,omitempty"`
 }
@@ -91,6 +108,13 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 	if options.Model != "" {
 		model = options.Model
 	}
+	model = normalizeSeedance15ProModel(model)
+	modelLower := strings.ToLower(model)
+
+	// Seedance 1.5 Pro 文档约束：多图参考模式需 1-4 张参考图
+	if isSeedance15ProModel(modelLower) && len(options.ReferenceImageURLs) > 4 {
+		return nil, fmt.Errorf("seedance-1-5-pro supports 1-4 reference images, got %d", len(options.ReferenceImageURLs))
+	}
 
 	// 构建prompt文本（包含duration和ratio参数）
 	promptText := prompt
@@ -109,15 +133,25 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 	}
 
 	// 处理不同的图片模式
-	// 1. 组图模式（多个reference_image）
+	// 1. 多图模式
 	if len(options.ReferenceImageURLs) > 0 {
+		// seedance-1-5-pro 的多图能力不走 reference_image（该角色会触发 r2v task_type）
+		// 直接传 image_url 列表以保持在该模型支持的任务类型范围内。
+		useReferenceRole := !isSeedance15ProModel(modelLower)
 		for _, refURL := range options.ReferenceImageURLs {
-			content = append(content, VolcesArkContent{
+			item := VolcesArkContent{
 				Type: "image_url",
 				ImageURL: map[string]interface{}{
 					"url": refURL,
 				},
-				Role: "reference_image",
+			}
+			if useReferenceRole {
+				item.Role = "reference_image"
+			}
+			content = append(content, VolcesArkContent{
+				Type:     item.Type,
+				ImageURL: item.ImageURL,
+				Role:     item.Role,
 			})
 		}
 	} else if options.FirstFrameURL != "" && options.LastFrameURL != "" {
@@ -158,7 +192,7 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 
 	// 只有 seedance-1-5-pro 模型支持 generate_audio 参数
 	generateAudio := false
-	if strings.Contains(strings.ToLower(model), "seedance-1-5-pro") {
+	if isSeedance15ProModel(modelLower) {
 		generateAudio = true
 	}
 
@@ -166,6 +200,14 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 		Model:         model,
 		Content:       content,
 		GenerateAudio: generateAudio,
+	}
+	if isSeedance15ProModel(modelLower) {
+		// 对 seedance-1.5-pro 显式声明任务类型，避免网关按内容误判为 r2v。
+		if len(content) > 1 {
+			reqBody.TaskType = "i2v"
+		} else {
+			reqBody.TaskType = "t2v"
+		}
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -199,7 +241,65 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 	fmt.Printf("[VolcesARK] Response status: %d, body: %s\n", resp.StatusCode, string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// 兼容处理：部分网关在多图参考时会误判为 r2v（该模型不支持），
+		// 这里自动降级为单图 i2v 重试一次，保证任务可继续执行。
+		if isSeedance15ProModel(modelLower) &&
+			len(options.ReferenceImageURLs) > 1 &&
+			strings.Contains(string(body), "task_type r2v does not support model") {
+			fallbackReq := VolcesArkRequest{
+				Model: model,
+				TaskType: "i2v",
+				Content: []VolcesArkContent{
+					{
+						Type: "text",
+						Text: promptText,
+					},
+					{
+						Type: "image_url",
+						ImageURL: map[string]interface{}{
+							"url": options.ReferenceImageURLs[0],
+						},
+					},
+				},
+				GenerateAudio: generateAudio,
+			}
+
+			fallbackJSON, mErr := json.Marshal(fallbackReq)
+			if mErr != nil {
+				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+			}
+
+			fmt.Printf("[VolcesARK] Retrying with single-image i2v fallback for seedance-1-5-pro\n")
+			fmt.Printf("[VolcesARK] Fallback request body: %s\n", string(fallbackJSON))
+
+			retryReq, rErr := http.NewRequest("POST", endpoint, bytes.NewBuffer(fallbackJSON))
+			if rErr != nil {
+				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+			}
+			retryReq.Header.Set("Content-Type", "application/json")
+			retryReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+			retryResp, rErr := c.HTTPClient.Do(retryReq)
+			if rErr != nil {
+				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+			}
+			defer retryResp.Body.Close()
+
+			retryBody, rErr := io.ReadAll(retryResp.Body)
+			if rErr != nil {
+				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+			}
+
+			fmt.Printf("[VolcesARK] Fallback response status: %d, body: %s\n", retryResp.StatusCode, string(retryBody))
+
+			if retryResp.StatusCode == http.StatusOK || retryResp.StatusCode == http.StatusCreated {
+				body = retryBody
+			} else {
+				return nil, fmt.Errorf("API error (status %d): %s", retryResp.StatusCode, string(retryBody))
+			}
+		} else {
 		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		}
 	}
 
 	var result VolcesArkResponse

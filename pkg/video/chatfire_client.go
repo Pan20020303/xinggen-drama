@@ -39,8 +39,9 @@ type ChatfireSoraRequest struct {
 
 // ChatfireDoubaoRequest 豆包/火山模型请求格式
 type ChatfireDoubaoRequest struct {
-	Model   string `json:"model"`
-	Content []struct {
+	Model    string `json:"model"`
+	TaskType string `json:"task_type,omitempty"`
+	Content  []struct {
 		Type     string                 `json:"type"`
 		Text     string                 `json:"text,omitempty"`
 		ImageURL map[string]interface{} `json:"image_url,omitempty"`
@@ -136,12 +137,19 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 	if options.Model != "" {
 		model = options.Model
 	}
+	model = normalizeSeedance15ProModel(model)
+	modelLower := strings.ToLower(model)
+
+	// Seedance 1.5 Pro 文档约束：多图参考模式需 1-4 张参考图
+	if isSeedance15ProModel(modelLower) && len(options.ReferenceImageURLs) > 4 {
+		return nil, fmt.Errorf("seedance-1-5-pro supports 1-4 reference images, got %d", len(options.ReferenceImageURLs))
+	}
 
 	// 根据模型名称选择请求格式
 	var jsonData []byte
 	var err error
 
-	if strings.Contains(model, "doubao") || strings.Contains(model, "seedance") {
+	if strings.Contains(modelLower, "doubao") || strings.Contains(modelLower, "seedance") {
 		// 豆包/火山格式
 		reqBody := ChatfireDoubaoRequest{
 			Model: model,
@@ -165,10 +173,13 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 		}{Type: "text", Text: promptText})
 
 		// 处理不同的图片模式
-		// 1. 组图模式（多个reference_image）
+		// 1. 多图模式
 		if len(options.ReferenceImageURLs) > 0 {
+			// seedance-1-5-pro 的多图能力不走 reference_image（该角色会触发 r2v task_type）
+			// 直接传 image_url 列表以保持在该模型支持的任务类型范围内。
+			useReferenceRole := !isSeedance15ProModel(modelLower)
 			for _, refURL := range options.ReferenceImageURLs {
-				reqBody.Content = append(reqBody.Content, struct {
+				item := struct {
 					Type     string                 `json:"type"`
 					Text     string                 `json:"text,omitempty"`
 					ImageURL map[string]interface{} `json:"image_url,omitempty"`
@@ -178,7 +189,19 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 					ImageURL: map[string]interface{}{
 						"url": refURL,
 					},
-					Role: "reference_image",
+				}
+				if useReferenceRole {
+					item.Role = "reference_image"
+				}
+				reqBody.Content = append(reqBody.Content, struct {
+					Type     string                 `json:"type"`
+					Text     string                 `json:"text,omitempty"`
+					ImageURL map[string]interface{} `json:"image_url,omitempty"`
+					Role     string                 `json:"role,omitempty"`
+				}{
+					Type:     item.Type,
+					ImageURL: item.ImageURL,
+					Role:     item.Role,
 				})
 			}
 		} else if options.FirstFrameURL != "" && options.LastFrameURL != "" {
@@ -235,6 +258,14 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 				},
 				Role: "first_frame",
 			})
+		}
+
+		if isSeedance15ProModel(modelLower) {
+			if len(reqBody.Content) > 1 {
+				reqBody.TaskType = "i2v"
+			} else {
+				reqBody.TaskType = "t2v"
+			}
 		}
 
 		jsonData, err = json.Marshal(reqBody)
