@@ -283,8 +283,9 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 	// 构建完整的提示词：风格提示词 + 用户提示词
 	prompt := imageGen.Prompt
 
-	// 如果drama有风格设置，添加风格提示词
-	if drama.Style != "" && drama.Style != "realistic" {
+	// 如果drama有风格设置，添加风格提示词。
+	// 对角色三视图提示词不前置长风格文案，避免冲淡“单图三视图”结构约束。
+	if drama.Style != "" && drama.Style != "realistic" && shouldPrependStylePrompt(imageGen.ImageType, imageGen.Prompt) {
 		stylePrompt := s.promptI18n.GetStylePrompt(drama.Style)
 		if stylePrompt != "" {
 			// 将风格提示词作为系统级约束添加到提示词前面
@@ -508,6 +509,20 @@ func (s *ImageGenerationService) updateImageGenError(imageGenID uint, errorMsg s
 		s.db.Model(&models.Scene{}).Where("id = ?", *imageGen.SceneID).Update("status", "failed")
 		s.log.Warnw("Scene marked as failed", "scene_id", *imageGen.SceneID)
 	}
+}
+
+func shouldPrependStylePrompt(imageType string, prompt string) bool {
+	if imageType != string(models.ImageTypeCharacter) {
+		return true
+	}
+	lower := strings.ToLower(prompt)
+	if strings.Contains(prompt, "三视图") ||
+		strings.Contains(lower, "turnaround sheet") ||
+		strings.Contains(lower, "triptych layout") ||
+		strings.Contains(lower, "front view, side view, back view") {
+		return false
+	}
+	return true
 }
 
 func (s *ImageGenerationService) getImageClient(userID uint, provider string) (image.ImageClient, error) {
