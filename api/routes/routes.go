@@ -249,6 +249,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			storyboards.POST("/:id/props", propHandler.AssociateProps)
 			storyboards.POST("/:id/frame-prompt", framePromptHandler.GenerateFramePrompt)
 			storyboards.GET("/:id/frame-prompts", handlers2.GetStoryboardFramePrompts(db, log))
+			storyboards.POST("/:id/optimize-video-prompt", storyboardHandler.OptimizeVideoPrompt)
 		}
 
 		audio := secured.Group("/audio")

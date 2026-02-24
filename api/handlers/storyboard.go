@@ -87,6 +87,42 @@ func (h *StoryboardHandler) UpdateStoryboard(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Storyboard updated successfully"})
 }
 
+// OptimizeVideoPrompt 使用大语言模型优化视频提示词
+func (h *StoryboardHandler) OptimizeVideoPrompt(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
+	storyboardID := c.Param("id")
+
+	var req struct {
+		Prompt string `json:"prompt"`
+		Model  string `json:"model"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	optimized, err := h.storyboardService.OptimizeVideoPrompt(userID, storyboardID, req.Prompt, req.Model)
+	if err != nil {
+		if errors.Is(err, services.ErrInsufficientCredits) {
+			response.Forbidden(c, "积分不足")
+			return
+		}
+		if err.Error() == "storyboard not found" {
+			response.NotFound(c, "镜头不存在")
+			return
+		}
+		h.log.Errorw("Failed to optimize video prompt", "error", err, "storyboard_id", storyboardID)
+		response.InternalError(c, "优化提示词失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"prompt": optimized,
+	})
+}
+
 // CreateStoryboard 创建分镜
 func (h *StoryboardHandler) CreateStoryboard(c *gin.Context) {
 	var req services.CreateStoryboardRequest

@@ -99,6 +99,10 @@ export const dramaAPI = {
     return request.put(`/storyboards/${storyboardId}`, data)
   },
 
+  optimizeVideoPrompt(storyboardId: string, data: { prompt?: string; model?: string }) {
+    return request.post<{ prompt: string }>(`/storyboards/${storyboardId}/optimize-video-prompt`, data)
+  },
+
   updateScene(sceneId: string, data: {
     background_id?: string;
     characters?: string[];
