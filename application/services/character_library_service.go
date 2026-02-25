@@ -3,7 +3,6 @@ package services
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	models "github.com/drama-generator/backend/domain/models"
@@ -294,21 +293,25 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 		return nil, err
 	}
 
-	// 角色生图统一为单图三视图（正/侧/背）；style 优先用请求参数，其次使用剧本风格。
-	effectiveStyle := strings.TrimSpace(style)
-	if effectiveStyle == "" {
-		effectiveStyle = strings.TrimSpace(drama.Style)
-	}
-	prompt := s.buildCharacterTurnaroundPrompt(&character, effectiveStyle)
+	// 构建生成提示词 - 使用详细的外貌描述，添加干净背景要求
+	prompt := ""
 
+	// 优先使用appearance字段，它包含了最详细的外貌描述
+	if character.Appearance != nil && *character.Appearance != "" {
+		prompt = *character.Appearance
+	} else if character.Description != nil && *character.Description != "" {
+		prompt = *character.Description
+	} else {
+		prompt = character.Name
+	}
+
+	// 使用已经加载的 drama 的 style 信息
+	if drama.Style != "" && drama.Style != "realistic" {
+		prompt += ", " + drama.Style
+	}
 	// 调用图片生成服务
 	dramaIDStr := fmt.Sprintf("%d", character.DramaID)
 	imageType := "character"
-	var stylePtr *string
-	if effectiveStyle != "" {
-		styleValue := effectiveStyle
-		stylePtr = &styleValue
-	}
 	req := &GenerateImageRequest{
 		DramaID:     dramaIDStr,
 		CharacterID: &character.ID,
@@ -318,7 +321,6 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 		Model:       modelName,   // 使用用户指定的模型
 		Size:        "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
 		Quality:     "standard",
-		Style:       stylePtr,
 	}
 
 	imageGen, err := imageService.GenerateImage(userID, req)
@@ -333,43 +335,6 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 	// 立即返回ImageGeneration对象，让前端可以轮询状态
 	s.log.Infow("Character image generation started", "character_id", characterID, "image_gen_id", imageGen.ID)
 	return imageGen, nil
-}
-
-func (s *CharacterLibraryService) buildCharacterTurnaroundPrompt(character *models.Character, style string) string {
-	baseDesc := character.Name
-	if character.Appearance != nil && strings.TrimSpace(*character.Appearance) != "" {
-		baseDesc = strings.TrimSpace(*character.Appearance)
-	} else if character.Description != nil && strings.TrimSpace(*character.Description) != "" {
-		baseDesc = strings.TrimSpace(*character.Description)
-	}
-
-	cleanStyle := strings.TrimSpace(style)
-
-	if s.promptI18n != nil && s.promptI18n.IsEnglish() {
-		if cleanStyle != "" {
-			return fmt.Sprintf(
-				"Character turnaround sheet. Single canvas only, triptych layout from left to right: FRONT view, SIDE view, BACK view of the same character, all full-body and fully visible from head to toe. Keep facial features, hairstyle, costume, accessories, body proportions and color palette strictly consistent across all three views. Neutral standing pose, clear silhouette, no occlusion, no cropping. 仅允许单张图三视图：左正面、中侧面、右背面。 Character appearance details (for design only, must NOT change layout rules): %s. Style: %s. Plain clean studio background, even lighting, high detail, no environment storytelling. No text, no watermark, no logo, no frame, no collage, no split-screen labels, no extra props, no additional people.",
-				baseDesc,
-				cleanStyle,
-			)
-		}
-		return fmt.Sprintf(
-			"Character turnaround sheet. Single canvas only, triptych layout from left to right: FRONT view, SIDE view, BACK view of the same character, all full-body and fully visible from head to toe. Keep facial features, hairstyle, costume, accessories, body proportions and color palette strictly consistent across all three views. Neutral standing pose, clear silhouette, no occlusion, no cropping. 仅允许单张图三视图：左正面、中侧面、右背面。 Character appearance details (for design only, must NOT change layout rules): %s. Plain clean studio background, even lighting, high detail, no environment storytelling. No text, no watermark, no logo, no frame, no collage, no split-screen labels, no extra props, no additional people.",
-			baseDesc,
-		)
-	}
-
-	if cleanStyle != "" {
-		return fmt.Sprintf(
-			"角色三视图设定图。必须是单张画布，采用左中右三联布局：左侧正视图、中间侧视图、右侧背视图；三个人像都要完整全身（从头到脚完整可见）。三视图必须保持同一角色一致性：五官、发型、服装、配饰、体型比例、配色完全一致。中性站姿，轮廓清晰，不遮挡，不裁切。Character turnaround sheet, single canvas triptych: LEFT FRONT / CENTER SIDE / RIGHT BACK. 角色外观描述（仅用于造型细节，不得改变三视图布局）：%s。风格：%s。纯净简洁的棚拍背景，光线均匀，高细节。禁止文字、禁止水印、禁止logo、禁止边框、禁止拼贴、禁止分屏标签、禁止额外道具、禁止出现其他人物。",
-			baseDesc,
-			cleanStyle,
-		)
-	}
-	return fmt.Sprintf(
-		"角色三视图设定图。必须是单张画布，采用左中右三联布局：左侧正视图、中间侧视图、右侧背视图；三个人像都要完整全身（从头到脚完整可见）。三视图必须保持同一角色一致性：五官、发型、服装、配饰、体型比例、配色完全一致。中性站姿，轮廓清晰，不遮挡，不裁切。Character turnaround sheet, single canvas triptych: LEFT FRONT / CENTER SIDE / RIGHT BACK. 角色外观描述（仅用于造型细节，不得改变三视图布局）：%s。纯净简洁的棚拍背景，光线均匀，高细节。禁止文字、禁止水印、禁止logo、禁止边框、禁止拼贴、禁止分屏标签、禁止额外道具、禁止出现其他人物。",
-		baseDesc,
-	)
 }
 
 // waitAndUpdateCharacterImage 后台异步等待图片生成完成并更新角色image_url
