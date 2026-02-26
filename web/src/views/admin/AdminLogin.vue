@@ -1,42 +1,48 @@
 <template>
-  <div class="auth-page">
-    <div class="auth-card">
-      <div class="auth-header">
-        <h1>平台管理端登录</h1>
-        <p>仅平台管理员可登录，登录后访问用户与计费管理能力</p>
-      </div>
+  <AuthSceneLayout
+    kicker="ADMIN PORTAL"
+    title="平台管理端登录"
+    subtitle="仅平台管理员可访问用户、计费与配置管理"
+  >
+    <el-form
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-position="top"
+      class="auth-form"
+    >
+      <el-form-item label="管理员邮箱" prop="email">
+        <el-input v-model="form.email" placeholder="请输入管理员邮箱" autocomplete="email" />
+      </el-form-item>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-        <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="请输入管理员邮箱" autocomplete="email" />
-        </el-form-item>
+      <el-form-item label="密码" prop="password">
+        <el-input
+          v-model="form.password"
+          type="password"
+          show-password
+          placeholder="请输入管理员密码"
+          autocomplete="current-password"
+          @keyup.enter="handleLogin"
+        />
+      </el-form-item>
 
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            placeholder="请输入管理员密码"
-            autocomplete="current-password"
-          />
-        </el-form-item>
+      <el-button class="submit-btn admin-btn" type="primary" :loading="submitting" @click="handleLogin">
+        登录管理端
+      </el-button>
+    </el-form>
 
-        <el-button class="submit-btn" type="primary" :loading="submitting" @click="handleLogin">
-          登录管理端
-        </el-button>
-      </el-form>
-
-      <div class="auth-footer">
-        <router-link to="/login">返回普通用户登录</router-link>
-      </div>
-    </div>
-  </div>
+    <template #footer>
+      <p class="agreement">管理员登录记录将用于审计与安全追踪</p>
+      <router-link class="secondary-link" to="/login">返回普通用户登录</router-link>
+    </template>
+  </AuthSceneLayout>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import AuthSceneLayout from '@/components/auth/AuthSceneLayout.vue'
 import { useAdminAuthStore } from '@/stores/adminAuth'
 
 const router = useRouter()
@@ -81,55 +87,76 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-.auth-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-primary);
-  padding: 24px;
-}
-
-.auth-card {
-  width: 100%;
-  max-width: 440px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card);
-  padding: 28px;
-}
-
-.auth-header {
-  margin-bottom: 20px;
-}
-
-.auth-header h1 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--text-primary);
-}
-
-.auth-header p {
-  margin-top: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
 .submit-btn {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 2px;
+  height: 46px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
-.auth-footer {
-  margin-top: 16px;
-  font-size: 13px;
-  display: flex;
-  justify-content: center;
+.admin-btn {
+  background: linear-gradient(135deg, #1774ff 0%, #0b51c8 100%);
+  border-color: transparent;
+  box-shadow: 0 12px 28px rgba(17, 102, 240, 0.32);
 }
 
-.auth-footer a {
-  color: var(--accent);
+.admin-btn:hover {
+  background: linear-gradient(135deg, #2a82ff 0%, #0f5fd8 100%);
+}
+
+.agreement {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  color: rgba(222, 236, 255, 0.42);
+}
+
+.secondary-link {
+  margin-top: 12px;
+  display: block;
+  width: 100%;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 14px;
+  line-height: 40px;
+  text-align: center;
   text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.secondary-link:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+:deep(.el-form-item__label) {
+  color: rgba(233, 242, 255, 0.9);
+}
+
+:deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
+}
+
+:deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset !important;
+}
+
+:deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px rgba(36, 155, 255, 0.7) inset !important;
+}
+
+:deep(.el-input__inner) {
+  color: #fff;
+}
+
+:deep(.el-input__inner::placeholder) {
+  color: rgba(233, 242, 255, 0.35);
 }
 </style>
