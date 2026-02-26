@@ -28,6 +28,54 @@
 
         <el-card>
           <template #header>
+            <div class="card-title">修改密码</div>
+          </template>
+          <el-form
+            ref="passwordFormRef"
+            :model="passwordForm"
+            :rules="passwordRules"
+            label-position="top"
+            class="password-form"
+          >
+            <el-form-item label="旧密码" prop="old_password">
+              <el-input
+                v-model="passwordForm.old_password"
+                type="password"
+                show-password
+                placeholder="请输入当前密码"
+                autocomplete="current-password"
+              />
+            </el-form-item>
+            <el-form-item label="新密码" prop="new_password">
+              <el-input
+                v-model="passwordForm.new_password"
+                type="password"
+                show-password
+                placeholder="请输入新密码（至少 6 位）"
+                autocomplete="new-password"
+              />
+            </el-form-item>
+            <el-form-item label="确认新密码" prop="confirm_password">
+              <el-input
+                v-model="passwordForm.confirm_password"
+                type="password"
+                show-password
+                placeholder="请再次输入新密码"
+                autocomplete="new-password"
+              />
+            </el-form-item>
+            <el-button
+              type="primary"
+              :loading="passwordSubmitting"
+              @click="handleChangePassword"
+            >
+              保存新密码
+            </el-button>
+          </el-form>
+        </el-card>
+
+        <el-card>
+          <template #header>
             <div class="card-title">快捷入口</div>
           </template>
           <div class="actions">
@@ -41,15 +89,47 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { AppHeader } from '@/components/common'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const user = computed(() => authStore.user)
+const passwordFormRef = ref<FormInstance>()
+const passwordSubmitting = ref(false)
+const passwordForm = reactive({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
+
+const passwordRules: FormRules = {
+  old_password: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
+  new_password: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '新密码至少 6 位', trigger: 'blur' }
+  ],
+  confirm_password: [
+    { required: true, message: '请确认新密码', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) {
+          callback(new Error('请确认新密码'))
+          return
+        }
+        if (value !== passwordForm.new_password) {
+          callback(new Error('两次输入的新密码不一致'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
+  ]
+}
 
 const handleLogout = async () => {
   try {
@@ -60,6 +140,29 @@ const handleLogout = async () => {
     await router.replace('/login')
   } catch {
     return
+  }
+}
+
+const handleChangePassword = async () => {
+  if (!passwordFormRef.value) return
+  const valid = await passwordFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  passwordSubmitting.value = true
+  try {
+    await authStore.changePassword({
+      old_password: passwordForm.old_password,
+      new_password: passwordForm.new_password
+    })
+    ElMessage.success('密码修改成功')
+    passwordForm.old_password = ''
+    passwordForm.new_password = ''
+    passwordForm.confirm_password = ''
+    passwordFormRef.value.clearValidate()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error?.message || error?.message || '修改密码失败')
+  } finally {
+    passwordSubmitting.value = false
   }
 }
 </script>
@@ -106,5 +209,9 @@ const handleLogout = async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.password-form {
+  max-width: 520px;
 }
 </style>
