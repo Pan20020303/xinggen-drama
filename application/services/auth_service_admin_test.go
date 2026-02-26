@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/drama-generator/backend/application/dto"
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/infrastructure/persistence"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -46,7 +48,8 @@ func newTestAuthService(t *testing.T) (*AuthService, *gorm.DB) {
 			InitialCredits:   100,
 		},
 	}
-	svc := NewAuthService(db, cfg, logger.NewLogger(true))
+	repo := persistence.NewGormUserRepository(db)
+	svc := NewAuthService(repo, cfg, logger.NewLogger(true))
 	return svc, db
 }
 
@@ -75,7 +78,7 @@ func TestAdminLoginRejectsNonAdmin(t *testing.T) {
 	svc, db := newTestAuthService(t)
 	seedAuthUser(t, db, "user@example.com", models.RoleUser, models.UserStatusActive)
 
-	_, err := svc.AdminLogin(&LoginRequest{
+	_, err := svc.AdminLogin(&dto.LoginRequest{
 		Email:    "user@example.com",
 		Password: "Passw0rd123",
 	})
@@ -91,7 +94,7 @@ func TestAdminLoginUsesAdminAudience(t *testing.T) {
 	svc, db := newTestAuthService(t)
 	seedAuthUser(t, db, "admin@example.com", models.RolePlatformAdmin, models.UserStatusActive)
 
-	resp, err := svc.AdminLogin(&LoginRequest{
+	resp, err := svc.AdminLogin(&dto.LoginRequest{
 		Email:    "admin@example.com",
 		Password: "Passw0rd123",
 	})
@@ -112,7 +115,7 @@ func TestUserLoginUsesUserAudience(t *testing.T) {
 	svc, db := newTestAuthService(t)
 	seedAuthUser(t, db, "normal@example.com", models.RoleUser, models.UserStatusActive)
 
-	resp, err := svc.Login(&LoginRequest{
+	resp, err := svc.Login(&dto.LoginRequest{
 		Email:    "normal@example.com",
 		Password: "Passw0rd123",
 	})

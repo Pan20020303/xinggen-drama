@@ -88,12 +88,3 @@ func hasAudience(audiences []string, target string) bool {
 	}
 	return false
 }
-
-func GetUserID(c *gin.Context) (uint, bool) {
-	v, ok := c.Get(ContextUserIDKey)
-	if !ok {
-		return 0, false
-	}
-	uid, ok := v.(uint)
-	return uid, ok
-}

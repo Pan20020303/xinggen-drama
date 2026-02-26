@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/drama-generator/backend/application/dto"
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/domain/repository"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/golang-jwt/jwt/v5"
@@ -14,33 +16,22 @@ import (
 )
 
 var (
-	ErrEmailAlreadyExists  = errors.New("email already exists")
-	ErrInvalidCredentials  = errors.New("invalid credentials")
-	ErrUserDisabled        = errors.New("user disabled")
-	ErrAdminAccessDenied   = errors.New("admin access denied")
+	ErrEmailAlreadyExists   = errors.New("email already exists")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrUserDisabled         = errors.New("user disabled")
+	ErrAdminAccessDenied    = errors.New("admin access denied")
+	ErrTokenRefreshTooEarly = errors.New("token refresh too early")
+	ErrTokenExpired         = errors.New("token expired")
+	ErrInvalidOldPassword   = errors.New("invalid old password")
 )
 
 type AuthService struct {
-	db            *gorm.DB
-	log           *logger.Logger
-	jwtSecret     string
-	tokenExpire   time.Duration
-	initialCredits int
-}
-
-type RegisterRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6,max=72"`
-}
-
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
-}
-
-type AuthResponse struct {
-	Token string      `json:"token"`
-	User  models.User `json:"user"`
+	repo             repository.UserRepository
+	log              *logger.Logger
+	jwtSecret        string
+	tokenExpire      time.Duration
+	refreshThreshold time.Duration
+	initialCredits   int
 }
 
 type TokenClaims struct {
@@ -50,7 +41,7 @@ type TokenClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewAuthService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AuthService {
+func NewAuthService(repo repository.UserRepository, cfg *config.Config, log *logger.Logger) *AuthService {
 	secret := cfg.Auth.JWTSecret
 	if secret == "" {
 		secret = "change-me-in-production"
@@ -65,17 +56,17 @@ func NewAuthService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AuthSe
 	}
 
 	return &AuthService{
-		db:            db,
-		log:           log,
-		jwtSecret:     secret,
-		tokenExpire:   time.Duration(expireHours) * time.Hour,
-		initialCredits: initialCredits,
+		repo:             repo,
+		log:              log,
+		jwtSecret:        secret,
+		tokenExpire:      time.Duration(expireHours) * time.Hour,
+		refreshThreshold: 24 * time.Hour,
+		initialCredits:   initialCredits,
 	}
 }
 
-func (s *AuthService) Register(req *RegisterRequest) (*AuthResponse, error) {
-	var existed models.User
-	if err := s.db.Where("email = ?", req.Email).First(&existed).Error; err == nil {
+func (s *AuthService) Register(req *dto.RegisterRequest) (*dto.AuthResponse, error) {
+	if _, err := s.repo.FindByEmail(req.Email); err == nil {
 		return nil, ErrEmailAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -93,23 +84,7 @@ func (s *AuthService) Register(req *RegisterRequest) (*AuthResponse, error) {
 		Credits:      s.initialCredits,
 	}
 
-	if err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&user).Error; err != nil {
-			return err
-		}
-
-		desc := "initial credits for new user"
-		txn := models.CreditTransaction{
-			UserID:      user.ID,
-			Amount:      s.initialCredits,
-			Type:        models.CreditTxnRecharge,
-			Description: &desc,
-		}
-		if err := tx.Create(&txn).Error; err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	if err := s.repo.CreateWithInitialCredits(&user, s.initialCredits); err != nil {
 		return nil, err
 	}
 
@@ -118,12 +93,12 @@ func (s *AuthService) Register(req *RegisterRequest) (*AuthResponse, error) {
 		return nil, err
 	}
 
-	return &AuthResponse{Token: token, User: user}, nil
+	return &dto.AuthResponse{Token: token, User: user}, nil
 }
 
-func (s *AuthService) Login(req *LoginRequest) (*AuthResponse, error) {
-	var user models.User
-	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+func (s *AuthService) Login(req *dto.LoginRequest) (*dto.AuthResponse, error) {
+	user, err := s.repo.FindByEmail(req.Email)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInvalidCredentials
 		}
@@ -138,12 +113,12 @@ func (s *AuthService) Login(req *LoginRequest) (*AuthResponse, error) {
 		return nil, ErrUserDisabled
 	}
 
-	token, err := s.GenerateToken(user)
+	token, err := s.GenerateToken(*user)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AuthResponse{Token: token, User: user}, nil
+	return &dto.AuthResponse{Token: token, User: *user}, nil
 }
 
 func (s *AuthService) GenerateToken(user models.User) (string, error) {
@@ -165,6 +140,7 @@ func (s *AuthService) generateTokenWithAudience(user models.User, audience strin
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpire)),
 			Audience:  []string{audience},
 			Subject:   fmt.Sprintf("%d", user.ID),
+			ID:        fmt.Sprintf("%d", now.UnixNano()),
 		},
 	}
 
@@ -172,7 +148,7 @@ func (s *AuthService) generateTokenWithAudience(user models.User, audience strin
 	return t.SignedString([]byte(s.jwtSecret))
 }
 
-func (s *AuthService) AdminLogin(req *LoginRequest) (*AuthResponse, error) {
+func (s *AuthService) AdminLogin(req *dto.LoginRequest) (*dto.AuthResponse, error) {
 	resp, err := s.Login(req)
 	if err != nil {
 		return nil, err
@@ -191,6 +167,59 @@ func (s *AuthService) AdminLogin(req *LoginRequest) (*AuthResponse, error) {
 
 func IsPlatformAdminRole(role models.UserRole) bool {
 	return role == models.RolePlatformAdmin || role == models.RoleAdmin
+}
+
+func (s *AuthService) RefreshToken(oldToken string) (*dto.AuthResponse, error) {
+	claims, err := s.ParseToken(oldToken)
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired
+		}
+		return nil, err
+	}
+
+	if claims.ExpiresAt == nil || time.Until(claims.ExpiresAt.Time) <= 0 {
+		return nil, ErrTokenExpired
+	}
+	if time.Until(claims.ExpiresAt.Time) > s.refreshThreshold {
+		return nil, ErrTokenRefreshTooEarly
+	}
+
+	user, err := s.repo.FindByID(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Status == models.UserStatusDisabled {
+		return nil, ErrUserDisabled
+	}
+
+	audience := "user"
+	if len(claims.Audience) > 0 {
+		audience = claims.Audience[0]
+	}
+	token, err := s.generateTokenWithAudience(*user, audience)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.AuthResponse{
+		Token: token,
+		User:  *user,
+	}, nil
+}
+
+func (s *AuthService) ChangePassword(userID uint, req *dto.ChangePasswordRequest) error {
+	user, err := s.repo.FindByID(userID)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.OldPassword)); err != nil {
+		return ErrInvalidOldPassword
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	return s.repo.UpdatePassword(userID, string(hash))
 }
 
 func (s *AuthService) ParseToken(token string) (*TokenClaims, error) {
@@ -212,9 +241,5 @@ func (s *AuthService) ParseToken(token string) (*TokenClaims, error) {
 }
 
 func (s *AuthService) GetUserByID(userID uint) (*models.User, error) {
-	var user models.User
-	if err := s.db.First(&user, userID).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return s.repo.FindByID(userID)
 }

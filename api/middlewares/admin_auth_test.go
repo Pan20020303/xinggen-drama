@@ -7,6 +7,7 @@ import (
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/infrastructure/persistence"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,8 @@ func newMiddlewareTestAuthService(t *testing.T) (*services.AuthService, *gorm.DB
 			InitialCredits:   0,
 		},
 	}
-	return services.NewAuthService(db, cfg, logger.NewLogger(true)), db
+	repo := persistence.NewGormUserRepository(db)
+	return services.NewAuthService(repo, cfg, logger.NewLogger(true)), db
 }
 
 func seedMiddlewareUser(t *testing.T, db *gorm.DB, email string, role models.UserRole) models.User {

@@ -13,6 +13,7 @@ import (
 	"github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/infrastructure/persistence"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -53,12 +54,13 @@ func newAdminHandlerTestEnv(t *testing.T) *adminHandlerTestEnv {
 		},
 	}
 	log := logger.NewLogger(true)
-	authSvc := services.NewAuthService(db, cfg, log)
+	repo := persistence.NewGormUserRepository(db)
+	authSvc := services.NewAuthService(repo, cfg, log)
 
 	admin := seedAdminHandlerUser(t, db, "admin@example.com", models.RolePlatformAdmin, models.UserStatusActive, 0)
 	target := seedAdminHandlerUser(t, db, "target@example.com", models.RoleUser, models.UserStatusActive, 10)
 
-	authHandler := NewAdminAuthHandler(db, cfg, log)
+	authHandler := NewAdminAuthHandler(authSvc, log)
 	userHandler := NewAdminUserHandler(db, log)
 	billingHandler := NewAdminBillingHandler(db, log)
 

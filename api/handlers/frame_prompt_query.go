@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	middlewares "github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -14,8 +14,8 @@ import (
 func GetStoryboardFramePrompts(db *gorm.DB, log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		storyboardID := c.Param("id")
-		userID, ok := middlewares.GetUserID(c)
-		if !ok {
+		userID, err := tenant.GetUserID(c)
+		if err != nil {
 			response.Unauthorized(c, "用户未登录")
 			return
 		}

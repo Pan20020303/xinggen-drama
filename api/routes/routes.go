@@ -4,6 +4,7 @@ import (
 	handlers2 "github.com/drama-generator/backend/api/handlers"
 	middlewares2 "github.com/drama-generator/backend/api/middlewares"
 	services2 "github.com/drama-generator/backend/application/services"
+	persistence2 "github.com/drama-generator/backend/infrastructure/persistence"
 	storage2 "github.com/drama-generator/backend/infrastructure/storage"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
@@ -30,12 +31,13 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 	})
 
 	aiService := services2.NewAIService(db, log)
-	authService := services2.NewAuthService(db, cfg, log)
 	localStoragePtr := localStorage.(*storage2.LocalStorage)
 	transferService := services2.NewResourceTransferService(db, log)
 	promptI18n := services2.NewPromptI18n(cfg)
-	authHandler := handlers2.NewAuthHandler(db, cfg, log)
-	adminAuthHandler := handlers2.NewAdminAuthHandler(db, cfg, log)
+	userRepo := persistence2.NewGormUserRepository(db)
+	authService := services2.NewAuthService(userRepo, cfg, log)
+	authHandler := handlers2.NewAuthHandler(authService, log)
+	adminAuthHandler := handlers2.NewAdminAuthHandler(authService, log)
 	adminUserHandler := handlers2.NewAdminUserHandler(db, log)
 	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
 	billingPricingHandler := handlers2.NewBillingPricingHandler(db, log)
@@ -68,19 +70,23 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 
 		auth := api.Group("/auth")
 		{
+			loginRateLimit := middlewares2.LoginRateLimitMiddleware()
 			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
+			auth.POST("/login", loginRateLimit, authHandler.Login)
 		}
 
 		adminAuth := api.Group("/admin/auth")
 		{
-			adminAuth.POST("/login", adminAuthHandler.Login)
+			loginRateLimit := middlewares2.LoginRateLimitMiddleware()
+			adminAuth.POST("/login", loginRateLimit, adminAuthHandler.Login)
 		}
 
 		secured := api.Group("")
 		secured.Use(middlewares2.AuthMiddleware(authService))
 		{
 			secured.GET("/auth/me", authHandler.Me)
+			secured.POST("/auth/refresh", authHandler.RefreshToken)
+			secured.PUT("/auth/password", authHandler.ChangePassword)
 			secured.GET("/billing/pricing", billingPricingHandler.GetPricing)
 		}
 

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -48,8 +48,8 @@ func (h *AdminUserHandler) ListUsers(c *gin.Context) {
 }
 
 func (h *AdminUserHandler) UpdateUserStatus(c *gin.Context) {
-	adminID, ok := middlewares.GetUserID(c)
-	if !ok {
+	adminID, err := tenant.GetUserID(c)
+	if err != nil {
 		response.Unauthorized(c, "invalid admin context")
 		return
 	}
@@ -85,8 +85,8 @@ func (h *AdminUserHandler) UpdateUserStatus(c *gin.Context) {
 }
 
 func (h *AdminUserHandler) UpdateUserRole(c *gin.Context) {
-	adminID, ok := middlewares.GetUserID(c)
-	if !ok {
+	adminID, err := tenant.GetUserID(c)
+	if err != nil {
 		response.Unauthorized(c, "invalid admin context")
 		return
 	}

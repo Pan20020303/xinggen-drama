@@ -11,6 +11,7 @@ import (
 	"github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
+	"github.com/drama-generator/backend/infrastructure/persistence"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -51,7 +52,8 @@ func newAdminAIConfigTestEnv(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 		},
 	}
 	log := logger.NewLogger(true)
-	authSvc := services.NewAuthService(db, cfg, log)
+	repo := persistence.NewGormUserRepository(db)
+	authSvc := services.NewAuthService(repo, cfg, log)
 	adminToken, err := authSvc.GenerateAdminToken(models.User{ID: 1, Email: "admin@example.com", Role: models.RolePlatformAdmin})
 	if err != nil {
 		t.Fatalf("failed to generate admin token: %v", err)

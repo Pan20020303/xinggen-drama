@@ -3,12 +3,11 @@ package handlers
 import (
 	"errors"
 
+	"github.com/drama-generator/backend/application/dto"
 	"github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type AdminAuthHandler struct {
@@ -16,15 +15,15 @@ type AdminAuthHandler struct {
 	log         *logger.Logger
 }
 
-func NewAdminAuthHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AdminAuthHandler {
+func NewAdminAuthHandler(authService *services.AuthService, log *logger.Logger) *AdminAuthHandler {
 	return &AdminAuthHandler{
-		authService: services.NewAuthService(db, cfg, log),
+		authService: authService,
 		log:         log,
 	}
 }
 
 func (h *AdminAuthHandler) Login(c *gin.Context) {
-	var req services.LoginRequest
+	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
