@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { authAPI } from '@/api/auth'
-import type { AuthResponse, AuthUser, LoginRequest, RegisterRequest } from '@/types/auth'
+import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest } from '@/types/auth'
 
 const TOKEN_KEY = 'token'
 const USER_KEY = 'user'
+let refreshPromise: Promise<string | null> | null = null
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -62,6 +63,26 @@ export const useAuthStore = defineStore('auth', {
       const me = await authAPI.me()
       this.user = me
       localStorage.setItem(USER_KEY, JSON.stringify(me))
+    },
+
+    async refreshToken(): Promise<string | null> {
+      if (!this.token) return null
+      if (!refreshPromise) {
+        refreshPromise = authAPI.refresh()
+          .then((data) => {
+            this.setAuth(data)
+            return data.token
+          })
+          .catch(() => null)
+          .finally(() => {
+            refreshPromise = null
+          })
+      }
+      return refreshPromise
+    },
+
+    async changePassword(payload: ChangePasswordRequest) {
+      return authAPI.changePassword(payload)
     }
   }
 })
