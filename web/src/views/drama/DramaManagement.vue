@@ -403,6 +403,135 @@
               :description="$t('drama.management.noProps')"
             />
           </el-tab-pane>
+
+          <!-- 资源列表 -->
+          <el-tab-pane
+            :label="$t('drama.management.resourceList')"
+            name="assets"
+          >
+            <div class="tab-header">
+              <h2>{{ $t("drama.management.resourceList") }}</h2>
+              <div style="display: flex; gap: 10px; align-items: center">
+                <el-select
+                  v-model="resourceFilter"
+                  style="width: 140px"
+                  size="small"
+                >
+                  <el-option :label="$t('drama.management.allResources')" value="all" />
+                  <el-option :label="$t('drama.management.imageResources')" value="image" />
+                  <el-option :label="$t('drama.management.videoResources')" value="video" />
+                </el-select>
+                <el-button
+                  :icon="RefreshRight"
+                  @click="loadProjectResources"
+                  :loading="resourceLoading"
+                >
+                  {{ $t("common.refresh") }}
+                </el-button>
+              </div>
+            </div>
+
+            <el-table
+              :data="filteredProjectResources"
+              border
+              stripe
+              style="margin-top: 16px"
+              v-loading="resourceLoading"
+            >
+              <el-table-column :label="$t('common.image')" width="120">
+                <template #default="{ row }">
+                  <div
+                    v-if="row.resource_type === 'image'"
+                    class="resource-thumb-wrap"
+                    @click="openResourcePreview(row)"
+                  >
+                    <img
+                      v-if="getImageUrl(row)"
+                      :src="getImageUrl(row)"
+                      :alt="row.name"
+                      class="resource-image-thumb"
+                    />
+                    <div v-else class="resource-video-thumb">
+                      <el-icon><Picture /></el-icon>
+                      <span>{{ $t("common.noData") }}</span>
+                    </div>
+                  </div>
+                  <div
+                    v-else
+                    class="resource-video-thumb"
+                    @click="openResourcePreview(row)"
+                  >
+                    <el-icon><VideoCamera /></el-icon>
+                    <span>{{ $t("drama.management.previewVideo") }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <el-table-column :label="$t('common.name')" min-width="220">
+                <template #default="{ row }">
+                  <div class="resource-name-cell">
+                    <span class="resource-name">{{ row.name }}</span>
+                    <el-tag size="small" :type="row.resource_type === 'video' ? 'success' : 'info'">
+                      {{
+                        row.resource_type === "video"
+                          ? $t("drama.management.video")
+                          : $t("drama.management.image")
+                      }}
+                    </el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <el-table-column
+                :label="$t('drama.management.storyboardNumber')"
+                width="110"
+              >
+                <template #default="{ row }">
+                  {{ row.storyboard_id ? `#${row.storyboard_id}` : "-" }}
+                </template>
+              </el-table-column>
+
+              <el-table-column :label="$t('common.status')" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="getResourceStatusType(row.status)">
+                    {{ row.status || "-" }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+
+              <el-table-column :label="$t('common.createdAt')" width="180">
+                <template #default="{ row }">
+                  {{ formatDate(row.created_at) }}
+                </template>
+              </el-table-column>
+
+              <el-table-column
+                :label="$t('storyboard.table.operations')"
+                width="260"
+                fixed="right"
+              >
+                <template #default="{ row }">
+                  <el-button size="small" @click="openResourcePreview(row)">
+                    {{ $t("common.view") }}
+                  </el-button>
+                  <el-button size="small" @click="openResourceInNewTab(row)">
+                    {{ $t("common.download") }}
+                  </el-button>
+                  <el-button size="small" type="danger" @click="deleteResource(row)">
+                    {{ $t("common.delete") }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <el-empty
+              v-if="
+                !resourceLoading &&
+                filteredProjectResources.length === 0
+              "
+              :description="$t('drama.management.noResources')"
+            />
+          </el-tab-pane>
         </el-tabs>
       </div>
 
@@ -763,6 +892,34 @@
           >
         </template>
       </el-dialog>
+
+      <!-- 资源预览对话框 -->
+      <el-dialog
+        v-model="resourcePreviewVisible"
+        :title="previewResource?.name || $t('drama.management.resourcePreview')"
+        width="760px"
+      >
+        <div v-if="previewResource">
+          <img
+            v-if="previewResource.resource_type === 'image'"
+            :src="getImageUrl(previewResource)"
+            :alt="previewResource.name"
+            style="width: 100%; max-height: 520px; object-fit: contain; border-radius: 8px"
+          />
+          <video
+            v-else
+            :src="getVideoUrl(previewResource)"
+            controls
+            style="width: 100%; max-height: 520px; border-radius: 8px"
+          />
+          <p
+            v-if="previewResource.prompt"
+            style="margin-top: 12px; color: var(--text-secondary)"
+          >
+            {{ previewResource.prompt }}
+          </p>
+        </div>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -778,10 +935,14 @@ import {
   Picture,
   Plus,
   Box,
+  RefreshRight,
+  VideoCamera,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { characterLibraryAPI } from "@/api/character-library";
 import { propAPI } from "@/api/prop";
+import { imageAPI } from "@/api/image";
+import { videoAPI } from "@/api/video";
 import type { Drama } from "@/types/drama";
 import {
   AppHeader,
@@ -789,7 +950,7 @@ import {
   EmptyState,
   ImagePreview,
 } from "@/components/common";
-import { getImageUrl, hasImage } from "@/utils/image";
+import { getImageUrl, getVideoUrl, hasImage } from "@/utils/image";
 
 const router = useRouter();
 const route = useRoute();
@@ -797,6 +958,11 @@ const route = useRoute();
 const drama = ref<Drama>();
 const activeTab = ref((route.query.tab as string) || "overview");
 const scenes = ref<any[]>([]);
+const resourceLoading = ref(false);
+const resourceFilter = ref<"all" | "image" | "video">("all");
+const projectResources = ref<any[]>([]);
+const resourcePreviewVisible = ref(false);
+const previewResource = ref<any>(null);
 
 let pollingTimer: any = null; // Add polling timer definition
 
@@ -850,6 +1016,13 @@ const sortedEpisodes = computed(() => {
   );
 });
 
+const filteredProjectResources = computed(() => {
+  if (resourceFilter.value === "all") return projectResources.value;
+  return projectResources.value.filter(
+    (item) => item.resource_type === resourceFilter.value,
+  );
+});
+
 // Helper for polling
 const startPolling = (
   callback: () => Promise<void>,
@@ -880,8 +1053,152 @@ const loadDramaData = async () => {
     const data = await dramaAPI.get(route.params.id as string);
     drama.value = data;
     loadScenes();
+    if (activeTab.value === "assets") {
+      loadProjectResources();
+    }
   } catch (error: any) {
     ElMessage.error(error.message || "加载项目数据失败");
+  }
+};
+
+const getResourceStatusType = (status?: string) => {
+  const map: Record<string, any> = {
+    pending: "info",
+    processing: "warning",
+    completed: "success",
+    failed: "danger",
+  };
+  return map[status || ""] || "info";
+};
+
+const buildResourceName = (item: any, type: "image" | "video") => {
+  const prefix = type === "video" ? "视频" : "镜头图";
+  const board = item.storyboard_id ? `镜头#${item.storyboard_id}` : "未绑定镜头";
+  return `${prefix}-${board}-${item.id}`;
+};
+
+const loadAllImagesByDrama = async (dramaId: string) => {
+  const all: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const res = await imageAPI.listImages({
+      drama_id: dramaId,
+      page,
+      page_size: 100,
+    });
+    all.push(...(res.items || []));
+    totalPages = res.pagination?.total_pages || 1;
+    page += 1;
+  }
+  return all;
+};
+
+const loadAllVideosByDrama = async (dramaId: string) => {
+  const all: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const res = await videoAPI.listVideos({
+      drama_id: dramaId,
+      page,
+      page_size: 100,
+    });
+    all.push(...(res.items || []));
+    totalPages = res.pagination?.total_pages || 1;
+    page += 1;
+  }
+  return all;
+};
+
+const loadProjectResources = async () => {
+  if (!drama.value?.id) return;
+  resourceLoading.value = true;
+  try {
+    const dramaId = String(drama.value.id);
+    const [images, videos] = await Promise.all([
+      loadAllImagesByDrama(dramaId),
+      loadAllVideosByDrama(dramaId),
+    ]);
+
+    // 只展示分镜维度资源：镜头视频 + 镜头图片
+    const imageResources = images
+      .filter((item) => item.storyboard_id)
+      .map((item) => ({
+        ...item,
+        resource_type: "image",
+        name: buildResourceName(item, "image"),
+      }));
+
+    const videoResources = videos
+      .filter((item) => item.storyboard_id)
+      .map((item) => ({
+        ...item,
+        resource_type: "video",
+        name: buildResourceName(item, "video"),
+      }));
+
+    projectResources.value = [...videoResources, ...imageResources].sort(
+      (a, b) =>
+        new Date(b.created_at || 0).getTime() -
+        new Date(a.created_at || 0).getTime(),
+    );
+  } catch (error: any) {
+    ElMessage.error(error.message || "加载资源失败");
+  } finally {
+    resourceLoading.value = false;
+  }
+};
+
+const openResourcePreview = (resource: any) => {
+  previewResource.value = resource;
+  resourcePreviewVisible.value = true;
+};
+
+const openResourceInNewTab = (resource: any) => {
+  const url =
+    resource.resource_type === "video"
+      ? getVideoUrl(resource)
+      : getImageUrl(resource);
+  if (!url) {
+    ElMessage.warning("资源地址无效");
+    return;
+  }
+  window.open(url, "_blank");
+};
+
+const deleteResource = async (resource: any) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除该${resource.resource_type === "video" ? "视频" : "图片"}资源吗？删除后不可恢复。`,
+      "删除确认",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      },
+    );
+
+    if (resource.resource_type === "video") {
+      await videoAPI.deleteVideo(resource.id);
+    } else {
+      await imageAPI.deleteImage(resource.id);
+    }
+
+    projectResources.value = projectResources.value.filter(
+      (item) =>
+        !(
+          item.id === resource.id &&
+          item.resource_type === resource.resource_type
+        ),
+    );
+    ElMessage.success("删除成功");
+  } catch (error: any) {
+    if (error !== "cancel") {
+      ElMessage.error(error.message || "删除失败");
+    }
   }
 };
 
@@ -1448,6 +1765,12 @@ onMounted(() => {
     activeTab.value = route.query.tab as string;
   }
 });
+
+watch(activeTab, (tab) => {
+  if (tab === "assets") {
+    loadProjectResources();
+  }
+});
 </script>
 
 <style scoped>
@@ -1637,6 +1960,47 @@ onMounted(() => {
 
 .empty-icon {
   color: var(--accent);
+}
+
+.resource-thumb-wrap {
+  cursor: pointer;
+}
+
+.resource-image-thumb {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border-primary);
+  display: block;
+}
+
+.resource-video-thumb {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.resource-video-thumb .el-icon {
+  font-size: 20px;
+}
+
+.resource-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-name {
+  color: var(--text-primary);
 }
 
 /* ========================================

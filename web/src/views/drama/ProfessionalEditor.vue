@@ -466,6 +466,65 @@
                   >
                 </div>
 
+                <!-- 参考生图（Seedream 4.5：最多4张） -->
+                <div class="image-reference-section">
+                  <div class="section-label">
+                    参考生图
+                    <span class="seedream-reference-hint"
+                      >Seedream 4.5 支持 1-4 张参考图</span
+                    >
+                  </div>
+                  <div class="image-reference-slots">
+                    <div
+                      v-for="refItem in selectedImageReferenceItems"
+                      :key="refItem.key"
+                      class="image-reference-slot filled"
+                      @click="openImageReferenceSelector"
+                    >
+                      <img
+                        :src="getImageUrl(refItem)"
+                        :alt="refItem.name"
+                        class="image-reference-thumb"
+                      />
+                      <span class="image-reference-type">{{
+                        getImageReferenceTypeLabel(refItem.type)
+                      }}</span>
+                      <span
+                        class="image-reference-remove"
+                        @click.stop="removeImageReference(refItem.key)"
+                        >×</span
+                      >
+                    </div>
+                    <div
+                      v-for="slotIndex in emptyImageReferenceSlotCount"
+                      :key="`empty-slot-${slotIndex}`"
+                      class="image-reference-slot empty"
+                      @click="openImageReferenceSelector"
+                    >
+                      <el-icon :size="18"><Plus /></el-icon>
+                    </div>
+                  </div>
+                  <div class="image-reference-footer">
+                    <div class="image-reference-footer-actions">
+                      <el-button size="small" text @click="openImageReferenceSelector"
+                        >选择参考图</el-button
+                      >
+                      <el-button
+                        size="small"
+                        text
+                        :icon="Upload"
+                        @click="uploadReferenceImage"
+                        >上传图片</el-button
+                      >
+                    </div>
+                    <span class="image-reference-count"
+                      >{{ selectedImageReferenceItems.length }}/{{
+                        MAX_IMAGE_REFERENCE_COUNT
+                      }}</span
+                    >
+                  </div>
+                </div>
+
                 <!-- 提示词区域 -->
                 <div class="prompt-section">
                   <div class="section-label">
@@ -489,6 +548,27 @@
                       style="margin-left: 10px"
                     >
                       {{ $t("editor.extractPrompt") }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      plain
+                      :icon="MagicStick"
+                      :disabled="
+                        isGeneratingPrompt(
+                          currentStoryboard?.id,
+                          selectedFrameType,
+                        )
+                      "
+                      :loading="
+                        isGeneratingPrompt(
+                          currentStoryboard?.id,
+                          selectedFrameType,
+                        )
+                      "
+                      @click="optimizeCurrentFramePrompt"
+                      style="margin-left: 8px"
+                    >
+                      提示词优化
                     </el-button>
                     <span v-if="framePromptEstimatedCost > 0" class="inline-credit-hint">
                       预计扣除 {{ framePromptEstimatedCost }} 积分
@@ -1892,6 +1972,100 @@
       </div>
     </el-dialog>
 
+    <!-- 参考图选择弹窗（当前镜头人物+场景） -->
+    <el-dialog
+      v-model="showImageReferenceSelector"
+      title="选择参考图（最多4张）"
+      width="560px"
+    >
+      <div class="image-reference-dialog">
+        <div class="image-reference-dialog-group">
+          <div class="image-reference-dialog-title">场景</div>
+          <div
+            v-if="sceneReferenceCandidate"
+            class="image-reference-dialog-item"
+            :class="{
+              selected: selectedImageReferenceKeys.includes(
+                sceneReferenceCandidate.key,
+              ),
+            }"
+            @click="toggleImageReference(sceneReferenceCandidate.key)"
+          >
+            <img :src="getImageUrl(sceneReferenceCandidate)" alt="场景参考图" />
+            <div class="image-reference-dialog-name">
+              {{ sceneReferenceCandidate.name }}
+            </div>
+          </div>
+          <el-empty
+            v-else
+            description="当前镜头暂无场景图片"
+            :image-size="60"
+          />
+        </div>
+
+        <div class="image-reference-dialog-group">
+          <div class="image-reference-dialog-title">人物</div>
+          <div class="image-reference-dialog-grid">
+            <div
+              v-for="candidate in characterReferenceCandidates"
+              :key="candidate.key"
+              class="image-reference-dialog-item"
+              :class="{ selected: selectedImageReferenceKeys.includes(candidate.key) }"
+              @click="toggleImageReference(candidate.key)"
+            >
+              <img :src="getImageUrl(candidate)" :alt="candidate.name" />
+              <div class="image-reference-dialog-name">{{ candidate.name }}</div>
+            </div>
+          </div>
+          <el-empty
+            v-if="characterReferenceCandidates.length === 0"
+            description="当前镜头暂无人物图片"
+            :image-size="60"
+          />
+        </div>
+
+        <div class="image-reference-dialog-group">
+          <div class="image-reference-dialog-title-row">
+            <div class="image-reference-dialog-title">上传图片</div>
+            <el-button
+              size="small"
+              :icon="Upload"
+              @click="uploadReferenceImage"
+              >上传图片</el-button
+            >
+          </div>
+          <div class="image-reference-dialog-grid">
+            <div
+              v-for="candidate in uploadedReferenceCandidates"
+              :key="candidate.key"
+              class="image-reference-dialog-item"
+              :class="{ selected: selectedImageReferenceKeys.includes(candidate.key) }"
+              @click="toggleImageReference(candidate.key)"
+            >
+              <img :src="getImageUrl(candidate)" :alt="candidate.name" />
+              <div class="image-reference-dialog-name">{{ candidate.name }}</div>
+              <span
+                class="image-reference-dialog-remove"
+                @click.stop="removeUploadedImageReference(candidate.key)"
+                >×</span
+              >
+            </div>
+          </div>
+          <el-empty
+            v-if="uploadedReferenceCandidates.length === 0"
+            description="暂无上传参考图"
+            :image-size="60"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="clearImageReferences">清空</el-button>
+        <el-button type="primary" @click="showImageReferenceSelector = false"
+          >完成</el-button
+        >
+      </template>
+    </el-dialog>
+
     <!-- 视频预览对话框 -->
     <el-dialog
       v-model="showVideoPreview"
@@ -2031,6 +2205,7 @@ import { videoAPI } from "@/api/video";
 import { assetAPI } from "@/api/asset";
 import { videoMergeAPI } from "@/api/videoMerge";
 import { taskAPI } from "@/api/task";
+import request from "@/utils/request";
 import { useAuthStore } from "@/stores/auth";
 import { usePricingStore } from "@/stores/pricing";
 import type { ImageGeneration } from "@/types/image";
@@ -2132,6 +2307,22 @@ const allGeneratedImages = ref<ImageGeneration[]>([]);
 const showCropDialog = ref(false);
 const cropImageUrl = ref<string>("");
 const cropImageData = ref<ImageGeneration | null>(null);
+const showImageReferenceSelector = ref(false);
+const selectedImageReferenceKeys = ref<string[]>([]);
+
+const MAX_IMAGE_REFERENCE_COUNT = 4;
+
+interface ImageReferenceCandidate {
+  key: string;
+  id: number;
+  type: "scene" | "character" | "upload";
+  name: string;
+  image_url?: string;
+  local_path?: string;
+}
+const uploadedImageReferenceMap = ref<Record<number, ImageReferenceCandidate[]>>(
+  {},
+);
 
 // 视频生成相关状态
 const videoDuration = ref(5); // 默认5秒，会根据镜头duration自动更新
@@ -2666,6 +2857,229 @@ const currentStoryboardCharacters = computed(() => {
   return normalized;
 });
 
+const sceneReferenceCandidate = computed<ImageReferenceCandidate | null>(() => {
+  const bg = currentStoryboard.value?.background;
+  if (!bg || !hasImage(bg)) return null;
+  const sceneId =
+    Number(bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || 0) ||
+    0;
+  return {
+    key: `scene-${sceneId}`,
+    id: sceneId,
+    type: "scene",
+    name: `${bg.location || "场景"}${bg.time ? ` · ${bg.time}` : ""}`,
+    image_url: bg.image_url,
+    local_path: bg.local_path,
+  };
+});
+
+const characterReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
+  return currentStoryboardCharacters.value
+    .filter((char: any) => hasImage(char))
+    .map((char: any) => ({
+      key: `char-${char.id}`,
+      id: Number(char.id),
+      type: "character" as const,
+      name: char.name || `角色${char.id}`,
+      image_url: char.image_url,
+      local_path: char.local_path,
+    }));
+});
+
+const uploadedReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
+  const storyboardId = Number(currentStoryboard.value?.id || 0);
+  if (!storyboardId) return [];
+  return uploadedImageReferenceMap.value[storyboardId] || [];
+});
+
+const imageReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
+  const result: ImageReferenceCandidate[] = [];
+  if (sceneReferenceCandidate.value) {
+    result.push(sceneReferenceCandidate.value);
+  }
+  result.push(...characterReferenceCandidates.value);
+  result.push(...uploadedReferenceCandidates.value);
+  return result;
+});
+
+const imageReferenceCandidateMap = computed(() => {
+  return new Map(imageReferenceCandidates.value.map((item) => [item.key, item]));
+});
+
+const selectedImageReferenceItems = computed<ImageReferenceCandidate[]>(() => {
+  return selectedImageReferenceKeys.value
+    .map((key) => imageReferenceCandidateMap.value.get(key))
+    .filter((item): item is ImageReferenceCandidate => !!item);
+});
+
+const emptyImageReferenceSlotCount = computed(() => {
+  return Math.max(
+    0,
+    MAX_IMAGE_REFERENCE_COUNT - selectedImageReferenceItems.value.length,
+  );
+});
+
+const selectDefaultImageReferences = () => {
+  selectedImageReferenceKeys.value = imageReferenceCandidates.value
+    .slice(0, MAX_IMAGE_REFERENCE_COUNT)
+    .map((item) => item.key);
+};
+
+const openImageReferenceSelector = () => {
+  showImageReferenceSelector.value = true;
+};
+
+const toggleImageReference = (key: string) => {
+  const currentIndex = selectedImageReferenceKeys.value.indexOf(key);
+  if (currentIndex > -1) {
+    selectedImageReferenceKeys.value.splice(currentIndex, 1);
+    return;
+  }
+
+  if (selectedImageReferenceKeys.value.length >= MAX_IMAGE_REFERENCE_COUNT) {
+    ElMessage.warning(`最多选择${MAX_IMAGE_REFERENCE_COUNT}张参考图`);
+    return;
+  }
+  selectedImageReferenceKeys.value.push(key);
+};
+
+const removeImageReference = (key: string) => {
+  const index = selectedImageReferenceKeys.value.indexOf(key);
+  if (index > -1) {
+    selectedImageReferenceKeys.value.splice(index, 1);
+  }
+};
+
+const clearImageReferences = () => {
+  selectedImageReferenceKeys.value = [];
+};
+
+const getImageReferenceTypeLabel = (type: ImageReferenceCandidate["type"]) => {
+  if (type === "scene") return "场景";
+  if (type === "character") return "人物";
+  return "上传";
+};
+
+const pickImageFile = (): Promise<File | null> => {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      resolve(target.files?.[0] || null);
+    };
+    input.click();
+  });
+};
+
+const uploadImageFileToServer = async (file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const result = await request.post<{ url?: string; local_path?: string }>(
+    "/upload/image",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+  const imageUrl = result?.local_path || result?.url;
+  if (!imageUrl) {
+    throw new Error("上传失败");
+  }
+  return imageUrl;
+};
+
+const removeUploadedImageReference = (key: string) => {
+  const storyboardId = Number(currentStoryboard.value?.id || 0);
+  if (!storyboardId) return;
+  const current = uploadedImageReferenceMap.value[storyboardId] || [];
+  uploadedImageReferenceMap.value[storyboardId] = current.filter(
+    (item) => item.key !== key,
+  );
+  removeImageReference(key);
+};
+
+const uploadReferenceImage = async () => {
+  if (!currentStoryboard.value) {
+    ElMessage.warning("请先选择镜头");
+    return;
+  }
+
+  const storyboardId = Number(currentStoryboard.value.id);
+  const file = await pickImageFile();
+  if (!file) return;
+
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error("图片大小不能超过 10MB");
+    return;
+  }
+
+  try {
+    const imageUrl = await uploadImageFileToServer(file);
+    const now = Date.now();
+    const key = `upload-${storyboardId}-${now}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const uploadedList = uploadedImageReferenceMap.value[storyboardId] || [];
+    const candidate: ImageReferenceCandidate = {
+      key,
+      id: now,
+      type: "upload",
+      name: file.name || "上传图片",
+      image_url: imageUrl,
+      local_path: imageUrl,
+    };
+    uploadedImageReferenceMap.value[storyboardId] = [candidate, ...uploadedList];
+
+    if (
+      Number(currentStoryboard.value?.id || 0) === storyboardId &&
+      selectedImageReferenceKeys.value.length < MAX_IMAGE_REFERENCE_COUNT
+    ) {
+      selectedImageReferenceKeys.value.push(key);
+    }
+
+    showImageReferenceSelector.value = true;
+    ElMessage.success("参考图上传成功");
+  } catch (error: any) {
+    console.error("上传参考图失败:", error);
+    ElMessage.error(error.message || "上传失败");
+  }
+};
+
+// 监听镜头切换，默认选择当前镜头可用的人物/场景参考图（最多4张）
+watch(
+  () => currentStoryboard.value?.id,
+  (newStoryboardId, oldStoryboardId) => {
+    if (!newStoryboardId) {
+      selectedImageReferenceKeys.value = [];
+      return;
+    }
+    if (newStoryboardId !== oldStoryboardId) {
+      selectDefaultImageReferences();
+    }
+  },
+  { immediate: true },
+);
+
+// 候选参考图变化时，剔除失效项并补齐默认选中（用于首次导入角色/场景后）
+watch(
+  imageReferenceCandidates,
+  (candidates) => {
+    const validKeys = new Set(candidates.map((item) => item.key));
+    selectedImageReferenceKeys.value = selectedImageReferenceKeys.value.filter(
+      (key) => validKeys.has(key),
+    );
+    if (selectedImageReferenceKeys.value.length === 0 && candidates.length > 0) {
+      selectDefaultImageReferences();
+    }
+  },
+  { immediate: true },
+);
+
 const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
   const imageRefs = videoReferenceImages.value
     .filter((img) => img.status === "completed" && hasImage(img))
@@ -2874,6 +3288,10 @@ const extractFramePrompt = async () => {
   }
 };
 
+const optimizeCurrentFramePrompt = async () => {
+  await extractFramePrompt();
+};
+
 // 检查是否正在生成提示词
 const isGeneratingPrompt = (
   storyboardId: number | undefined,
@@ -2995,23 +3413,14 @@ const generateFrameImage = async () => {
 
   generatingImage.value = true;
   try {
-    // 收集参考图片的 local_path
-    const referenceImages: string[] = [];
-
-    // 1. 添加场景图片（从background字段获取 local_path）
-    if (currentStoryboard.value.background?.local_path) {
-      referenceImages.push(currentStoryboard.value.background.local_path);
-    }
-
-    // 2. 添加当前镜头登场的角色图片（使用 local_path）
-    const storyboardCharacters = currentStoryboardCharacters.value;
-    if (storyboardCharacters && storyboardCharacters.length > 0) {
-      storyboardCharacters.forEach((char: any) => {
-        if (char.local_path) {
-          referenceImages.push(char.local_path);
-        }
-      });
-    }
+    // Seedream 4.5 参考图：最多4张，优先使用 local_path
+    const referenceImages = Array.from(
+      new Set(
+        selectedImageReferenceItems.value
+          .map((item) => item.local_path || item.image_url || getImageUrl(item))
+          .filter((path): path is string => !!path),
+      ),
+    ).slice(0, MAX_IMAGE_REFERENCE_COUNT);
 
     const result = await imageAPI.generateImage({
       drama_id: dramaId.toString(),
@@ -3030,7 +3439,7 @@ const generateFrameImage = async () => {
     const refMsg =
       referenceImages.length > 0
         ? ` (已添加${referenceImages.length}张参考图)`
-        : "";
+        : " (未添加参考图)";
     ElMessage.success(`图片生成任务已提交${refMsg}`);
 
     // 启动轮询
@@ -3867,63 +4276,39 @@ const uploadImage = () => {
     return;
   }
 
-  // 创建隐藏的文件输入
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    const file = target.files?.[0];
+  const targetStoryboardId = Number(currentStoryboard.value.id);
+  const targetFrameType = selectedFrameType.value || "first";
+  const targetPrompt = currentFramePrompt.value || "用户上传图片";
+
+  (async () => {
+    const file = await pickImageFile();
     if (!file) return;
 
-    // 验证文件大小 (10MB)
     if (file.size > 10 * 1024 * 1024) {
       ElMessage.error("图片大小不能超过 10MB");
       return;
     }
 
     try {
-      // 创建 FormData
-      const formData = new FormData();
-      formData.append("file", file);
-
-      // 上传到服务器
-      const response = await fetch("/api/v1/upload/image", {
-        method: "POST",
-        body: formData,
+      const imageUrl = await uploadImageFileToServer(file);
+      await imageAPI.uploadImage({
+        storyboard_id: targetStoryboardId,
+        drama_id: parseInt(dramaId),
+        frame_type: targetFrameType,
+        image_url: imageUrl,
+        prompt: targetPrompt,
       });
 
-      if (!response.ok) {
-        throw new Error("上传失败");
+      if (Number(currentStoryboard.value?.id || 0) === targetStoryboardId) {
+        await loadStoryboardImages(targetStoryboardId, targetFrameType);
       }
 
-      const result = await response.json();
-      const imageUrl = result.data?.url;
-
-      if (imageUrl && currentStoryboard.value) {
-        // 创建图片生成记录（关联到当前镜头和帧类型）
-        await imageAPI.uploadImage({
-          storyboard_id: currentStoryboard.value.id,
-          drama_id: parseInt(dramaId),
-          frame_type: selectedFrameType.value || "first",
-          image_url: imageUrl,
-          prompt: currentFramePrompt.value || "用户上传图片",
-        });
-
-        // 刷新图片列表
-        await loadStoryboardImages(
-          currentStoryboard.value.id,
-          selectedFrameType.value,
-        );
-
-        ElMessage.success("图片上传成功");
-      }
+      ElMessage.success("图片上传成功");
     } catch (error: any) {
       console.error("上传图片失败:", error);
       ElMessage.error(error.message || "上传失败");
     }
-  };
-  input.click();
+  })();
 };
 
 // 删除图片
@@ -5323,6 +5708,103 @@ onBeforeUnmount(() => {
     }
   }
 
+  .image-reference-section {
+    margin-bottom: 18px;
+    padding: 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: var(--bg-card);
+
+    .section-label {
+      font-size: 13px;
+      color: var(--text-primary);
+      font-weight: 500;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .seedream-reference-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .image-reference-slots {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .image-reference-slot {
+      position: relative;
+      border: 1px dashed var(--border-secondary);
+      border-radius: 8px;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary);
+      color: var(--text-muted);
+
+      &.filled {
+        border-style: solid;
+      }
+
+      .image-reference-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .image-reference-type {
+        position: absolute;
+        left: 6px;
+        bottom: 6px;
+        font-size: 11px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      .image-reference-remove {
+        position: absolute;
+        right: 6px;
+        top: 6px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 14px;
+        line-height: 18px;
+        text-align: center;
+      }
+    }
+
+    .image-reference-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .image-reference-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .image-reference-count {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  }
+
   .prompt-section {
     margin-bottom: 20px;
 
@@ -5533,6 +6015,89 @@ onBeforeUnmount(() => {
   .mode-description {
     font-size: 12px;
     color: var(--text-muted);
+  }
+}
+
+.image-reference-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  .image-reference-dialog-group {
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    padding: 12px;
+    background: var(--bg-card);
+  }
+
+  .image-reference-dialog-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+
+  .image-reference-dialog-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+
+    .image-reference-dialog-title {
+      margin-bottom: 0;
+    }
+  }
+
+  .image-reference-dialog-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .image-reference-dialog-item {
+    position: relative;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+    background: var(--bg-secondary);
+
+    &.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent) inset;
+    }
+
+    img {
+      width: 100%;
+      height: 86px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .image-reference-dialog-remove {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      font-size: 14px;
+      line-height: 18px;
+      text-align: center;
+      z-index: 2;
+    }
+  }
+
+  .image-reference-dialog-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 6px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

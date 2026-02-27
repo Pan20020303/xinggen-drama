@@ -24,7 +24,8 @@ type VolcEngineImageRequest struct {
 	Image                     []string `json:"image,omitempty"`
 	SequentialImageGeneration string   `json:"sequential_image_generation,omitempty"`
 	Size                      string   `json:"size,omitempty"`
-	Watermark                 bool     `json:"watermark,omitempty"`
+	// Use pointer to ensure `false` is explicitly serialized (omitempty would drop bool false).
+	Watermark *bool `json:"watermark,omitempty"`
 }
 
 type VolcEngineImageResponse struct {
@@ -96,7 +97,7 @@ func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption
 		Image:                     options.ReferenceImages,
 		SequentialImageGeneration: "disabled",
 		Size:                      size,
-		Watermark:                 false,
+		Watermark:                 boolPtr(false),
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -155,4 +156,8 @@ func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption
 
 func (c *VolcEngineImageClient) GetTaskStatus(taskID string) (*ImageResult, error) {
 	return nil, fmt.Errorf("not supported for VolcEngine Seedream (synchronous generation)")
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
