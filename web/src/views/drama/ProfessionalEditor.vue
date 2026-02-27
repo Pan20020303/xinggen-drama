@@ -607,6 +607,14 @@
                             </el-icon>
                           </div>
                           <div v-else></div>
+                          <div
+                            class="download-icon-overlay"
+                            @click.stop="downloadImageFile(img)"
+                          >
+                            <el-icon :size="18" color="var(--text-primary)">
+                              <Download />
+                            </el-icon>
+                          </div>
                           <!-- 删除按钮 -->
                           <div
                             v-if="hasImage(img)"
@@ -2288,6 +2296,7 @@ import {
   Connection,
   Box,
   Crop,
+  Download,
   FolderAdd,
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
@@ -3578,6 +3587,40 @@ const previewImage = (url: string) => {
   document.body.appendChild(viewer);
 };
 
+const downloadImageFile = async (img: ImageGeneration) => {
+  const imageUrl = getImageUrl(img);
+  if (!imageUrl) {
+    ElMessage.warning("图片地址无效");
+    return;
+  }
+
+  const fallbackDownload = () => {
+    const link = document.createElement("a");
+    link.href = imageUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.download = `image_${img.id || Date.now()}.png`;
+    link.click();
+  };
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error("fetch failed");
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = `image_${img.id || Date.now()}.png`;
+    link.click();
+    window.URL.revokeObjectURL(blobUrl);
+    ElMessage.success("图片下载已开始");
+  } catch (error) {
+    console.warn("download image failed, fallback to direct link:", error);
+    fallbackDownload();
+    ElMessage.success("图片下载已开始");
+  }
+};
+
 // 获取已选图片对象列表
 const selectedImageObjects = computed(() => {
   return selectedImagesForVideo.value
@@ -3649,12 +3692,16 @@ const saveVideoPrompt = async () => {
 const optimizeVideoPromptWithAI = async () => {
   if (!currentStoryboard.value) return;
 
+  // 绑定发起请求时的镜头，避免异步返回后写到已切换的其他镜头
+  const targetStoryboardId = String(currentStoryboard.value.id);
+  const requestPrompt = editableVideoPrompt.value || "";
+
   optimizingVideoPrompt.value = true;
   try {
     const result = await dramaAPI.optimizeVideoPrompt(
-      currentStoryboard.value.id.toString(),
+      targetStoryboardId,
       {
-        prompt: editableVideoPrompt.value || "",
+        prompt: requestPrompt,
         model: textDefaultModel.value || undefined,
       },
     );
@@ -3664,9 +3711,28 @@ const optimizeVideoPromptWithAI = async () => {
       return;
     }
 
-    editableVideoPrompt.value = optimized;
-    currentStoryboard.value.video_prompt = optimized;
-    ElMessage.success("提示词优化完成");
+    // 始终写回目标镜头，防止覆盖当前已切换镜头
+    const targetStoryboard = storyboards.value.find(
+      (s) => String(s.id) === targetStoryboardId,
+    );
+    if (targetStoryboard) {
+      targetStoryboard.video_prompt = optimized;
+    }
+
+    // 只有仍停留在目标镜头时才更新当前编辑框
+    if (
+      currentStoryboard.value &&
+      String(currentStoryboard.value.id) === targetStoryboardId
+    ) {
+      editableVideoPrompt.value = optimized;
+    }
+
+    ElMessage.success(
+      currentStoryboard.value &&
+        String(currentStoryboard.value.id) !== targetStoryboardId
+        ? "提示词优化完成，已更新到原镜头"
+        : "提示词优化完成",
+    );
     await authStore.refreshMe();
   } catch (error: any) {
     ElMessage.error(error.message || "提示词优化失败");
@@ -5720,6 +5786,7 @@ onBeforeUnmount(() => {
             opacity 0.2s ease;
 
           .crop-icon-overlay,
+          .download-icon-overlay,
           .delete-icon-overlay {
             width: 28px;
             height: 28px;
