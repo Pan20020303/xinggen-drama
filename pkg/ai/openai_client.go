@@ -2,10 +2,13 @@ package ai
 
 import (
 	"bytes"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -106,12 +109,25 @@ func (c *OpenAIClient) ChatCompletion(messages []ChatMessage, options ...func(*C
 }
 
 func (c *OpenAIClient) sendChatRequest(req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
-	resp, err := c.doChatRequest(req)
-	if err == nil {
-		return resp, nil
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := c.doChatRequest(req)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isRetryableRequestError(err) || attempt == maxAttempts {
+			break
+		}
+
+		backoff := time.Duration(attempt) * time.Second
+		fmt.Printf("OpenAI: transient request error, retrying (%d/%d) after %s: %v\n",
+			attempt+1, maxAttempts, backoff, err)
+		time.Sleep(backoff)
 	}
 
-	if shouldRetryWithMaxCompletionTokens(err, req) {
+	if shouldRetryWithMaxCompletionTokens(lastErr, req) {
 		tokens := *req.MaxTokens
 		retryReq := *req
 		retryReq.MaxTokens = nil
@@ -120,7 +136,45 @@ func (c *OpenAIClient) sendChatRequest(req *ChatCompletionRequest) (*ChatComplet
 		return c.doChatRequest(&retryReq)
 	}
 
-	return nil, err
+	return nil, lastErr
+}
+
+func isRetryableRequestError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return true
+		}
+		if netErr.Temporary() {
+			return true
+		}
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Timeout() {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	retryHints := []string{
+		"tls handshake timeout",
+		"i/o timeout",
+		"context deadline exceeded",
+		"connection reset by peer",
+		"connection refused",
+		"unexpected eof",
+		"temporary failure",
+	}
+	for _, hint := range retryHints {
+		if strings.Contains(msg, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *OpenAIClient) doChatRequest(req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
