@@ -71,6 +71,14 @@ export const dramaAPI = {
     return request.post(`/episodes/${episodeId}/storyboards`)
   },
 
+  polishEpisodeScript(episodeId: string, data: { content?: string; model?: string; skill_name?: string }) {
+    return request.post<{ content: string; skill_name: string }>(`/episodes/${episodeId}/polish-script`, data)
+  },
+
+  polishScriptText(data: { content: string; model?: string; skill_name?: string }) {
+    return request.post<{ content: string; skill_name: string }>('/generation/script/polish', data)
+  },
+
   getBackgrounds(episodeId: string) {
     return request.get(`/images/episode/${episodeId}/backgrounds`)
   },

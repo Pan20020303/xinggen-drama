@@ -136,6 +136,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		generation := secured.Group("/generation")
 		{
 			generation.POST("/characters", scriptGenHandler.GenerateCharacters)
+			generation.POST("/script/polish", scriptGenHandler.PolishScriptText)
 		}
 
 		// 角色库路由
@@ -179,6 +180,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		{
 			// 分镜头
 			episodes.POST("/:episode_id/storyboards", storyboardHandler.GenerateStoryboard)
+			episodes.POST("/:episode_id/polish-script", scriptGenHandler.PolishEpisodeScript)
 			episodes.POST("/:episode_id/props/extract", propHandler.ExtractProps)
 			episodes.POST("/:episode_id/characters/extract", characterLibraryHandler.ExtractCharacters)
 			episodes.GET("/:episode_id/storyboards", sceneHandler.GetStoryboardsForEpisode)

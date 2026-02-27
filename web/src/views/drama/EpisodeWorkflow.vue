@@ -71,6 +71,19 @@
                   <el-icon><Check /></el-icon>
                   <span>{{ $t("workflow.saveChapter") }}</span>
                 </el-button>
+                <el-button
+                  size="default"
+                  @click="polishChapterScript"
+                  :loading="polishingScript"
+                  :disabled="!scriptContent.trim() || generatingScript || polishingScript"
+                >
+                  <el-icon><MagicStick /></el-icon>
+                  <span>{{
+                    polishingScript
+                      ? $t("workflow.polishingArticle")
+                      : $t("workflow.polishArticle")
+                  }}</span>
+                </el-button>
               </div>
             </div>
 
@@ -1161,6 +1174,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  Check,
   User,
   Location,
   Picture,
@@ -1213,6 +1227,7 @@ const savedStep = localStorage.getItem(getStepStorageKey());
 const currentStep = ref(savedStep ? parseInt(savedStep) : 0);
 const scriptContent = ref("");
 const generatingScript = ref(false);
+const polishingScript = ref(false);
 const generatingShots = ref(false);
 const extractingCharactersAndBackgrounds = ref(false);
 const batchGeneratingCharacters = ref(false);
@@ -1451,6 +1466,35 @@ const saveChapterScript = async () => {
     await loadDramaData();
   } catch (error: any) {
     ElMessage.error(error.message || "保存失败");
+  }
+};
+
+const polishChapterScript = async () => {
+  if (!scriptContent.value.trim()) {
+    ElMessage.warning($t("workflow.polishEmptyWarning"));
+    return;
+  }
+
+  polishingScript.value = true;
+  try {
+    const result = await dramaAPI.polishScriptText({
+      content: scriptContent.value,
+      skill_name: "polish_master",
+    });
+
+    const polished = (result.content || "").trim();
+    if (!polished) {
+      ElMessage.warning($t("workflow.polishFailed"));
+      return;
+    }
+
+    scriptContent.value = polished;
+    ElMessage.success($t("workflow.polishSuccess"));
+    await authStore.refreshMe();
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error?.message || error?.message || $t("workflow.polishFailed"));
+  } finally {
+    polishingScript.value = false;
   }
 };
 
