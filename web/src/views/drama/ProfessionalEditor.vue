@@ -183,10 +183,7 @@
                     </div>
                   </div>
                   <div
-                    v-if="
-                      !currentStoryboard?.characters ||
-                      currentStoryboard.characters.length === 0
-                    "
+                    v-if="currentStoryboardCharacters.length === 0"
                     class="cast-empty"
                   >
                     {{ $t("editor.noCharacters") }}
@@ -1296,201 +1293,6 @@
                     </div>
                   </div>
 
-                  <!-- 多图模式：本镜头场景参考 -->
-                  <div
-                    v-if="selectedReferenceMode === 'multiple'"
-                    class="character-reference-section"
-                    style="margin-top: 12px"
-                  >
-                    <div
-                      style="
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        margin-bottom: 8px;
-                      "
-                    >
-                      <span
-                        style="font-size: 13px; color: #303133; font-weight: 600"
-                        >本镜头场景参考</span
-                      >
-                      <span class="hint-text">点击场景图加入多图参考</span>
-                    </div>
-                    <div
-                      class="reference-grid"
-                      style="
-                        display: grid;
-                        grid-template-columns: repeat(4, 1fr);
-                        gap: 12px;
-                        max-width: 600px;
-                      "
-                    >
-                      <div
-                        v-for="sceneRef in currentShotSceneReferences"
-                        :key="sceneRef.id"
-                        class="reference-item"
-                        :class="{
-                          selected: selectedImagesForVideo.includes(sceneRef.id),
-                        }"
-                        style="position: relative"
-                        @click="handleImageSelect(sceneRef.id)"
-                      >
-                        <el-image
-                          :src="getImageUrl(sceneRef)"
-                          fit="cover"
-                          style="
-                            max-width: 120px;
-                            width: 100%;
-                            display: block;
-                            pointer-events: none;
-                          "
-                        />
-                        <div
-                          style="
-                            position: absolute;
-                            left: 4px;
-                            bottom: 4px;
-                            max-width: 110px;
-                            background: rgba(0, 0, 0, 0.65);
-                            color: #fff;
-                            border-radius: 4px;
-                            padding: 1px 6px;
-                            font-size: 11px;
-                            white-space: nowrap;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                          "
-                        >
-                          {{ sceneRef.name || "场景" }}
-                        </div>
-                        <div
-                          class="preview-icon"
-                          @click.stop="previewImage(getImageUrl(sceneRef))"
-                          style="
-                            position: absolute;
-                            top: 4px;
-                            right: 4px;
-                            width: 24px;
-                            height: 24px;
-                            background: rgba(0, 0, 0, 0.6);
-                            border-radius: 4px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            cursor: pointer;
-                            z-index: 10;
-                          "
-                        >
-                          <el-icon :size="14" color="#fff">
-                            <ZoomIn />
-                          </el-icon>
-                        </div>
-                      </div>
-                    </div>
-                    <el-empty
-                      v-if="currentShotSceneReferences.length === 0"
-                      description="本镜头暂无可用场景图"
-                      size="small"
-                    />
-                  </div>
-
-                  <!-- 多图模式：本镜头角色参考 -->
-                  <div
-                    v-if="selectedReferenceMode === 'multiple'"
-                    class="character-reference-section"
-                    style="margin-top: 12px"
-                  >
-                    <div
-                      style="
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        margin-bottom: 8px;
-                      "
-                    >
-                      <span
-                        style="font-size: 13px; color: #303133; font-weight: 600"
-                        >本镜头角色参考</span
-                      >
-                      <span class="hint-text">点击角色图加入多图参考</span>
-                    </div>
-                    <div
-                      class="reference-grid"
-                      style="
-                        display: grid;
-                        grid-template-columns: repeat(4, 1fr);
-                        gap: 12px;
-                        max-width: 600px;
-                      "
-                    >
-                      <div
-                        v-for="charRef in currentShotCharacterReferences"
-                        :key="charRef.id"
-                        class="reference-item"
-                        :class="{
-                          selected: selectedImagesForVideo.includes(charRef.id),
-                        }"
-                        style="position: relative"
-                        @click="handleImageSelect(charRef.id)"
-                      >
-                        <el-image
-                          :src="getImageUrl(charRef)"
-                          fit="cover"
-                          style="
-                            max-width: 120px;
-                            width: 100%;
-                            display: block;
-                            pointer-events: none;
-                          "
-                        />
-                        <div
-                          style="
-                            position: absolute;
-                            left: 4px;
-                            bottom: 4px;
-                            max-width: 80px;
-                            background: rgba(0, 0, 0, 0.65);
-                            color: #fff;
-                            border-radius: 4px;
-                            padding: 1px 6px;
-                            font-size: 11px;
-                            white-space: nowrap;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                          "
-                        >
-                          {{ charRef.name || "角色" }}
-                        </div>
-                        <div
-                          class="preview-icon"
-                          @click.stop="previewImage(getImageUrl(charRef))"
-                          style="
-                            position: absolute;
-                            top: 4px;
-                            right: 4px;
-                            width: 24px;
-                            height: 24px;
-                            background: rgba(0, 0, 0, 0.6);
-                            border-radius: 4px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            cursor: pointer;
-                            z-index: 10;
-                          "
-                        >
-                          <el-icon :size="14" color="#fff">
-                            <ZoomIn />
-                          </el-icon>
-                        </div>
-                      </div>
-                    </div>
-                    <el-empty
-                      v-if="currentShotCharacterReferences.length === 0"
-                      description="本镜头暂无可用角色图"
-                      size="small"
-                    />
-                  </div>
                 </div>
 
                 <!-- 参考图片设置 -->
@@ -1634,84 +1436,6 @@
                       </div>
                     </div>
 
-                    <!-- 多图模式 -->
-                    <div
-                      v-else-if="selectedReferenceMode === 'multiple'"
-                      style="text-align: center"
-                    >
-                      <div
-                        style="
-                          margin-bottom: 12px;
-                          font-size: 13px;
-                          color: #606266;
-                          font-weight: 500;
-                        "
-                      >
-                        多图参考 ({{ selectedImagesForVideo.length }}/{{
-                          currentModelCapability?.maxImages || 6
-                        }})
-                      </div>
-                      <div
-                        style="
-                          display: flex;
-                          gap: 12px;
-                          justify-content: center;
-                          flex-wrap: wrap;
-                        "
-                      >
-                        <div
-                          v-for="index in currentModelCapability?.maxImages ||
-                          6"
-                          :key="index"
-                          class="image-slot image-slot-small"
-                          style="
-                            position: relative;
-                            width: 80px;
-                            height: 52px;
-                            border: 2px dashed #dcdfe6;
-                            border-radius: 8px;
-                            overflow: hidden;
-                            cursor: pointer;
-                            background: #fff;
-                          "
-                          @click="
-                            selectedImageObjects[index - 1] &&
-                            removeSelectedImage(
-                              selectedImageObjects[index - 1].id,
-                            )
-                          "
-                        >
-                          <img
-                            v-if="selectedImageObjects[index - 1]"
-                            :src="getImageUrl(selectedImageObjects[index - 1])"
-                            alt=""
-                            style="width: 100%; height: 100%; object-fit: cover"
-                          />
-                          <div v-else class="image-slot-placeholder">
-                            <el-icon :size="20" color="#c0c4cc">
-                              <Plus />
-                            </el-icon>
-                            <div
-                              style="
-                                margin-top: 4px;
-                                font-size: 10px;
-                                color: #909399;
-                              "
-                            >
-                              {{ index }}
-                            </div>
-                          </div>
-                          <div
-                            v-if="selectedImageObjects[index - 1]"
-                            class="image-slot-remove"
-                          >
-                            <el-icon :size="14" color="#fff">
-                              <Close />
-                            </el-icon>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
@@ -2423,14 +2147,12 @@ const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
 );
 const videoReferenceImages = ref<ImageGeneration[]>([]);
 const selectedVideoModel = ref<string>("");
-const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, multiple, none
+const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, none
 const editableVideoPrompt = ref<string>("");
 const optimizingVideoPrompt = ref(false);
 const savingVideoPrompt = ref(false);
 const previewImageUrl = ref<string>(""); // 预览大图的URL
 const videoModelCapabilities = ref<VideoModelCapability[]>([]);
-const CHARACTER_REFERENCE_ID_OFFSET = 1000000000;
-const SCENE_REFERENCE_ID_OFFSET = 2000000000;
 let videoPollingTimer: any = null;
 let mergePollingTimer: any = null; // 视频合成列表轮询定时器
 
@@ -2656,14 +2378,6 @@ const availableReferenceModes = computed(() => {
       description: "使用首帧和尾帧",
     });
   }
-  if (capability.supportMultipleImages) {
-    modes.push({
-      value: "multiple",
-      label: "多图",
-      description: `最多${capability.maxImages}张`,
-    });
-  }
-
   return modes;
 });
 
@@ -2754,17 +2468,9 @@ const selectPreviousLastFrame = (img: any) => {
   } else if (selectedReferenceMode.value === "first_last") {
     // 首尾帧模式：作为首帧参考
     selectedImagesForVideo.value = [img.id];
-  } else if (selectedReferenceMode.value === "multiple") {
-    // 多图模式：添加到列表
-    const capability = currentModelCapability.value;
-    if (
-      capability &&
-      selectedImagesForVideo.value.length >= capability.maxImages
-    ) {
-      ElMessage.warning(`最多只能选择${capability.maxImages}张图片`);
-      return;
-    }
-    selectedImagesForVideo.value.push(img.id);
+  } else {
+    ElMessage.warning("当前模式不支持该操作");
+    return;
   }
   ElMessage.success("已添加为首帧参考");
 };
@@ -2907,74 +2613,57 @@ watch(selectedReferenceMode, () => {
   selectedLastImageForVideo.value = null;
 });
 
+const toCharacterId = (value: any): number | null => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const getCharacterIdFromEntry = (entry: any): number | null => {
+  if (entry == null) return null;
+  if (typeof entry === "object") {
+    return toCharacterId(entry.id);
+  }
+  return toCharacterId(entry);
+};
+
 // 当前分镜的角色列表
 const currentStoryboardCharacters = computed(() => {
-  if (!currentStoryboard.value?.characters) return [];
+  const rawCharacters = currentStoryboard.value?.characters;
+  if (!Array.isArray(rawCharacters) || rawCharacters.length === 0) return [];
 
-  // currentStoryboard.characters 是角色对象数组
-  if (
-    Array.isArray(currentStoryboard.value.characters) &&
-    currentStoryboard.value.characters.length > 0
-  ) {
-    const firstItem = currentStoryboard.value.characters[0];
-    // 如果是对象数组（包含id和name），直接返回
-    if (typeof firstItem === "object" && firstItem.id) {
-      return currentStoryboard.value.characters;
+  const characterMap = new Map<number, any>();
+  (characters.value || []).forEach((c: any) => {
+    const id = toCharacterId(c?.id);
+    if (id != null) {
+      characterMap.set(id, c);
     }
-    // 如果是ID数组，从characters中查找匹配的角色
-    if (typeof firstItem === "number") {
-      return characters.value.filter((c) =>
-        currentStoryboard.value.characters.includes(c.id),
-      );
+  });
+
+  const normalized: any[] = [];
+  const seen = new Set<number>();
+
+  rawCharacters.forEach((entry: any) => {
+    const id = getCharacterIdFromEntry(entry);
+    if (id == null || seen.has(id)) return;
+
+    const fromLibrary = characterMap.get(id);
+    if (fromLibrary) {
+      normalized.push(fromLibrary);
+      seen.add(id);
+      return;
     }
-  }
 
-  return [];
-});
+    if (entry && typeof entry === "object") {
+      normalized.push({
+        ...entry,
+        id,
+      });
+      seen.add(id);
+    }
+  });
 
-const toCharacterReferenceId = (characterId: number) =>
-  CHARACTER_REFERENCE_ID_OFFSET + Number(characterId);
-const toSceneReferenceId = (sceneId: number) =>
-  SCENE_REFERENCE_ID_OFFSET + Number(sceneId);
-
-// 当前镜头角色的可用参考图（用于多图模式）
-const currentShotCharacterReferences = computed<VideoReferenceCandidate[]>(() => {
-  return currentStoryboardCharacters.value
-    .filter((char: any) => hasImage(char))
-    .map((char: any) => ({
-      id: toCharacterReferenceId(char.id),
-      image_url: char.image_url,
-      local_path: char.local_path,
-      frame_type: "character",
-      status: "completed",
-      source_type: "character",
-      name: char.name,
-    }));
-});
-
-// 当前镜头场景的可用参考图（用于多图模式）
-const currentShotSceneReferences = computed<VideoReferenceCandidate[]>(() => {
-  const bg = currentStoryboard.value?.background;
-  if (!bg || !hasImage(bg)) return [];
-
-  const rawSceneId =
-    Number(
-      bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || 0,
-    ) || 0;
-  const sceneRefId = toSceneReferenceId(rawSceneId);
-  const sceneName = `${bg.location || "场景"}${bg.time ? ` · ${bg.time}` : ""}`;
-
-  return [
-    {
-      id: sceneRefId,
-      image_url: bg.image_url,
-      local_path: bg.local_path,
-      frame_type: "scene",
-      status: "completed",
-      source_type: "scene",
-      name: sceneName,
-    },
-  ];
+  return normalized;
 });
 
 const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
@@ -2989,11 +2678,7 @@ const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
       source_type: "image" as const,
     }));
 
-  return [
-    ...imageRefs,
-    ...currentShotSceneReferences.value,
-    ...currentShotCharacterReferences.value,
-  ];
+  return imageRefs;
 });
 
 const findReferenceCandidateById = (
@@ -3057,22 +2742,11 @@ const togglePropInShot = async (propId: number) => {
 
 // 检查角色是否已在当前镜头中
 const isCharacterInCurrentShot = (charId: number) => {
-  if (!currentStoryboard.value?.characters) return false;
-
-  if (
-    Array.isArray(currentStoryboard.value.characters) &&
-    currentStoryboard.value.characters.length > 0
-  ) {
-    const firstItem = currentStoryboard.value.characters[0];
-    if (typeof firstItem === "object" && firstItem.id) {
-      return currentStoryboard.value.characters.some((c) => c.id === charId);
-    }
-    if (typeof firstItem === "number") {
-      return currentStoryboard.value.characters.includes(charId);
-    }
-  }
-
-  return false;
+  const targetId = toCharacterId(charId);
+  if (targetId == null) return false;
+  const shotChars = currentStoryboard.value?.characters;
+  if (!Array.isArray(shotChars) || shotChars.length === 0) return false;
+  return shotChars.some((entry: any) => getCharacterIdFromEntry(entry) === targetId);
 };
 
 // 切换角色在镜头中的状态
@@ -3522,7 +3196,6 @@ const handleImageSelect = (imageId: number) => {
     return;
   }
 
-  const capability = currentModelCapability.value;
   const currentIndex = selectedImagesForVideo.value.indexOf(imageId);
 
   // 已选中，则取消选择
@@ -3559,15 +3232,6 @@ const handleImageSelect = (imageId: number) => {
       } else {
         ElMessage.warning("首尾帧模式下，请选择首帧或尾帧类型的图片");
       }
-      break;
-
-    case "multiple":
-      // 多图模式：检查是否超出最大数量
-      if (selectedImagesForVideo.value.length >= capability.maxImages) {
-        ElMessage.warning(`最多只能选择${capability.maxImages}张图片`);
-        return;
-      }
-      selectedImagesForVideo.value.push(imageId);
       break;
 
     default:
@@ -3837,17 +3501,6 @@ const generateVideo = async () => {
         }
         break;
 
-      case "multiple":
-        // 多图模式 - 优先使用 local_path
-        const selectedImages = selectedImagesForVideo.value
-          .map((id) => findReferenceCandidateById(id))
-          .filter((img) => img?.local_path || img?.image_url)
-          .map((img) => img!.local_path || img!.image_url || getImageUrl(img!));
-        requestParams.reference_image_urls = Array.from(
-          new Set(selectedImages),
-        );
-        break;
-
       case "none":
         // 无参考图模式
         break;
@@ -3978,32 +3631,45 @@ const stopVideoPolling = () => {
 
 const toggleCharacterInShot = async (charId: number) => {
   if (!currentStoryboard.value) return;
+  const normalizedCharId = toCharacterId(charId);
+  if (normalizedCharId == null) return;
 
   // 初始化characters数组
   if (!currentStoryboard.value.characters) {
     currentStoryboard.value.characters = [];
   }
 
-  const char = characters.value.find((c) => c.id === charId);
-  if (!char) return;
-
   // 检查是否已存在
-  const existIndex = currentStoryboard.value.characters.findIndex((c) =>
-    typeof c === "object" ? c.id === charId : c === charId,
+  const existIndex = currentStoryboard.value.characters.findIndex(
+    (entry: any) => getCharacterIdFromEntry(entry) === normalizedCharId,
   );
+
+  const libraryChar = characters.value.find(
+    (c: any) => toCharacterId(c.id) === normalizedCharId,
+  );
+  const removedEntry =
+    existIndex > -1 ? currentStoryboard.value.characters[existIndex] : null;
 
   if (existIndex > -1) {
     // 移除角色
     currentStoryboard.value.characters.splice(existIndex, 1);
   } else {
+    if (!libraryChar) {
+      ElMessage.warning("当前角色数据未加载完成，请刷新后重试");
+      return;
+    }
     // 添加角色（作为对象）
-    currentStoryboard.value.characters.push(char);
+    currentStoryboard.value.characters.push(libraryChar);
   }
 
   // 保存到后端
   try {
-    const characterIds = currentStoryboard.value.characters.map((c) =>
-      typeof c === "object" ? c.id : c,
+    const characterIds = Array.from(
+      new Set(
+        currentStoryboard.value.characters
+          .map((entry: any) => getCharacterIdFromEntry(entry))
+          .filter((id: number | null): id is number => id != null),
+      ),
     );
 
     await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
@@ -4011,15 +3677,21 @@ const toggleCharacterInShot = async (charId: number) => {
     });
 
     if (existIndex > -1) {
-      ElMessage.success(`已移除角色: ${char.name}`);
+      const removedName =
+        (removedEntry && typeof removedEntry === "object" && removedEntry.name) ||
+        libraryChar?.name ||
+        `ID:${normalizedCharId}`;
+      ElMessage.success(`已移除角色: ${removedName}`);
     } else {
-      ElMessage.success(`已添加角色: ${char.name}`);
+      ElMessage.success(`已添加角色: ${libraryChar?.name || normalizedCharId}`);
     }
   } catch (error: any) {
     ElMessage.error("保存失败: " + (error.message || "未知错误"));
     // 回滚操作
     if (existIndex > -1) {
-      currentStoryboard.value.characters.push(char);
+      if (removedEntry != null) {
+        currentStoryboard.value.characters.splice(existIndex, 0, removedEntry);
+      }
     } else {
       currentStoryboard.value.characters.splice(
         currentStoryboard.value.characters.length - 1,
@@ -4031,40 +3703,57 @@ const toggleCharacterInShot = async (charId: number) => {
 
 const removeCharacterFromShot = async (charId: number) => {
   if (!currentStoryboard.value) return;
+  const normalizedCharId = toCharacterId(charId);
+  if (normalizedCharId == null) return;
 
   // 初始化characters数组
   if (!currentStoryboard.value.characters) {
     currentStoryboard.value.characters = [];
   }
 
-  const char = characters.value.find((c) => c.id === charId);
-  if (!char) return;
+  const libraryChar = characters.value.find(
+    (c: any) => toCharacterId(c.id) === normalizedCharId,
+  );
 
   // 检查是否已存在
-  const existIndex = currentStoryboard.value.characters.findIndex((c) =>
-    typeof c === "object" ? c.id === charId : c === charId,
+  const existIndex = currentStoryboard.value.characters.findIndex(
+    (entry: any) => getCharacterIdFromEntry(entry) === normalizedCharId,
   );
+  const removedEntry =
+    existIndex > -1 ? currentStoryboard.value.characters[existIndex] : null;
 
   if (existIndex > -1) {
     // 移除角色
     currentStoryboard.value.characters.splice(existIndex, 1);
+  } else {
+    return;
   }
 
   // 保存到后端
   try {
-    const characterIds = currentStoryboard.value.characters.map((c) =>
-      typeof c === "object" ? c.id : c,
+    const characterIds = Array.from(
+      new Set(
+        currentStoryboard.value.characters
+          .map((entry: any) => getCharacterIdFromEntry(entry))
+          .filter((id: number | null): id is number => id != null),
+      ),
     );
 
     await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
       character_ids: characterIds,
     });
 
-    ElMessage.success(`已移除角色: ${char.name}`);
+    const removedName =
+      (removedEntry && typeof removedEntry === "object" && removedEntry.name) ||
+      libraryChar?.name ||
+      `ID:${normalizedCharId}`;
+    ElMessage.success(`已移除角色: ${removedName}`);
   } catch (error: any) {
     ElMessage.error("保存失败: " + (error.message || "未知错误"));
     // 回滚操作
-    currentStoryboard.value.characters.push(char);
+    if (removedEntry != null) {
+      currentStoryboard.value.characters.splice(existIndex, 0, removedEntry);
+    }
   }
 };
 

@@ -2,8 +2,10 @@ package services
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/drama-generator/backend/domain/models"
+	"gorm.io/gorm"
 )
 
 // UpdateStoryboard 更新分镜的所有字段，并重新生成提示词
@@ -18,6 +20,11 @@ func (s *StoryboardService) UpdateStoryboard(storyboardID string, updates map[st
 	sb := Storyboard{
 		ShotNumber: storyboard.StoryboardNumber,
 	}
+
+	var (
+		hasCharacterIDs bool
+		characterIDs    []uint
+	)
 
 	// 从updates中提取字段并更新
 	updateData := make(map[string]interface{})
@@ -84,6 +91,14 @@ func (s *StoryboardService) UpdateStoryboard(storyboardID string, updates map[st
 		sceneID := uint(val)
 		updateData["scene_id"] = sceneID
 	}
+	if val, ok := updates["character_ids"]; ok {
+		ids, err := parseUintIDs(val)
+		if err != nil {
+			return fmt.Errorf("invalid character_ids: %w", err)
+		}
+		hasCharacterIDs = true
+		characterIDs = ids
+	}
 
 	// 使用当前数据库值填充缺失字段（用于生成提示词）
 	if sb.Title == "" && storyboard.Title != nil {
@@ -133,14 +148,94 @@ func (s *StoryboardService) UpdateStoryboard(storyboardID string, updates map[st
 		updateData["video_prompt"] = videoPrompt
 	}
 
-	// 更新数据库
-	if err := s.db.Model(&storyboard).Updates(updateData).Error; err != nil {
-		return fmt.Errorf("failed to update storyboard: %w", err)
+	// 更新数据库与角色关联
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if len(updateData) > 0 {
+			if err := tx.Model(&storyboard).Updates(updateData).Error; err != nil {
+				return fmt.Errorf("failed to update storyboard: %w", err)
+			}
+		}
+
+		if hasCharacterIDs {
+			var characters []models.Character
+			if len(characterIDs) > 0 {
+				if err := tx.Where("id IN ?", characterIDs).Find(&characters).Error; err != nil {
+					return fmt.Errorf("failed to load characters: %w", err)
+				}
+			}
+			assoc := tx.Model(&storyboard).Association("Characters")
+			if len(characterIDs) == 0 {
+				if err := assoc.Clear(); err != nil {
+					return fmt.Errorf("failed to clear storyboard characters: %w", err)
+				}
+			} else {
+				if err := assoc.Replace(characters); err != nil {
+					return fmt.Errorf("failed to replace storyboard characters: %w", err)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	s.log.Infow("Storyboard updated successfully",
 		"storyboard_id", storyboardID,
-		"fields_updated", len(updateData))
+		"fields_updated", len(updateData),
+		"has_character_ids", hasCharacterIDs,
+		"character_ids_count", len(characterIDs))
 
 	return nil
+}
+
+func parseUintIDs(value interface{}) ([]uint, error) {
+	if value == nil {
+		return []uint{}, nil
+	}
+
+	rawList, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected array")
+	}
+
+	ids := make([]uint, 0, len(rawList))
+	seen := make(map[uint]struct{}, len(rawList))
+
+	for _, raw := range rawList {
+		var id uint64
+		switch v := raw.(type) {
+		case float64:
+			if v < 0 || v != float64(uint64(v)) {
+				return nil, fmt.Errorf("invalid id value: %v", v)
+			}
+			id = uint64(v)
+		case int:
+			if v < 0 {
+				return nil, fmt.Errorf("invalid id value: %v", v)
+			}
+			id = uint64(v)
+		case uint:
+			id = uint64(v)
+		case string:
+			parsed, err := strconv.ParseUint(v, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid id value: %v", v)
+			}
+			id = parsed
+		default:
+			return nil, fmt.Errorf("unsupported id type: %T", raw)
+		}
+
+		if id == 0 {
+			continue
+		}
+		u := uint(id)
+		if _, exists := seen[u]; exists {
+			continue
+		}
+		seen[u] = struct{}{}
+		ids = append(ids, u)
+	}
+
+	return ids, nil
 }
