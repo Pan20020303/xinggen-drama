@@ -115,6 +115,31 @@ func (s *TaskService) UpdateTaskResult(taskID string, result interface{}) error 
 		}).Error
 }
 
+// UpdateTaskProgressResult updates an in-flight task with progress and partial result payload.
+func (s *TaskService) UpdateTaskProgressResult(taskID, status string, progress int, message string, result interface{}) error {
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal progress result: %w", err)
+	}
+
+	updates := map[string]interface{}{
+		"status":     status,
+		"progress":   progress,
+		"message":    message,
+		"result":     string(resultJSON),
+		"updated_at": time.Now(),
+	}
+
+	if status == "completed" || status == "failed" {
+		now := time.Now()
+		updates["completed_at"] = &now
+	}
+
+	return s.db.Model(&models.AsyncTask{}).
+		Where("id = ?", taskID).
+		Updates(updates).Error
+}
+
 // GetTask 获取任务信息
 func (s *TaskService) GetTask(taskID string) (*models.AsyncTask, error) {
 	var task models.AsyncTask

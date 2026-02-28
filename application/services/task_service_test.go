@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/drama-generator/backend/domain/models"
@@ -96,5 +97,48 @@ func TestTaskService_CreateOrGetActiveTask_CreatesNewAfterCompleted(t *testing.T
 	}
 	if count != 2 {
 		t.Fatalf("expected 2 task rows, got %d", count)
+	}
+}
+
+func TestTaskService_UpdateTaskProgressResult_PersistsProcessingPayload(t *testing.T) {
+	db := newTaskServiceTestDB(t)
+	svc := NewTaskService(db, logger.NewLogger(true))
+
+	task, _, err := svc.CreateOrGetActiveTask("storyboard_generation", "303")
+	if err != nil {
+		t.Fatalf("create task error: %v", err)
+	}
+
+	payload := map[string]any{
+		"storyboards": []map[string]any{
+			{"shot_number": 1, "title": "开场"},
+		},
+		"is_partial": true,
+	}
+
+	if err := svc.UpdateTaskProgressResult(task.ID, "processing", 35, "已完成 1/3 段", payload); err != nil {
+		t.Fatalf("update task progress result error: %v", err)
+	}
+
+	saved, err := svc.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("get task error: %v", err)
+	}
+	if saved.Status != "processing" {
+		t.Fatalf("expected processing status, got %s", saved.Status)
+	}
+	if saved.Progress != 35 {
+		t.Fatalf("expected progress 35, got %d", saved.Progress)
+	}
+	if saved.CompletedAt != nil {
+		t.Fatalf("expected completed_at to stay nil while processing")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(saved.Result), &parsed); err != nil {
+		t.Fatalf("unmarshal saved result error: %v", err)
+	}
+	if parsed["is_partial"] != true {
+		t.Fatalf("expected is_partial=true, got %#v", parsed["is_partial"])
 	}
 }

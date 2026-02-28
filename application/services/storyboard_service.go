@@ -1,10 +1,11 @@
 package services
 
 import (
-	"strconv"
-
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	models "github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/ai"
@@ -61,6 +62,577 @@ type Storyboard struct {
 type GenerateStoryboardResult struct {
 	Storyboards []Storyboard `json:"storyboards"`
 	Total       int          `json:"total"`
+}
+
+type storyboardCharacterLink struct {
+	StoryboardID uint `gorm:"column:storyboard_id"`
+	CharacterID  uint `gorm:"column:character_id"`
+}
+
+type storyboardSegmentResult struct {
+	Index       int
+	Storyboards []Storyboard
+	Err         error
+}
+
+const (
+	storyboardMinMaxTokens       = 4000
+	storyboardMaxMaxTokens       = 32000
+	storyboardSegmentTargetRunes = 900
+	storyboardSegmentMinRunes    = 450
+	storyboardSegmentMaxRunes    = 1200
+	storyboardSegmentConcurrency = 3
+)
+
+func estimateStoryboardMaxTokens(scriptLength int) int {
+	if scriptLength <= 0 {
+		return storyboardMinMaxTokens
+	}
+
+	estimatedShots := max(1, scriptLength/200)
+	maxTokens := estimatedShots*350 + 1000
+	if maxTokens < storyboardMinMaxTokens {
+		return storyboardMinMaxTokens
+	}
+	if maxTokens > storyboardMaxMaxTokens {
+		return storyboardMaxMaxTokens
+	}
+	return maxTokens
+}
+
+func uniqueUintSlice(ids []uint) []uint {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[uint]struct{}, len(ids))
+	result := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func optionalStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	v := value
+	return &v
+}
+
+func requiredStringPtr(value string) *string {
+	v := value
+	return &v
+}
+
+func isStoryboardSceneBoundary(paragraph string) bool {
+	trimmed := strings.TrimSpace(paragraph)
+	if trimmed == "" {
+		return false
+	}
+
+	sceneMarkers := []string{
+		"【场景", "【镜头", "场景：", "场景:", "地点：", "地点:", "时间：", "时间:",
+		"INT.", "EXT.", "内景", "外景",
+	}
+	for _, marker := range sceneMarkers {
+		if strings.HasPrefix(trimmed, marker) {
+			return true
+		}
+	}
+
+	return strings.Contains(trimmed, "场景切换") || strings.Contains(trimmed, "转场")
+}
+
+func splitOversizedStoryboardParagraph(paragraph string, maxRunes int) []string {
+	trimmed := strings.TrimSpace(paragraph)
+	if trimmed == "" {
+		return nil
+	}
+	if utf8.RuneCountInString(trimmed) <= maxRunes {
+		return []string{trimmed}
+	}
+
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == '。' || r == '！' || r == '？' || r == '；' || r == '\n'
+	})
+
+	if len(parts) <= 1 {
+		runes := []rune(trimmed)
+		var chunks []string
+		for start := 0; start < len(runes); start += maxRunes {
+			end := min(start+maxRunes, len(runes))
+			chunks = append(chunks, strings.TrimSpace(string(runes[start:end])))
+		}
+		return chunks
+	}
+
+	var chunks []string
+	var builder strings.Builder
+	currentRunes := 0
+
+	flush := func() {
+		chunk := strings.TrimSpace(builder.String())
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+		builder.Reset()
+		currentRunes = 0
+	}
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		partRunes := utf8.RuneCountInString(part)
+		if currentRunes > 0 && currentRunes+partRunes+1 > maxRunes {
+			flush()
+		}
+		if currentRunes > 0 {
+			builder.WriteString("。")
+		}
+		builder.WriteString(part)
+		currentRunes += partRunes + 1
+	}
+	flush()
+	return chunks
+}
+
+func appendStoryboardParagraph(paragraphs []string, paragraph string) []string {
+	return append(paragraphs, strings.TrimSpace(paragraph))
+}
+
+func joinStoryboardParagraphs(paragraphs []string) string {
+	return strings.Join(paragraphs, "\n\n")
+}
+
+func (s *StoryboardService) splitScriptIntoSegments(scriptContent string) []string {
+	normalized := strings.ReplaceAll(scriptContent, "\r\n", "\n")
+	rawParagraphs := strings.Split(normalized, "\n\n")
+	paragraphs := make([]string, 0, len(rawParagraphs))
+	for _, paragraph := range rawParagraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		paragraphs = append(paragraphs, splitOversizedStoryboardParagraph(paragraph, storyboardSegmentTargetRunes)...)
+	}
+
+	if len(paragraphs) == 0 {
+		trimmed := strings.TrimSpace(normalized)
+		if trimmed == "" {
+			return nil
+		}
+		return splitOversizedStoryboardParagraph(trimmed, storyboardSegmentMaxRunes)
+	}
+
+	segments := make([]string, 0)
+	currentParagraphs := make([]string, 0)
+	currentRunes := 0
+
+	flush := func() {
+		if len(currentParagraphs) == 0 {
+			return
+		}
+		segments = append(segments, joinStoryboardParagraphs(currentParagraphs))
+		currentParagraphs = currentParagraphs[:0]
+		currentRunes = 0
+	}
+
+	for _, paragraph := range paragraphs {
+		paragraphRunes := utf8.RuneCountInString(paragraph)
+		shouldSplit := false
+		if len(currentParagraphs) > 0 {
+			if currentRunes+paragraphRunes > storyboardSegmentTargetRunes && currentRunes >= storyboardSegmentMinRunes {
+				shouldSplit = true
+			}
+			if isStoryboardSceneBoundary(paragraph) && currentRunes >= storyboardSegmentMinRunes {
+				shouldSplit = true
+			}
+			if currentRunes+paragraphRunes > storyboardSegmentMaxRunes {
+				shouldSplit = true
+			}
+		}
+
+		if shouldSplit {
+			flush()
+		}
+
+		currentParagraphs = appendStoryboardParagraph(currentParagraphs, paragraph)
+		currentRunes += paragraphRunes
+	}
+	flush()
+
+	if len(segments) == 0 {
+		return []string{strings.TrimSpace(normalized)}
+	}
+	return segments
+}
+
+func renumberStoryboards(storyboards []Storyboard, start int) {
+	for i := range storyboards {
+		storyboards[i].ShotNumber = start + i
+	}
+}
+
+func maxConcurrentStoryboardSegments(total int) int {
+	if total <= 1 {
+		return 1
+	}
+	if total < storyboardSegmentConcurrency {
+		return total
+	}
+	return storyboardSegmentConcurrency
+}
+
+func mergeStoryboardSegmentResults(results []storyboardSegmentResult) ([]Storyboard, error) {
+	merged := make([]Storyboard, 0)
+	for _, result := range results {
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		renumberStoryboards(result.Storyboards, len(merged)+1)
+		merged = append(merged, result.Storyboards...)
+	}
+	return merged, nil
+}
+
+func mergeAvailableStoryboardSegmentResults(results []storyboardSegmentResult) ([]Storyboard, error) {
+	merged := make([]Storyboard, 0)
+	for _, result := range results {
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		if len(result.Storyboards) == 0 {
+			continue
+		}
+		renumberStoryboards(result.Storyboards, len(merged)+1)
+		merged = append(merged, result.Storyboards...)
+	}
+	return merged, nil
+}
+
+func buildPreviousScriptContext(segment string) string {
+	trimmed := strings.TrimSpace(segment)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) > 280 {
+		runes = runes[len(runes)-280:]
+	}
+	return strings.TrimSpace(string(runes))
+}
+
+func countReadyStoryboardSegments(ready []bool) int {
+	count := 0
+	for _, item := range ready {
+		if !item {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+func buildStoryboardTaskResult(storyboards []Storyboard, readySegments, totalSegments int) gin.H {
+	return gin.H{
+		"storyboards":        storyboards,
+		"total":              len(storyboards),
+		"segments_completed": readySegments,
+		"segment_total":      totalSegments,
+		"is_partial":         readySegments < totalSegments,
+	}
+}
+
+func storyboardGenerationPhaseMessage(totalSegments, completedSegments, concurrency int) string {
+	if completedSegments <= 0 {
+		return fmt.Sprintf("正在拆分剧本，共 %d 段，并发 %d 段生成", totalSegments, concurrency)
+	}
+	if completedSegments >= totalSegments {
+		return fmt.Sprintf("分镜段已全部完成（%d/%d），准备合并结果", completedSegments, totalSegments)
+	}
+	return fmt.Sprintf("正在拆分分镜，已完成 %d/%d 段，并发 %d 段生成", completedSegments, totalSegments, concurrency)
+}
+
+func (s *StoryboardService) summarizeStoryboardContext(storyboards []Storyboard) string {
+	if len(storyboards) == 0 {
+		return ""
+	}
+
+	start := len(storyboards) - 2
+	if start < 0 {
+		start = 0
+	}
+
+	var lines []string
+	for _, sb := range storyboards[start:] {
+		lines = append(lines, fmt.Sprintf(
+			"#%d %s | 场景:%s %s | 动作:%s | 结果:%s",
+			sb.ShotNumber,
+			strings.TrimSpace(sb.Title),
+			strings.TrimSpace(sb.Location),
+			strings.TrimSpace(sb.Time),
+			strings.TrimSpace(sb.Action),
+			strings.TrimSpace(sb.Result),
+		))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *StoryboardService) buildStoryboardSegmentPrompt(scriptSegment, characterList, sceneList, previousContext string, segmentIndex, totalSegments int) string {
+	scriptBody := scriptSegment
+	if previousContext != "" {
+		scriptBody = fmt.Sprintf("【上一段分镜摘要】\n%s\n\n【当前待拆分片段 %d/%d】\n%s", previousContext, segmentIndex, totalSegments, scriptSegment)
+	}
+	return s.buildStoryboardPrompt(scriptBody, characterList, sceneList)
+}
+
+func parseStoryboardGenerationResult(text string) (GenerateStoryboardResult, error) {
+	var result GenerateStoryboardResult
+	var storyboards []Storyboard
+	if err := utils.SafeParseAIJSON(text, &storyboards); err == nil {
+		result.Storyboards = storyboards
+		result.Total = len(storyboards)
+		return result, nil
+	}
+	if err := utils.SafeParseAIJSON(text, &result); err != nil {
+		return GenerateStoryboardResult{}, err
+	}
+	result.Total = len(result.Storyboards)
+	return result, nil
+}
+
+func (s *StoryboardService) prepareStoryboardGenerationClient(userID uint, model, episodeID string, billingRefID *string) (ai.AIClient, string, error) {
+	requestedModel := model
+	if requestedModel == "" {
+		_, actualModel, cfgErr := s.aiService.GetBillingConfig("text", "", userID)
+		if cfgErr != nil {
+			return nil, "", cfgErr
+		}
+		requestedModel = actualModel
+	}
+
+	cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", requestedModel, userID)
+	if cfgErr != nil {
+		return nil, "", cfgErr
+	}
+
+	client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+	if err != nil && model != "" {
+		s.log.Warnw("Failed to get client for specified model, fallback to default model", "model", model, "error", err)
+		cfg, actualModel, cfgErr = s.aiService.GetBillingConfig("text", "", userID)
+		if cfgErr != nil {
+			return nil, "", cfgErr
+		}
+		client, err = s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	refID, reserveErr := s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
+	if reserveErr != nil {
+		return nil, "", reserveErr
+	}
+	*billingRefID = refID
+	return client, actualModel, nil
+}
+
+func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, taskID, actualModel, characterList, sceneList string, segments []string) ([]Storyboard, error) {
+	totalSegments := len(segments)
+	if totalSegments == 0 {
+		return nil, fmt.Errorf("no storyboard segments")
+	}
+
+	concurrency := maxConcurrentStoryboardSegments(totalSegments)
+	statusMsg := storyboardGenerationPhaseMessage(totalSegments, 0, concurrency)
+	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 10, statusMsg); err != nil {
+		s.log.Warnw("Failed to update concurrent storyboard status", "error", err, "task_id", taskID)
+	}
+
+	sem := make(chan struct{}, concurrency)
+	resultsCh := make(chan storyboardSegmentResult, totalSegments)
+	var wg sync.WaitGroup
+
+	for idx, segment := range segments {
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(index int, segmentText string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
+			if err != nil {
+				resultsCh <- storyboardSegmentResult{Index: index, Err: err}
+				return
+			}
+
+			previousContext := ""
+			if index > 0 {
+				previousContext = buildPreviousScriptContext(segments[index-1])
+			}
+			maxTokens := estimateStoryboardMaxTokens(utf8.RuneCountInString(segmentText))
+			prompt := s.buildStoryboardSegmentPrompt(segmentText, characterList, sceneList, previousContext, index+1, totalSegments)
+
+			s.log.Infow("Generating storyboard segment concurrently",
+				"task_id", taskID,
+				"segment_index", index+1,
+				"segment_total", totalSegments,
+				"segment_length", utf8.RuneCountInString(segmentText),
+				"prompt_length", len(prompt),
+				"max_tokens", maxTokens)
+
+			text, err := client.GenerateTextStream(prompt, "", nil, ai.WithMaxTokens(maxTokens))
+			if err != nil {
+				resultsCh <- storyboardSegmentResult{Index: index, Err: err}
+				return
+			}
+
+			parsed, err := parseStoryboardGenerationResult(text)
+			if err != nil {
+				s.log.Errorw("Failed to parse concurrent storyboard segment",
+					"error", err,
+					"task_id", taskID,
+					"segment_index", index+1,
+					"response", text[:min(500, len(text))])
+				resultsCh <- storyboardSegmentResult{Index: index, Err: err}
+				return
+			}
+
+			resultsCh <- storyboardSegmentResult{
+				Index:       index,
+				Storyboards: parsed.Storyboards,
+			}
+		}(idx, segment)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	results := make([]storyboardSegmentResult, totalSegments)
+	completed := 0
+	publishedCompleted := 0
+	var firstErr error
+
+	for result := range resultsCh {
+		if result.Err != nil && firstErr == nil {
+			firstErr = result.Err
+		}
+		results[result.Index] = result
+		if result.Err == nil {
+			completed++
+			progress := 10 + int(float64(completed)*45/float64(totalSegments))
+			if progress > 55 {
+				progress = 55
+			}
+			message := storyboardGenerationPhaseMessage(totalSegments, completed, concurrency)
+			if completed > publishedCompleted {
+				previewStoryboards, mergeErr := mergeAvailableStoryboardSegmentResults(results)
+				if mergeErr != nil {
+					if firstErr == nil {
+						firstErr = mergeErr
+					}
+				} else {
+					previewMessage := message
+					if len(previewStoryboards) > 0 {
+						previewMessage = fmt.Sprintf("%s，已可预览 %d 个镜头", message, len(previewStoryboards))
+					}
+					if err := s.taskService.UpdateTaskProgressResult(
+						taskID,
+						"processing",
+						progress,
+						previewMessage,
+						buildStoryboardTaskResult(previewStoryboards, completed, totalSegments),
+					); err != nil {
+						s.log.Warnw("Failed to update concurrent storyboard preview", "error", err, "task_id", taskID)
+					}
+					publishedCompleted = completed
+					continue
+				}
+			}
+			if err := s.taskService.UpdateTaskStatus(taskID, "processing", progress, message); err != nil {
+				s.log.Warnw("Failed to update concurrent storyboard progress", "error", err, "task_id", taskID)
+			}
+		}
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	return mergeStoryboardSegmentResults(results)
+}
+
+func (s *StoryboardService) buildStoryboardPrompt(scriptContent, characterList, sceneList string) string {
+	systemPrompt := s.promptI18n.GetStoryboardSystemPrompt()
+	scriptLabel := s.promptI18n.FormatUserPrompt("script_content_label")
+	taskLabel := s.promptI18n.FormatUserPrompt("task_label")
+	taskInstruction := s.promptI18n.FormatUserPrompt("task_instruction")
+	charListLabel := s.promptI18n.FormatUserPrompt("character_list_label")
+	charConstraint := s.promptI18n.FormatUserPrompt("character_constraint")
+	sceneListLabel := s.promptI18n.FormatUserPrompt("scene_list_label")
+	sceneConstraint := s.promptI18n.FormatUserPrompt("scene_constraint")
+
+	var builder strings.Builder
+	builder.Grow(len(systemPrompt) + len(scriptContent) + len(characterList) + len(sceneList) + 1024)
+	builder.WriteString(systemPrompt)
+	builder.WriteString("\n\n")
+	builder.WriteString(taskLabel)
+	builder.WriteString("\n")
+	builder.WriteString(taskInstruction)
+	builder.WriteString("\n\n")
+	builder.WriteString(charListLabel)
+	builder.WriteString("\n")
+	builder.WriteString(characterList)
+	builder.WriteString("\n")
+	builder.WriteString(charConstraint)
+	builder.WriteString("\n\n")
+	builder.WriteString(sceneListLabel)
+	builder.WriteString("\n")
+	builder.WriteString(sceneList)
+	builder.WriteString("\n")
+	builder.WriteString(sceneConstraint)
+	builder.WriteString("\n\n")
+	builder.WriteString(scriptLabel)
+	builder.WriteString("\n")
+	builder.WriteString(scriptContent)
+
+	if s.promptI18n.IsEnglish() {
+		builder.WriteString("\n\n[Output Contract]\n")
+		builder.WriteString(`Return a JSON object: {"storyboards":[...]}. Each storyboard must include shot_number, title, shot_type, angle, time, location, scene_id, movement, action, dialogue, result, atmosphere, emotion, duration, bgm_prompt, sound_effect, characters, is_primary.`)
+		builder.WriteString("\n- Keep one independent action per shot; do not merge beats.\n")
+		builder.WriteString("- Keep all descriptive fields concrete and visual, but avoid filler.\n")
+		builder.WriteString("- duration must be an integer between 4 and 12.\n")
+		builder.WriteString("- characters must be an array of numeric ids from the provided list.\n")
+		builder.WriteString("- scene_id must be a numeric id from the provided scene list or null.\n")
+		builder.WriteString(`- dialogue must stay faithful to the script. Use "" when no dialogue exists.`)
+		builder.WriteString("\n- Return JSON only, without markdown or explanations.")
+	} else {
+		builder.WriteString("\n\n【输出约束】\n")
+		builder.WriteString(`返回 JSON 对象：{"storyboards":[...]}` + "\n")
+		builder.WriteString("- 每个镜头只保留一个独立动作单元，不要合并剧情。\n")
+		builder.WriteString("- 每个 storyboard 必须包含：shot_number、title、shot_type、angle、time、location、scene_id、movement、action、dialogue、result、atmosphere、emotion、duration、bgm_prompt、sound_effect、characters、is_primary。\n")
+		builder.WriteString("- 描述字段要具体、可视化，但不要堆砌重复措辞。\n")
+		builder.WriteString("- duration 必须是 4-12 的整数。\n")
+		builder.WriteString("- characters 只能填写上方角色列表中的数字 ID。\n")
+		builder.WriteString("- scene_id 只能填写上方场景列表中的数字 ID，没有匹配则填 null。\n")
+		builder.WriteString("- dialogue 必须忠于原剧本，无对白时填写空字符串。\n")
+		builder.WriteString("- 只返回 JSON，不要 markdown，不要解释。")
+	}
+
+	return builder.String()
 }
 
 func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, model string) (string, error) {
@@ -124,202 +696,10 @@ func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, mo
 		sceneList = fmt.Sprintf("[%s]", strings.Join(sceneInfoList, ", "))
 	}
 
-	// 使用国际化提示词
-	systemPrompt := s.promptI18n.GetStoryboardSystemPrompt()
-
-	scriptLabel := s.promptI18n.FormatUserPrompt("script_content_label")
-	taskLabel := s.promptI18n.FormatUserPrompt("task_label")
-	taskInstruction := s.promptI18n.FormatUserPrompt("task_instruction")
-	charListLabel := s.promptI18n.FormatUserPrompt("character_list_label")
-	charConstraint := s.promptI18n.FormatUserPrompt("character_constraint")
-	sceneListLabel := s.promptI18n.FormatUserPrompt("scene_list_label")
-	sceneConstraint := s.promptI18n.FormatUserPrompt("scene_constraint")
-
-	prompt := fmt.Sprintf(`%s
-
-%s
-
-%s%s
-
-%s
-%s
-
-%s
-
-%s
-%s
-
-%s
-
-【剧本原文】
-%s
-
-【分镜要素】每个镜头聚焦单一动作，描述要详尽具体：
-1. **镜头标题(title)**：用3-5个字概括该镜头的核心内容或情绪
-   - 例如："噩梦惊醒"、"对视沉思"、"逃离现场"、"意外发现"
-2. **时间**：[清晨/午后/深夜/具体时分+详细光线描述]
-   - 例如："深夜22:30·月光从破窗斜射入室内，形成明暗分界"
-3. **地点**：[场景完整描述+空间布局+环境细节]
-   - 例如："废弃码头仓库·锈蚀货架林立，地面积水反射微弱灯光，墙角堆放腐朽木箱"
-4. **镜头设计**：
-   - **景别(shot_type)**：[远景/全景/中景/近景/特写]
-   - **镜头角度(angle)**：[平视/仰视/俯视/侧面/背面]
-   - **运镜方式(movement)**：[固定镜头/推镜/拉镜/摇镜/跟镜/移镜]
-5. **人物行为**：**详细动作描述**，包含[谁+具体怎么做+肢体细节+表情状态]
-   - 例如："陈峥弯腰用撬棍撬动保险箱门，手臂青筋暴起，眉头紧锁，汗水滑落脸颊"
-6. **对话/独白**：提取该镜头中的完整对话或独白内容（如无对话则为空字符串）
-7. **画面结果**：动作的即时后果+视觉细节+氛围变化
-   - 例如："保险箱门弹开发出金属碰撞声，扬起灰尘在光束中飘散，箱内空无一物只有陈旧报纸，陈峥表情从期待转为失望"
-8. **环境氛围**：光线质感+色调+声音环境+整体氛围
-   - 例如："昏暗冷色调，只有手电筒光束晃动，远处传来海浪拍打声，压抑沉闷"
-9. **配乐提示(bgm_prompt)**：描述该镜头配乐的氛围、节奏、情绪（如无特殊要求则为空字符串）
-   - 例如："低沉紧张的弦乐，节奏缓慢，营造压抑氛围"
-10. **音效描述(sound_effect)**：描述该镜头的关键音效（如无特殊音效则为空字符串）
-    - 例如："金属碰撞声、脚步声、海浪拍打声"
-11. **观众情绪**：[情绪类型]（[强度：↑↑↑/↑↑/↑/→/↓] + [落点：悬置/释放/反转]）
-
-【输出格式】请以JSON格式输出，每个镜头包含以下字段（**所有描述性字段都要详细完整**）：
-{
-  "storyboards": [
-    {
-      "shot_number": 1,
-      "title": "噩梦惊醒",
-      "shot_type": "全景",
-      "angle": "俯视45度角",
-      "time": "深夜22:30·月光从破窗斜射入仓库，在地面积水中形成银白色反光，墙角昏暗不清",
-      "location": "废弃码头仓库·锈蚀货架林立，地面积水反射微弱灯光，墙角堆放腐朽木箱和渔网，空气中弥漫潮湿霉味",
-      "scene_id": 1,
-      "movement": "固定镜头",
-      "action": "陈峥弯腰双手握住撬棍用力撬动保险箱门，手臂青筋暴起，眉头紧锁，汗水从额头滑落脸颊，呼吸急促",
-      "dialogue": "（独白）这么多年了，里面到底藏着什么秘密？",
-      "result": "保险箱门突然弹开发出刺耳金属声，扬起灰尘在手电筒光束中飘散，箱内空无一物只有几张发黄的旧报纸，陈峥表情从期待转为震惊和失望，瞳孔放大",
-      "atmosphere": "昏暗冷色调·青灰色为主，只有手电筒光束在黑暗中晃动，远处传来海浪拍打码头的沉闷声，整体氛围压抑沉重",
-      "emotion": "好奇感↑↑转失望↓（情绪反转）",
-      "duration": 9,
-      "bgm_prompt": "低沉紧张的弦乐，节奏缓慢，营造压抑悬疑氛围",
-      "sound_effect": "金属碰撞声、灰尘飘散声、海浪拍打声",
-      "characters": [159],
-      "is_primary": true
-    },
-    {
-      "shot_number": 2,
-      "title": "对视沉思",
-      "shot_type": "近景",
-      "angle": "平视",
-      "time": "深夜22:31·仓库内光线昏暗，只有手电筒光从侧面照亮两人脸部轮廓",
-      "location": "废弃码头仓库·保险箱旁，背景是模糊的货架剪影",
-      "scene_id": 1,
-      "movement": "推镜",
-      "action": "陈峥缓缓转身，目光与身后的李芳对视，李芳手握手电筒，光束在两人之间晃动，眼神中透露疑惑和警惕",
-      "dialogue": "陈峥：\"我们被耍了，这里根本没有我们要找的东西。\" 李芳：\"现在怎么办？我们的时间不多了。\"",
-      "result": "两人站在昏暗中陷入沉思，手电筒光束照在地面形成圆形光斑，背景传来微弱的金属摩擦声，气氛紧张凝重",
-      "atmosphere": "低调光线·暗部占画面70%%，侧面硬光勾勒人物轮廓，冷暖光对比强烈，海风吹过产生呼啸声，营造紧迫感",
-      "emotion": "紧张感↑↑·警惕↑↑（悬置）",
-      "duration": 7,
-      "bgm_prompt": "紧张感逐渐升级的音效，低频持续音",
-      "sound_effect": "呼吸声、金属摩擦声、海风呼啸声",
-      "characters": [159, 160],
-      "is_primary": true
-    }
-  ]
-}
-
-**dialogue字段说明**：
-- 如果有对话，格式为：角色名："台词内容"
-- 多人对话用空格分隔：角色A："..." 角色B："..."
-- 独白格式为：（独白）内容
-- 旁白格式为：（旁白）内容
-- 无对话时填写空字符串：""
-- **对话内容必须从原剧本中提取，保持原汁原味**
-
-**角色和背景要求**：
-- characters字段必须包含该镜头中出现的所有角色ID（数字数组格式）
-- 只提取实际出现的角色ID，不出现角色则为空数组[]
-- **角色ID必须严格使用【本剧可用角色列表】中的id字段（数字），不得使用其他ID或自创角色**
-- 例如：如果镜头中出现李明(id:159)和王芳(id:160)，则characters字段应为[159, 160]
-- scene_id字段必须从【本剧已提取的场景背景列表】中选择最匹配的背景ID（数字）
-- 如果列表中没有合适的背景，则scene_id填null
-- 例如：如果镜头发生在"城市公寓卧室·凌晨"，应选择id为1的场景背景
-
-**duration时长估算规则（秒）**：
-- **所有镜头时长必须在4-12秒范围内**，确保节奏合理流畅
-- **综合估算原则**：时长由对话内容、动作复杂度、情绪节奏三方面综合决定
-
-**估算步骤**：
-1. **基础时长**（从场景内容判断）：
-   - 纯对话场景（无明显动作）：基础4秒
-   - 纯动作场景（无对话）：基础5秒
-   - 对话+动作混合场景：基础6秒
-
-2. **对话调整**（根据台词字数增加时长）：
-   - 无对话：+0秒
-   - 短对话（1-20字）：+1-2秒
-   - 中等对话（21-50字）：+2-4秒
-   - 长对话（51字以上）：+4-6秒
-
-3. **动作调整**（根据动作复杂度增加时长）：
-   - 无动作/静态：+0秒
-   - 简单动作（表情、转身、拿物品）：+0-1秒
-   - 一般动作（走动、开门、坐下）：+1-2秒
-   - 复杂动作（打斗、追逐、大幅度移动）：+2-4秒
-   - 环境展示（全景扫描、氛围营造）：+2-5秒
-
-4. **最终时长** = 基础时长 + 对话调整 + 动作调整，确保结果在4-12秒范围内
-
-**示例**：
-- "陈峥转身离开"（简单动作，无对话）：5 + 0 + 1 = 6秒
-- "李芳：\"你要去哪里？\""（短对话，无动作）：4 + 2 + 0 = 6秒  
-- "陈峥推开房门，李芳：\"终于找到你了，这些年你去哪了？\""（一般动作+中等对话）：6 + 3 + 2 = 11秒
-- "两人在雨中激烈搏斗，陈峥：\"住手！\""（复杂动作+短对话）：6 + 2 + 4 = 12秒
-
-**重要**：准确估算每个镜头时长，所有分镜时长之和将作为剧集总时长
-
-**特别要求**：
-- **【极其重要】必须100%%完整拆解整个剧本，不得省略、跳过、压缩任何剧情内容**
-- **从剧本第一个字到最后一个字，逐句逐段转换为分镜**
-- **每个对话、每个动作、每个场景转换都必须有对应的分镜**
-- 剧本越长，分镜数量越多（短剧本15-30个，中等剧本30-60个，长剧本60-100个甚至更多）
-- **宁可分镜多，也不要遗漏剧情**：一个长场景可拆分为多个连续分镜
-- 每个镜头只描述一个主要动作
-- 区分主镜（is_primary: true）和链接镜（is_primary: false）
-- 确保情绪节奏有变化
-- **duration字段至关重要**：准确估算每个镜头时长，这将用于计算整集时长
-- 严格按照JSON格式输出
-
-**【禁止行为】**：
-- ❌ 禁止用一个镜头概括多个场景
-- ❌ 禁止跳过任何对话或独白
-- ❌ 禁止省略剧情发展过程
-- ❌ 禁止合并本应分开的镜头
-- ✅ 正确做法：剧本有多少内容，就拆解出对应数量的分镜，确保观众看完所有分镜能完整了解剧情
-
-**【关键】场景描述详细度要求**（这些描述将直接用于视频生成模型）：
-1. **时间(time)字段**：必须包含≥15字的详细描述
-   - ✓ 好例子："深夜22:30·月光从破窗斜射入仓库，在地面积水中形成银白色反光，墙角昏暗不清"
-   - ✗ 差例子："深夜"
-
-2. **地点(location)字段**：必须包含≥20字的详细场景描述
-   - ✓ 好例子："废弃码头仓库·锈蚀货架林立，地面积水反射微弱灯光，墙角堆放腐朽木箱和渔网，空气中弥漫潮湿霉味"
-   - ✗ 差例子："仓库"
-
-3. **动作(action)字段**：必须包含≥25字的详细动作描述，包括肢体细节和表情
-   - ✓ 好例子："陈峥弯腰双手握住撬棍用力撬动保险箱门，手臂青筋暴起，眉头紧锁，汗水从额头滑落脸颊，呼吸急促"
-   - ✗ 差例子："陈峥打开保险箱"
-
-4. **结果(result)字段**：必须包含≥25字的详细视觉结果描述
-   - ✓ 好例子："保险箱门突然弹开发出刺耳金属声，扬起灰尘在手电筒光束中飘散，箱内空无一物只有几张发黄的旧报纸，陈峥表情从期待转为震惊和失望，瞳孔放大"
-   - ✗ 差例子："门打开了"
-
-5. **氛围(atmosphere)字段**：必须包含≥20字的环境氛围描述，包括光线、色调、声音
-   - ✓ 好例子："昏暗冷色调·青灰色为主，只有手电筒光束在黑暗中晃动，远处传来海浪拍打码头的沉闷声，整体氛围压抑沉重"
-   - ✗ 差例子："昏暗"
-
-**描述原则**：
-- 所有描述性字段要像为盲人讲述画面一样详细
-- 包含感官细节：视觉、听觉、触觉、嗅觉
-- 描述光线、色彩、质感、动态
-- 为视频生成AI提供足够的画面构建信息
-- 避免抽象词汇，使用具象的视觉化描述`, systemPrompt, scriptLabel, taskLabel, taskInstruction, charListLabel, characterList, charConstraint, sceneListLabel, sceneList, sceneConstraint, scriptContent)
+	segmentCount := len(s.splitScriptIntoSegments(scriptContent))
+	if segmentCount == 0 {
+		segmentCount = 1
+	}
 
 	// 创建异步任务（若存在同资源进行中的任务则复用，避免重复扣分）
 	task, created, err := s.taskService.CreateOrGetActiveTask("storyboard_generation", episodeID)
@@ -337,56 +717,26 @@ func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, mo
 		"episode_id", episodeID,
 		"drama_id", episode.DramaID,
 		"script_length", len(scriptContent),
+		"segment_count", segmentCount,
 		"character_count", len(characters),
 		"characters", characterList,
 		"scene_count", len(scenes),
 		"scenes", sceneList)
 
 	// 启动后台goroutine处理AI调用和后续逻辑
-	go s.processStoryboardGeneration(userID, task.ID, episodeID, model, prompt)
+	go s.processStoryboardGeneration(userID, task.ID, episodeID, model, scriptContent, characterList, sceneList)
 
 	// 立即返回任务ID
 	return task.ID, nil
 }
 
 // processStoryboardGeneration 后台处理故事板生成
-func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, episodeID, model, prompt string) {
+func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, episodeID, model, scriptContent, characterList, sceneList string) {
 	// 更新任务状态为处理中
 	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 10, "开始生成分镜头..."); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
 		return
 	}
-
-	s.log.Infow("Processing storyboard generation with streaming", "task_id", taskID, "episode_id", episodeID)
-
-	// 创建流式回调函数，用于实时更新进度
-	// 进度范围：10% -> 50%（AI 生成阶段占 40%）
-	lastProgress := 10
-	streamCallback := func(chunk string, totalChars int, estimatedProgress float64) {
-		// 将 estimatedProgress (0.0-1.0) 映射到 10%-50% 范围
-		newProgress := 10 + int(estimatedProgress*40)
-		if newProgress > 50 {
-			newProgress = 50
-		}
-
-		// 只在进度有明显变化时更新（避免频繁更新数据库）
-		if newProgress > lastProgress+3 {
-			s.log.Infow("Streaming progress update",
-				"task_id", taskID,
-				"total_chars", totalChars,
-				"estimated_progress", estimatedProgress,
-				"new_progress", newProgress)
-
-			if err := s.taskService.UpdateTaskStatus(taskID, "processing", newProgress, "正在生成分镜头..."); err != nil {
-				s.log.Warnw("Failed to update progress", "error", err, "task_id", taskID)
-			}
-			lastProgress = newProgress
-		}
-	}
-
-	// 调用AI服务流式生成
-	var text string
-	var err error
 
 	billingRefID := ""
 	success := false
@@ -401,93 +751,34 @@ func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, epi
 		}
 	}
 
-	if model != "" {
-		s.log.Infow("Using specified model for storyboard generation", "model", model, "task_id", taskID)
-		client, getErr := s.aiService.GetAIClientForModelWithUser("text", model, userID)
-		if getErr != nil {
-			s.log.Warnw("Failed to get client for specified model, using default streaming", "model", model, "error", getErr, "task_id", taskID)
-			cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", "", userID)
-			if cfgErr != nil {
-				fail(cfgErr, "生成分镜头失败")
-				return
-			}
-			billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
-			if err != nil {
-				fail(err, "生成分镜头失败")
-				return
-			}
-			defaultClient, clientErr := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
-			if clientErr != nil {
-				fail(clientErr, "生成分镜头失败")
-				return
-			}
-			text, err = defaultClient.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
-		} else {
-			cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", model, userID)
-			if cfgErr != nil {
-				fail(cfgErr, "生成分镜头失败")
-				return
-			}
-			billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
-			if err != nil {
-				fail(err, "生成分镜头失败")
-				return
-			}
-			text, err = client.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
-		}
-	} else {
-		cfg, actualModel, cfgErr := s.aiService.GetBillingConfig("text", "", userID)
-		if cfgErr != nil {
-			fail(cfgErr, "生成分镜头失败")
-			return
-		}
-		billingRefID, err = s.billing.ReserveAI(userID, "text", actualModel, cfg.CreditCost, "storyboard_generation:"+episodeID)
-		if err != nil {
-			fail(err, "生成分镜头失败")
-			return
-		}
-		defaultClient, clientErr := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
-		if clientErr != nil {
-			fail(clientErr, "生成分镜头失败")
-			return
-		}
-		text, err = defaultClient.GenerateTextStream(prompt, "", streamCallback, ai.WithMaxTokens(16000))
+	_, actualModel, reserveErr := s.prepareStoryboardGenerationClient(userID, model, episodeID, &billingRefID)
+	if reserveErr != nil {
+		fail(reserveErr, "生成分镜头失败")
+		return
 	}
 
+	segments := s.splitScriptIntoSegments(scriptContent)
+	if len(segments) == 0 {
+		fail(fmt.Errorf("empty script segments"), "生成分镜头失败")
+		return
+	}
+
+	s.log.Infow("Processing storyboard generation with concurrent segments",
+		"task_id", taskID,
+		"episode_id", episodeID,
+		"segment_count", len(segments),
+		"model", actualModel)
+
+	allStoryboards, err := s.executeStoryboardSegmentsConcurrently(userID, taskID, actualModel, characterList, sceneList, segments)
 	if err != nil {
-		s.log.Errorw("Failed to generate storyboard", "error", err, "task_id", taskID)
+		s.log.Errorw("Failed to generate storyboard segments concurrently", "error", err, "task_id", taskID)
 		fail(err, "生成分镜头失败")
 		return
 	}
 
-	// 更新任务进度
-	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 55, "分镜头生成完成，正在解析结果..."); err != nil {
-		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
-		return
-	}
-
-	// 解析JSON结果
-	// AI可能返回两种格式：
-	// 1. 数组格式: [{...}, {...}]
-	// 2. 对象格式: {"storyboards": [{...}, {...}]}
-	var result GenerateStoryboardResult
-
-	// 先尝试解析为数组格式
-	var storyboards []Storyboard
-	if err := utils.SafeParseAIJSON(text, &storyboards); err == nil {
-		// 成功解析为数组，包装为对象
-		result.Storyboards = storyboards
-		result.Total = len(storyboards)
-		s.log.Infow("Parsed storyboard as array format", "count", len(storyboards), "task_id", taskID)
-	} else {
-		// 尝试解析为对象格式
-		if err := utils.SafeParseAIJSON(text, &result); err != nil {
-			s.log.Errorw("Failed to parse storyboard JSON in both formats", "error", err, "response", text[:min(500, len(text))], "task_id", taskID)
-			fail(err, "解析分镜头结果失败")
-			return
-		}
-		result.Total = len(result.Storyboards)
-		s.log.Infow("Parsed storyboard as object format", "count", len(result.Storyboards), "task_id", taskID)
+	result := GenerateStoryboardResult{
+		Storyboards: allStoryboards,
+		Total:       len(allStoryboards),
 	}
 
 	// 计算总时长（所有分镜时长之和）
@@ -503,7 +794,7 @@ func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, epi
 		"total_duration_seconds", totalDuration)
 
 	// 更新任务进度
-	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 70, "正在保存分镜头..."); err != nil {
+	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 70, fmt.Sprintf("分镜生成完成，共 %d 个镜头，正在保存到项目", result.Total)); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
 		return
 	}
@@ -516,7 +807,7 @@ func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, epi
 	}
 
 	// 更新任务进度
-	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 90, "正在更新剧集时长..."); err != nil {
+	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 90, fmt.Sprintf("分镜已保存，正在更新章节时长（总计 %d 秒）", totalDuration)); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)
 		return
 	}
@@ -535,12 +826,9 @@ func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, epi
 	}
 
 	// 更新任务结果
-	resultData := gin.H{
-		"storyboards":      result.Storyboards,
-		"total":            result.Total,
-		"total_duration":   totalDuration,
-		"duration_minutes": durationMinutes,
-	}
+	resultData := buildStoryboardTaskResult(result.Storyboards, len(segments), len(segments))
+	resultData["total_duration"] = totalDuration
+	resultData["duration_minutes"] = durationMinutes
 
 	if err := s.taskService.UpdateTaskResult(taskID, resultData); err != nil {
 		s.log.Errorw("Failed to update task result", "error", err, "task_id", taskID)
@@ -838,63 +1126,22 @@ func (s *StoryboardService) saveStoryboards(episodeID string, storyboards []Stor
 		// 注意：不删除背景，因为背景是在分镜拆解前就提取好的
 		// AI会直接返回scene_id，不需要在这里做字符串匹配
 
-		// 保存新的分镜头
+		scenesToCreate := make([]models.Storyboard, 0, len(storyboards))
+		storyboardCharacterIDs := make([][]uint, 0, len(storyboards))
+		allCharacterIDs := make([]uint, 0)
+
 		for _, sb := range storyboards {
-			// 构建描述信息，包含对话
 			description := fmt.Sprintf("【镜头类型】%s\n【运镜】%s\n【动作】%s\n【对话】%s\n【结果】%s\n【情绪】%s",
 				sb.ShotType, sb.Movement, sb.Action, sb.Dialogue, sb.Result, sb.Emotion)
+			imagePrompt := s.generateImagePrompt(sb)
+			videoPrompt := s.generateVideoPrompt(sb)
+			characterIDs := uniqueUintSlice(sb.Characters)
+			allCharacterIDs = append(allCharacterIDs, characterIDs...)
 
-			// 生成两种专用提示词
-			imagePrompt := s.generateImagePrompt(sb) // 专用于图片生成
-			videoPrompt := s.generateVideoPrompt(sb) // 专用于视频生成
-
-			// 处理 dialogue 字段
-			var dialoguePtr *string
-			if sb.Dialogue != "" {
-				dialoguePtr = &sb.Dialogue
-			}
-
-			// 使用AI直接返回的SceneID
 			if sb.SceneID != nil {
 				s.log.Infow("Background ID from AI",
 					"shot_number", sb.ShotNumber,
 					"scene_id", *sb.SceneID)
-			}
-
-			// 处理 title 字段
-			var titlePtr *string
-			if sb.Title != "" {
-				titlePtr = &sb.Title
-			}
-
-			// 处理shot_type、angle、movement字段
-			var shotTypePtr, anglePtr, movementPtr *string
-			if sb.ShotType != "" {
-				shotTypePtr = &sb.ShotType
-			}
-			if sb.Angle != "" {
-				anglePtr = &sb.Angle
-			}
-			if sb.Movement != "" {
-				movementPtr = &sb.Movement
-			}
-
-			// 处理bgm_prompt、sound_effect字段
-			var bgmPromptPtr, soundEffectPtr *string
-			if sb.BgmPrompt != "" {
-				bgmPromptPtr = &sb.BgmPrompt
-			}
-			if sb.SoundEffect != "" {
-				soundEffectPtr = &sb.SoundEffect
-			}
-
-			// 处理result、atmosphere字段
-			var resultPtr, atmospherePtr *string
-			if sb.Result != "" {
-				resultPtr = &sb.Result
-			}
-			if sb.Atmosphere != "" {
-				atmospherePtr = &sb.Atmosphere
 			}
 
 			scene := models.Storyboard{
@@ -902,44 +1149,65 @@ func (s *StoryboardService) saveStoryboards(episodeID string, storyboards []Stor
 				EpisodeID:        uint(epID),
 				SceneID:          sb.SceneID,
 				StoryboardNumber: sb.ShotNumber,
-				Title:            titlePtr,
-				Location:         &sb.Location,
-				Time:             &sb.Time,
-				ShotType:         shotTypePtr,
-				Angle:            anglePtr,
-				Movement:         movementPtr,
-				Description:      &description,
-				Action:           &sb.Action,
-				Result:           resultPtr,
-				Atmosphere:       atmospherePtr,
-				Dialogue:         dialoguePtr,
-				ImagePrompt:      &imagePrompt,
-				VideoPrompt:      &videoPrompt,
-				BgmPrompt:        bgmPromptPtr,
-				SoundEffect:      soundEffectPtr,
+				Title:            optionalStringPtr(sb.Title),
+				Location:         requiredStringPtr(sb.Location),
+				Time:             requiredStringPtr(sb.Time),
+				ShotType:         optionalStringPtr(sb.ShotType),
+				Angle:            optionalStringPtr(sb.Angle),
+				Movement:         optionalStringPtr(sb.Movement),
+				Description:      requiredStringPtr(description),
+				Action:           requiredStringPtr(sb.Action),
+				Result:           optionalStringPtr(sb.Result),
+				Atmosphere:       optionalStringPtr(sb.Atmosphere),
+				Dialogue:         optionalStringPtr(sb.Dialogue),
+				ImagePrompt:      requiredStringPtr(imagePrompt),
+				VideoPrompt:      requiredStringPtr(videoPrompt),
+				BgmPrompt:        optionalStringPtr(sb.BgmPrompt),
+				SoundEffect:      optionalStringPtr(sb.SoundEffect),
 				Duration:         sb.Duration,
 			}
 
-			if err := tx.Create(&scene).Error; err != nil {
-				s.log.Errorw("Failed to create scene", "error", err, "shot_number", sb.ShotNumber)
-				return err
-			}
+			scenesToCreate = append(scenesToCreate, scene)
+			storyboardCharacterIDs = append(storyboardCharacterIDs, characterIDs)
+		}
 
-			// 关联角色
-			if len(sb.Characters) > 0 {
-				var characters []models.Character
-				if err := tx.Where("id IN ?", sb.Characters).Find(&characters).Error; err != nil {
-					s.log.Warnw("Failed to load characters for association", "error", err, "character_ids", sb.Characters)
-				} else if len(characters) > 0 {
-					if err := tx.Model(&scene).Association("Characters").Append(characters); err != nil {
-						s.log.Warnw("Failed to associate characters", "error", err, "shot_number", sb.ShotNumber)
-					} else {
-						s.log.Infow("Characters associated successfully",
-							"shot_number", sb.ShotNumber,
-							"character_ids", sb.Characters,
-							"count", len(characters))
-					}
+		if err := tx.CreateInBatches(&scenesToCreate, 50).Error; err != nil {
+			s.log.Errorw("Failed to batch create storyboards", "error", err, "count", len(scenesToCreate))
+			return err
+		}
+
+		validCharacterIDSet := make(map[uint]struct{})
+		uniqueCharacterIDs := uniqueUintSlice(allCharacterIDs)
+		if len(uniqueCharacterIDs) > 0 {
+			var validCharacterIDs []uint
+			if err := tx.Model(&models.Character{}).
+				Where("drama_id = ? AND id IN ?", episode.DramaID, uniqueCharacterIDs).
+				Pluck("id", &validCharacterIDs).Error; err != nil {
+				s.log.Warnw("Failed to load characters for storyboard associations", "error", err, "character_ids", uniqueCharacterIDs)
+			} else {
+				for _, id := range validCharacterIDs {
+					validCharacterIDSet[id] = struct{}{}
 				}
+			}
+		}
+
+		links := make([]storyboardCharacterLink, 0)
+		for index, scene := range scenesToCreate {
+			for _, characterID := range storyboardCharacterIDs[index] {
+				if _, ok := validCharacterIDSet[characterID]; !ok {
+					continue
+				}
+				links = append(links, storyboardCharacterLink{
+					StoryboardID: scene.ID,
+					CharacterID:  characterID,
+				})
+			}
+		}
+
+		if len(links) > 0 {
+			if err := tx.Table("storyboard_characters").CreateInBatches(links, 200).Error; err != nil {
+				s.log.Warnw("Failed to batch associate storyboard characters", "error", err, "count", len(links))
+				return err
 			}
 		}
 
