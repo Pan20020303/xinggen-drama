@@ -544,6 +544,27 @@
                 <h3>{{ $t("workflow.shotList") }}</h3>
               </div>
 
+              <div
+                v-if="generatingShots"
+                class="storyboard-task-progress storyboard-task-progress-inline"
+              >
+                <div class="task-phase">{{ taskPhaseLabel }}</div>
+                <el-progress
+                  :percentage="taskProgress"
+                  :status="taskProgress === 100 ? 'success' : undefined"
+                >
+                  <template #default="{ percentage }">
+                    <span style="font-size: 12px">{{ percentage }}%</span>
+                  </template>
+                </el-progress>
+                <div class="task-message">
+                  {{ taskMessage }}
+                </div>
+                <div class="task-hint">
+                  {{ taskPhaseHint }}
+                </div>
+              </div>
+
               <el-table
                 :data="currentEpisode.storyboards"
                 border
@@ -646,6 +667,7 @@
                       type="primary"
                       size="small"
                       @click="editShot(row, $index)"
+                      :disabled="!row.id"
                     >
                       {{ $t("common.edit") }}
                     </el-button>
@@ -677,13 +699,9 @@
                 <!-- 任务进度显示 -->
                 <div
                   v-if="generatingShots"
-                  style="
-                    margin-top: 24px;
-                    max-width: 400px;
-                    margin-left: auto;
-                    margin-right: auto;
-                  "
+                  class="storyboard-task-progress"
                 >
+                  <div class="task-phase">{{ taskPhaseLabel }}</div>
                   <el-progress
                     :percentage="taskProgress"
                     :status="taskProgress === 100 ? 'success' : undefined"
@@ -694,6 +712,9 @@
                   </el-progress>
                   <div class="task-message">
                     {{ taskMessage }}
+                  </div>
+                  <div class="task-hint">
+                    {{ taskPhaseHint }}
                   </div>
                 </div>
               </el-empty>
@@ -1195,6 +1216,7 @@ import {
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
+import { taskAPI, type AsyncTask } from "@/api/task";
 import { characterLibraryAPI } from "@/api/character-library";
 import { imageAPI } from "@/api/image";
 import { useAuthStore } from "@/stores/auth";
@@ -1221,6 +1243,8 @@ const extractCharactersAndBackgroundsCost = computed(() => textDefaultCost.value
 // 生成 localStorage key
 const getStepStorageKey = () =>
   `episode_workflow_step_${dramaId}_${episodeNumber}`;
+const getStoryboardTaskStorageKey = (episodeId: string) =>
+  `episode_workflow_storyboard_task_${episodeId}`;
 
 // 从 localStorage 恢复步骤，如果没有则默认为 0
 const savedStep = localStorage.getItem(getStepStorageKey());
@@ -1815,6 +1839,154 @@ const taskProgress = ref(0);
 const taskMessage = ref("");
 let pollTimer: any = null;
 
+const setActiveStoryboardTaskId = (episodeId: string, taskId: string) => {
+  localStorage.setItem(getStoryboardTaskStorageKey(episodeId), taskId);
+};
+
+const getActiveStoryboardTaskId = (episodeId: string) =>
+  localStorage.getItem(getStoryboardTaskStorageKey(episodeId));
+
+const clearActiveStoryboardTaskId = (episodeId?: string) => {
+  if (!episodeId) return;
+  localStorage.removeItem(getStoryboardTaskStorageKey(episodeId));
+};
+
+const parseTaskResult = (result: any) => {
+  if (!result) return null;
+  if (typeof result === "string") {
+    try {
+      return JSON.parse(result);
+    } catch (error) {
+      console.error("[任务] 解析任务结果失败:", error);
+      return null;
+    }
+  }
+  return result;
+};
+
+const normalizePreviewStoryboards = (storyboards: any[] = []) => {
+  const characterMap = new Map(
+    (currentEpisode.value?.characters || []).map((char) => [Number(char.id), char]),
+  );
+
+  return storyboards.map((storyboard, index) => {
+    const shotNumber =
+      Number(
+        storyboard.storyboard_number ??
+          storyboard.shot_number ??
+          storyboard.shotNumber ??
+          index + 1,
+      ) || index + 1;
+
+    const normalizedCharacters = Array.isArray(storyboard.characters)
+      ? storyboard.characters.map((character: any) => {
+          if (
+            character &&
+            typeof character === "object" &&
+            ("name" in character || "id" in character)
+          ) {
+            return character;
+          }
+          const characterId = Number(character);
+          return characterMap.get(characterId) || character;
+        })
+      : [];
+
+    return {
+      ...storyboard,
+      storyboard_number: shotNumber,
+      shot_number: shotNumber,
+      characters: normalizedCharacters,
+    };
+  });
+};
+
+const applyStoryboardTaskPreview = (task: { result?: any }) => {
+  const parsed = parseTaskResult(task.result);
+  if (!parsed || !Array.isArray(parsed.storyboards) || !currentEpisode.value) {
+    return;
+  }
+  currentEpisode.value.storyboards = normalizePreviewStoryboards(parsed.storyboards);
+};
+
+const findActiveStoryboardTask = async (
+  episodeId: string,
+): Promise<AsyncTask | null> => {
+  const storedTaskId = getActiveStoryboardTaskId(episodeId);
+
+  if (storedTaskId) {
+    try {
+      const storedTask = await taskAPI.getStatus(storedTaskId);
+      if (
+        storedTask.type === "storyboard_generation" &&
+        (storedTask.status === "pending" || storedTask.status === "processing")
+      ) {
+        return storedTask;
+      }
+    } catch (error) {
+      console.warn("[任务] 读取缓存分镜任务失败:", error);
+    }
+    clearActiveStoryboardTaskId(episodeId);
+  }
+
+  const tasks = await taskAPI.listByResource(episodeId);
+  const activeTask = tasks.find(
+    (task) =>
+      task.type === "storyboard_generation" &&
+      (task.status === "pending" || task.status === "processing"),
+  );
+
+  if (activeTask) {
+    setActiveStoryboardTaskId(episodeId, activeTask.id);
+    return activeTask;
+  }
+
+  return null;
+};
+
+const resumeStoryboardTaskIfNeeded = async () => {
+  const episodeId = currentEpisode.value?.id?.toString();
+  if (!episodeId) return;
+  if (generatingShots.value || pollTimer) return;
+
+  try {
+    const activeTask = await findActiveStoryboardTask(episodeId);
+    if (!activeTask) {
+      return;
+    }
+
+    generatingShots.value = true;
+    currentStep.value = 2;
+    taskProgress.value = activeTask.progress || 0;
+    taskMessage.value = activeTask.message || "正在恢复分镜拆分任务...";
+    applyStoryboardTaskPreview(activeTask);
+    await pollTaskStatus(activeTask.id);
+  } catch (error) {
+    console.error("[任务] 恢复分镜任务失败:", error);
+  }
+};
+
+const taskPhaseLabel = computed(() => {
+  if (!generatingShots.value) return "";
+  if (taskProgress.value < 10) return "准备任务";
+  if (taskProgress.value < 55) return "AI 拆分中";
+  if (taskProgress.value < 70) return "合并结果";
+  if (taskProgress.value < 90) return "保存分镜";
+  if (taskProgress.value < 100) return "更新章节";
+  return "已完成";
+});
+
+const taskPhaseHint = computed(() => {
+  if (!generatingShots.value) return "";
+  if (taskProgress.value < 55) {
+    return "长章节会拆成多段并行生成，已完成的镜头会逐步显示在下方。";
+  }
+  if (taskProgress.value < 90) {
+    return "已生成的镜头会先展示，系统正在继续保存和整理。";
+  }
+  return "正在完成最后的整理工作。";
+});
+
 const generateShots = async () => {
   if (!currentEpisode.value?.id) {
     ElMessage.error("章节信息不存在");
@@ -1851,6 +2023,7 @@ const generateShots = async () => {
     // 扣分发生在任务创建阶段，这里立即刷新一次用户积分展示
     await authStore.refreshMe();
 
+    setActiveStoryboardTaskId(episodeId, response.task_id);
     taskMessage.value = response.message || "任务已创建";
 
     // 开始轮询任务状态
@@ -1874,6 +2047,7 @@ const pollTaskStatus = async (taskId: string) => {
 
       taskProgress.value = task.progress;
       taskMessage.value = task.message || `处理中... ${task.progress}%`;
+      applyStoryboardTaskPreview(task);
 
       if (task.status === "completed") {
         // 任务完成
@@ -1882,18 +2056,11 @@ const pollTaskStatus = async (taskId: string) => {
           pollTimer = null;
         }
         generatingShots.value = false;
+        clearActiveStoryboardTaskId(currentEpisode.value?.id?.toString());
         await authStore.refreshMe();
+        await loadDramaData();
 
         ElMessage.success($t("workflow.splitSuccess"));
-
-        // 跳转到专业编辑器页面
-        router.push({
-          name: "ProfessionalEditor",
-          params: {
-            dramaId: dramaId,
-            episodeNumber: episodeNumber,
-          },
-        });
         return true; // 标记已完成
       } else if (task.status === "failed") {
         // 任务失败
@@ -1902,6 +2069,7 @@ const pollTaskStatus = async (taskId: string) => {
           pollTimer = null;
         }
         generatingShots.value = false;
+        clearActiveStoryboardTaskId(currentEpisode.value?.id?.toString());
         await authStore.refreshMe();
         ElMessage.error(task.error || "分镜拆分失败");
         return true; // 标记已完成
@@ -2299,7 +2467,9 @@ watch(currentStep, (newStep) => {
 
 onMounted(() => {
   pricingStore.loadPricing();
-  loadDramaData();
+  loadDramaData().then(() => {
+    resumeStoryboardTaskIfNeeded();
+  });
 });
 </script>
 
@@ -2633,11 +2803,44 @@ onMounted(() => {
   margin-left: 4px;
 }
 
+.storyboard-task-progress {
+  margin-top: 24px;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+
+.storyboard-task-progress-inline {
+  margin: 16px 0 0;
+  max-width: 100%;
+}
+
+.task-phase {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
 .task-message {
   margin-top: 8px;
   font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.task-hint {
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--text-muted);
   text-align: center;
+  line-height: 1.5;
 }
 
 .model-tip {
