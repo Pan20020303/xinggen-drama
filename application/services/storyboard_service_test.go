@@ -242,7 +242,7 @@ func TestSplitScriptIntoSegmentsSplitsLongScript(t *testing.T) {
 func TestSplitScriptIntoSegmentsSplitsSingleLongParagraph(t *testing.T) {
 	svc, _ := newStoryboardServiceForTest(t)
 
-	script := strings.Repeat("苏晚抬头看向门口，心跳逐渐加快，却仍强作镇定地向前迈步。", 32)
+	script := strings.Repeat("苏晚抬头看向门口，心跳逐渐加快，却仍强作镇定地向前迈步。", 40)
 
 	segments := svc.splitScriptIntoSegments(script)
 	if len(segments) < 2 {
