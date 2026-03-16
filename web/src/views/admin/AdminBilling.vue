@@ -9,6 +9,7 @@
         <LanguageSwitcher />
         <ThemeToggle />
         <el-button @click="router.push('/admin/users')">用户管理</el-button>
+        <el-button @click="router.push('/admin/token-stats')">Token统计</el-button>
         <el-button @click="router.push('/admin/ai-config')">模型配置</el-button>
         <el-button type="danger" @click="handleLogout">退出管理端</el-button>
       </div>
@@ -70,6 +71,11 @@
           <el-table-column prop="model" label="模型" min-width="180">
             <template #default="{ row }">
               <span class="mono">{{ row.model || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="total_tokens" label="Total Tokens" min-width="120">
+            <template #default="{ row }">
+              <span>{{ row.total_tokens ?? '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="reference_id" label="引用ID" min-width="240">

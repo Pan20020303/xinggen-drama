@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
@@ -106,4 +107,9 @@ func (s *AdminBillingService) ListCreditTransactions(userID *uint, page, pageSiz
 		return nil, 0, err
 	}
 	return txns, total, nil
+}
+
+func (s *AdminBillingService) GetTokenStats(serviceType *string, startDate, endDate *time.Time) ([]AdminTokenStatsItem, AdminTokenStatsSummary, error) {
+	tokenStatsSvc := NewAdminTokenStatsService(s.db, s.log)
+	return tokenStatsSvc.GetTokenStats(serviceType, startDate, endDate)
 }

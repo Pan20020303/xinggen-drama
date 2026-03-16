@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type OpenAIClient struct {
@@ -19,6 +21,7 @@ type OpenAIClient struct {
 	Model      string
 	Endpoint   string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type ChatMessage struct {
@@ -34,6 +37,9 @@ type ChatCompletionRequest struct {
 	MaxCompletionTokens *int          `json:"max_completion_tokens,omitempty"`
 	TopP                float64       `json:"top_p,omitempty"`
 	Stream              bool          `json:"stream,omitempty"`
+	StreamOptions       *struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options,omitempty"`
 }
 
 type ChatCompletionResponse struct {
@@ -178,6 +184,7 @@ func isRetryableRequestError(err error) bool {
 }
 
 func (c *OpenAIClient) doChatRequest(req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
+	c.lastUsage = usage.TokenUsage{}
 	jsonData, err := json.Marshal(req)
 	if err != nil {
 		fmt.Printf("OpenAI: Failed to marshal request: %v\n", err)
@@ -270,7 +277,17 @@ func (c *OpenAIClient) doChatRequest(req *ChatCompletionRequest) (*ChatCompletio
 		}
 	}
 
+	c.lastUsage = usage.TokenUsage{
+		PromptTokens:     chatResp.Usage.PromptTokens,
+		CompletionTokens: chatResp.Usage.CompletionTokens,
+		TotalTokens:      chatResp.Usage.TotalTokens,
+	}
+
 	return &chatResp, nil
+}
+
+func (c *OpenAIClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }
 
 func WithTemperature(temp float64) func(*ChatCompletionRequest) {
@@ -332,10 +349,16 @@ type StreamChunkResponse struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
 }
 
 // GenerateTextStream 流式生成文本，通过 callback 实时返回生成内容
 func (c *OpenAIClient) GenerateTextStream(prompt string, systemPrompt string, callback StreamCallback, options ...func(*ChatCompletionRequest)) (string, error) {
+	c.lastUsage = usage.TokenUsage{}
 	messages := []ChatMessage{}
 
 	if systemPrompt != "" {
@@ -355,6 +378,11 @@ func (c *OpenAIClient) GenerateTextStream(prompt string, systemPrompt string, ca
 		Model:    c.Model,
 		Messages: messages,
 		Stream:   true,
+		StreamOptions: &struct {
+			IncludeUsage bool `json:"include_usage"`
+		}{
+			IncludeUsage: true,
+		},
 	}
 
 	for _, opt := range options {
@@ -437,6 +465,14 @@ func (c *OpenAIClient) GenerateTextStream(prompt string, systemPrompt string, ca
 					var chunk StreamChunkResponse
 					if jsonErr := json.Unmarshal([]byte(data), &chunk); jsonErr != nil {
 						continue // 忽略解析错误的行
+					}
+
+					if chunk.Usage != nil {
+						c.lastUsage = usage.TokenUsage{
+							PromptTokens:     chunk.Usage.PromptTokens,
+							CompletionTokens: chunk.Usage.CompletionTokens,
+							TotalTokens:      chunk.Usage.TotalTokens,
+						}
 					}
 
 					// 提取内容

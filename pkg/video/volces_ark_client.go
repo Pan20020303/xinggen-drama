@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 // VolcesArkClient 火山引擎ARK视频生成客户端
@@ -18,6 +20,7 @@ type VolcesArkClient struct {
 	Endpoint      string
 	QueryEndpoint string
 	HTTPClient    *http.Client
+	lastUsage     usage.TokenUsage
 }
 
 func isSeedance15ProModel(model string) bool {
@@ -95,6 +98,7 @@ func NewVolcesArkClient(baseURL, apiKey, model, endpoint, queryEndpoint string) 
 
 // GenerateVideo 生成视频（支持首帧、首尾帧、参考图等多种模式）
 func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration:    5,
 		AspectRatio: "adaptive",
@@ -307,6 +311,12 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
+	c.lastUsage = usage.TokenUsage{
+		PromptTokens:     0,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+	}
+
 	fmt.Printf("[VolcesARK] Video generation initiated - TaskID: %s, Status: %s\n", result.ID, result.Status)
 
 	if result.Error != nil {
@@ -387,4 +397,8 @@ func (c *VolcesArkClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	}
 
 	return videoResult, nil
+}
+
+func (c *VolcesArkClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

@@ -51,7 +51,36 @@ export interface CreditTransaction {
   service_type?: string
   model?: string
   description?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
   created_at?: string
+}
+
+export interface AdminTokenStatsItem {
+  model: string
+  service_type: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  calls: number
+}
+
+export interface AdminTokenStatsSummary {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  model_count: number
+}
+
+export interface AdminTokenStatsResponse {
+  items: AdminTokenStatsItem[]
+  summary: AdminTokenStatsSummary
+  filters: {
+    service_type?: string
+    start_date?: string
+    end_date?: string
+  }
 }
 
 export interface AdminRechargeResponse {

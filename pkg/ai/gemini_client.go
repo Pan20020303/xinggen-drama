@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type GeminiClient struct {
@@ -16,6 +18,7 @@ type GeminiClient struct {
 	Model      string
 	Endpoint   string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type GeminiTextRequest struct {
@@ -80,6 +83,7 @@ func NewGeminiClient(baseURL, apiKey, model, endpoint string) *GeminiClient {
 }
 
 func (c *GeminiClient) GenerateText(prompt string, systemPrompt string, options ...func(*ChatCompletionRequest)) (string, error) {
+	c.lastUsage = usage.TokenUsage{}
 	model := c.Model
 
 	// 构建请求体
@@ -180,6 +184,12 @@ func (c *GeminiClient) GenerateText(prompt string, systemPrompt string, options 
 	responseText := result.Candidates[0].Content.Parts[0].Text
 	fmt.Printf("Gemini: Generated text: %s\n", responseText)
 
+	c.lastUsage = usage.TokenUsage{
+		PromptTokens:     result.UsageMetadata.PromptTokenCount,
+		CompletionTokens: result.UsageMetadata.CandidatesTokenCount,
+		TotalTokens:      result.UsageMetadata.TotalTokenCount,
+	}
+
 	return responseText, nil
 }
 
@@ -219,4 +229,8 @@ func (c *GeminiClient) TestConnection() error {
 		fmt.Printf("Gemini: TestConnection succeeded\n")
 	}
 	return err
+}
+
+func (c *GeminiClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

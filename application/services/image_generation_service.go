@@ -311,6 +311,11 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 		s.updateImageGenError(imageGenID, err.Error())
 		return
 	}
+	if imageGen.BillingRefID != nil {
+		if err := s.billingService.RecordAIUsage(*imageGen.BillingRefID, client.GetLastUsage()); err != nil {
+			s.log.Warnw("Failed to record image token usage", "image_generation_id", imageGenID, "error", err)
+		}
+	}
 
 	s.log.Infow("Image generation API call completed", "id", imageGenID, "completed", result.Completed, "has_url", result.ImageURL != "")
 
@@ -1080,6 +1085,7 @@ Please strictly follow the JSON format and ensure all fields use English.`
 		s.log.Errorw("Failed to extract backgrounds with AI", "error", err)
 		return nil, fmt.Errorf("AI提取场景失败: %w", err)
 	}
+	recordTextUsage(s.billingService, billingRefID, client)
 
 	// 打印AI返回的原始响应
 	s.log.Infow("=== AI Response for Background Extraction (extractBackgroundsFromScript) ===",
@@ -1251,6 +1257,7 @@ Please strictly follow the JSON format and ensure:
 		}
 		return nil, fmt.Errorf("AI analysis failed: %w", err)
 	}
+	recordTextUsage(s.billingService, billingRefID, client)
 
 	// 打印AI返回的原始响应
 	s.log.Infow("=== AI Response for Background Extraction ===",

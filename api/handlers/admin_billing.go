@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/pkg/logger"
@@ -88,4 +89,50 @@ func (h *AdminBillingHandler) ListTransactions(c *gin.Context) {
 		return
 	}
 	response.SuccessWithPagination(c, txns, total, page, pageSize)
+}
+
+func (h *AdminBillingHandler) GetTokenStats(c *gin.Context) {
+	var serviceTypePtr *string
+	serviceType := c.Query("service_type")
+	if serviceType != "" {
+		serviceTypePtr = &serviceType
+	}
+
+	var startDatePtr *time.Time
+	if raw := c.Query("start_date"); raw != "" {
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			response.BadRequest(c, "invalid start_date, expected YYYY-MM-DD")
+			return
+		}
+		startDatePtr = &parsed
+	}
+
+	var endDatePtr *time.Time
+	if raw := c.Query("end_date"); raw != "" {
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			response.BadRequest(c, "invalid end_date, expected YYYY-MM-DD")
+			return
+		}
+		parsed = parsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		endDatePtr = &parsed
+	}
+
+	items, summary, err := h.billingService.GetTokenStats(serviceTypePtr, startDatePtr, endDatePtr)
+	if err != nil {
+		h.log.Errorw("failed to get token stats", "error", err)
+		response.InternalError(c, "查询 token 统计失败")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"items":    items,
+		"summary":  summary,
+		"filters": gin.H{
+			"service_type": serviceType,
+			"start_date":   c.Query("start_date"),
+			"end_date":     c.Query("end_date"),
+		},
+	})
 }

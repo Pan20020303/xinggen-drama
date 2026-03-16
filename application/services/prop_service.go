@@ -198,6 +198,7 @@ func (s *PropService) generateTextBilled(userID uint, model string, userPrompt s
 		_ = s.billing.RefundAI(refID)
 		return "", err
 	}
+	recordTextUsage(s.billing, refID, client)
 	return out, nil
 }
 

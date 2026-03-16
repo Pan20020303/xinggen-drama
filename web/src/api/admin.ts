@@ -12,6 +12,7 @@ import type {
   AdminUpdateUserStatusRequest,
   AdminUser,
   CreditTransaction,
+  AdminTokenStatsResponse,
   PaginationResult
 } from '@/types/admin'
 
@@ -38,6 +39,10 @@ export const adminAPI = {
 
   listTransactions(params?: { user_id?: number; page?: number; page_size?: number }) {
     return request.get<PaginationResult<CreditTransaction>>('/admin/billing/transactions', { params })
+  },
+
+  getTokenStats(params?: { service_type?: 'text' | 'image' | 'video'; start_date?: string; end_date?: string }) {
+    return request.get<AdminTokenStatsResponse>('/admin/billing/token-stats', { params })
   },
 
   listAIConfigs(params?: { service_type?: 'text' | 'image' | 'video' }) {

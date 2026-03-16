@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 // ChatfireClient Chatfire 视频生成客户端
@@ -18,6 +20,7 @@ type ChatfireClient struct {
 	Endpoint      string
 	QueryEndpoint string
 	HTTPClient    *http.Client
+	lastUsage     usage.TokenUsage
 }
 
 type ChatfireRequest struct {
@@ -124,6 +127,7 @@ func NewChatfireClient(baseURL, apiKey, model, endpoint, queryEndpoint string) *
 }
 
 func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration:    5,
 		AspectRatio: "16:9",
@@ -447,4 +451,8 @@ func (c *ChatfireClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	}
 
 	return videoResult, nil
+}
+
+func (c *ChatfireClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

@@ -10,6 +10,7 @@
         <ThemeToggle />
         <el-button @click="router.push('/admin/users')">用户管理</el-button>
         <el-button @click="router.push('/admin/billing')">计费管理</el-button>
+        <el-button @click="router.push('/admin/token-stats')">Token统计</el-button>
         <el-button type="danger" @click="handleLogout">退出管理端</el-button>
       </div>
     </header>

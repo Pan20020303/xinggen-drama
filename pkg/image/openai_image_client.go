@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type OpenAIImageClient struct {
@@ -15,6 +17,7 @@ type OpenAIImageClient struct {
 	Model      string
 	Endpoint   string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type DALLERequest struct {
@@ -50,6 +53,7 @@ func NewOpenAIImageClient(baseURL, apiKey, model, endpoint string) *OpenAIImageC
 }
 
 func (c *OpenAIImageClient) GenerateImage(prompt string, opts ...ImageOption) (*ImageResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &ImageOptions{
 		Size:    "1920x1920",
 		Quality: "standard",
@@ -125,4 +129,8 @@ func (c *OpenAIImageClient) GenerateImage(prompt string, opts ...ImageOption) (*
 
 func (c *OpenAIImageClient) GetTaskStatus(taskID string) (*ImageResult, error) {
 	return nil, fmt.Errorf("not supported for OpenAI/DALL-E")
+}
+
+func (c *OpenAIImageClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

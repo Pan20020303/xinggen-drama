@@ -211,6 +211,7 @@ func (s *ScriptGenerationService) generateTextBilled(userID uint, model string, 
 		_ = s.billing.RefundAI(refID)
 		return "", err
 	}
+	recordTextUsage(s.billing, refID, client)
 	return out, nil
 }
 

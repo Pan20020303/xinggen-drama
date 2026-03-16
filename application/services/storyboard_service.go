@@ -447,7 +447,7 @@ func (s *StoryboardService) prepareStoryboardGenerationClient(userID uint, model
 	return client, actualModel, nil
 }
 
-func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, taskID, actualModel, characterList, sceneList string, segments []string) ([]Storyboard, error) {
+func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, taskID, actualModel, characterList, sceneList string, segments []string, billingRefID string) ([]Storyboard, error) {
 	totalSegments := len(segments)
 	if totalSegments == 0 {
 		return nil, fmt.Errorf("no storyboard segments")
@@ -497,6 +497,7 @@ func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, t
 				resultsCh <- storyboardSegmentResult{Index: index, Err: err}
 				return
 			}
+			recordTextUsage(s.billing, billingRefID, client)
 
 			parsed, err := parseStoryboardGenerationResult(text)
 			if err != nil {
@@ -767,7 +768,7 @@ func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, epi
 		"segment_count", len(segments),
 		"model", actualModel)
 
-	allStoryboards, err := s.executeStoryboardSegmentsConcurrently(userID, taskID, actualModel, characterList, sceneList, segments)
+	allStoryboards, err := s.executeStoryboardSegmentsConcurrently(userID, taskID, actualModel, characterList, sceneList, segments, billingRefID)
 	if err != nil {
 		s.log.Errorw("Failed to generate storyboard segments concurrently", "error", err, "task_id", taskID)
 		fail(err, "生成分镜头失败")

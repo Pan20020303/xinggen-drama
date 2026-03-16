@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type GeminiImageClient struct {
@@ -17,6 +19,7 @@ type GeminiImageClient struct {
 	Model      string
 	Endpoint   string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type GeminiImageRequest struct {
@@ -106,6 +109,7 @@ func NewGeminiImageClient(baseURL, apiKey, model, endpoint string) *GeminiImageC
 }
 
 func (c *GeminiImageClient) GenerateImage(prompt string, opts ...ImageOption) (*ImageResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &ImageOptions{
 		Size:    "1920x1920",
 		Quality: "standard",
@@ -255,6 +259,12 @@ func (c *GeminiImageClient) GenerateImage(prompt string, opts ...ImageOption) (*
 
 	dataURI := fmt.Sprintf("data:image/jpeg;base64,%s", base64Data)
 
+	c.lastUsage = usage.TokenUsage{
+		PromptTokens:     result.UsageMetadata.PromptTokenCount,
+		CompletionTokens: result.UsageMetadata.CandidatesTokenCount,
+		TotalTokens:      result.UsageMetadata.TotalTokenCount,
+	}
+
 	return &ImageResult{
 		Status:    "completed",
 		ImageURL:  dataURI,
@@ -266,6 +276,10 @@ func (c *GeminiImageClient) GenerateImage(prompt string, opts ...ImageOption) (*
 
 func (c *GeminiImageClient) GetTaskStatus(taskID string) (*ImageResult, error) {
 	return nil, fmt.Errorf("not supported for Gemini (synchronous generation)")
+}
+
+func (c *GeminiImageClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }
 
 func replaceModelPlaceholder(endpoint, model string) string {

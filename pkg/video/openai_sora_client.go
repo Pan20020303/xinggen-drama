@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type OpenAISoraClient struct {
@@ -19,6 +21,7 @@ type OpenAISoraClient struct {
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type OpenAISoraResponse struct {
@@ -54,6 +57,7 @@ func NewOpenAISoraClient(baseURL, apiKey, model string) *OpenAISoraClient {
 }
 
 func (c *OpenAISoraClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration: 4,
 	}
@@ -274,4 +278,8 @@ func (c *OpenAISoraClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	}
 
 	return videoResult, nil
+}
+
+func (c *OpenAISoraClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

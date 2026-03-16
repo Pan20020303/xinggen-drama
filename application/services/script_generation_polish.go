@@ -105,6 +105,7 @@ func (s *ScriptGenerationService) polishContentWithSkill(userID uint, content st
 	if err != nil {
 		return "", "", err
 	}
+	recordTextUsage(s.billing, billingRefID, client)
 
 	polished = normalizePolishedScript(polished)
 	if polished == "" {

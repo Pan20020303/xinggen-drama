@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type VolcEngineImageClient struct {
@@ -16,6 +18,7 @@ type VolcEngineImageClient struct {
 	Endpoint      string
 	QueryEndpoint string
 	HTTPClient    *http.Client
+	lastUsage     usage.TokenUsage
 }
 
 type VolcEngineImageRequest struct {
@@ -63,6 +66,7 @@ func NewVolcEngineImageClient(baseURL, apiKey, model, endpoint, queryEndpoint st
 }
 
 func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption) (*ImageResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &ImageOptions{
 		Size:    "1920x1920",
 		Quality: "standard",
@@ -147,6 +151,12 @@ func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption
 		return nil, fmt.Errorf("no image generated")
 	}
 
+	c.lastUsage = usage.TokenUsage{
+		PromptTokens:     0,
+		CompletionTokens: result.Usage.OutputTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+	}
+
 	return &ImageResult{
 		Status:    "completed",
 		ImageURL:  result.Data[0].URL,
@@ -156,6 +166,10 @@ func (c *VolcEngineImageClient) GenerateImage(prompt string, opts ...ImageOption
 
 func (c *VolcEngineImageClient) GetTaskStatus(taskID string) (*ImageResult, error) {
 	return nil, fmt.Errorf("not supported for VolcEngine Seedream (synchronous generation)")
+}
+
+func (c *VolcEngineImageClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }
 
 func boolPtr(v bool) *bool {

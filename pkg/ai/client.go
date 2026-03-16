@@ -1,5 +1,7 @@
 package ai
 
+import "github.com/drama-generator/backend/pkg/usage"
+
 // StreamCallback 流式输出回调函数类型
 // chunk: 本次收到的文本片段
 // totalChars: 累计收到的总字符数
@@ -13,4 +15,5 @@ type AIClient interface {
 	GenerateTextStream(prompt string, systemPrompt string, callback StreamCallback, options ...func(*ChatCompletionRequest)) (string, error)
 	GenerateImage(prompt string, size string, n int) ([]string, error)
 	TestConnection() error
+	GetLastUsage() usage.TokenUsage
 }

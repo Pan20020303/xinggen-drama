@@ -360,6 +360,11 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 		s.updateVideoGenError(videoGenID, err.Error())
 		return
 	}
+	if videoGen.BillingRefID != nil {
+		if err := s.billingService.RecordAIUsage(*videoGen.BillingRefID, client.GetLastUsage()); err != nil {
+			s.log.Warnw("Failed to record video token usage", "video_generation_id", videoGenID, "error", err)
+		}
+	}
 
 	// CRITICAL FIX: Validate TaskID before starting polling goroutine
 	// Empty TaskID would cause polling to fail silently or cause issues

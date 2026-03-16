@@ -104,6 +104,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			{
 				adminBilling.POST("/recharge", adminBillingHandler.Recharge)
 				adminBilling.GET("/transactions", adminBillingHandler.ListTransactions)
+				adminBilling.GET("/token-stats", adminBillingHandler.GetTokenStats)
 			}
 
 			adminAI := adminSecured.Group("/ai-configs")

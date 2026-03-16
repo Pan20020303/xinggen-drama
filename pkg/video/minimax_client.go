@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 // MiniMax Hailuo 支持的模型
@@ -45,6 +47,7 @@ type MinimaxClient struct {
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type MinimaxSubjectReference struct {
@@ -114,6 +117,7 @@ func NewMinimaxClient(baseURL, apiKey, model string) *MinimaxClient {
 // GenerateVideo 生成视频（支持首尾帧和主体参考）
 // 步骤1：创建任务，返回 task_id
 func (c *MinimaxClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration:   6,
 		Resolution: "1080P",
@@ -260,6 +264,10 @@ func (c *MinimaxClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	}
 
 	return videoResult, nil
+}
+
+func (c *MinimaxClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }
 
 // getFileDownloadURL 步骤3：根据 file_id 获取文件下载地址

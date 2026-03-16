@@ -7,6 +7,7 @@ import (
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
+	"github.com/drama-generator/backend/pkg/usage"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -210,6 +211,20 @@ func (s *BillingService) RefundAI(referenceID string) error {
 		}
 		return tx.Create(&refundTxn).Error
 	})
+}
+
+func (s *BillingService) RecordAIUsage(referenceID string, tokenUsage usage.TokenUsage) error {
+	if referenceID == "" {
+		return nil
+	}
+
+	return s.db.Model(&models.CreditTransaction{}).
+		Where("reference_id = ? AND amount < 0", referenceID).
+		Updates(map[string]interface{}{
+			"prompt_tokens":     gorm.Expr("COALESCE(prompt_tokens, 0) + ?", tokenUsage.PromptTokens),
+			"completion_tokens": gorm.Expr("COALESCE(completion_tokens, 0) + ?", tokenUsage.CompletionTokens),
+			"total_tokens":      gorm.Expr("COALESCE(total_tokens, 0) + ?", tokenUsage.TotalTokens),
+		}).Error
 }
 
 func safeStr(s *string) string {

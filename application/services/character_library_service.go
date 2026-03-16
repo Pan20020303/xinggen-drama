@@ -525,6 +525,7 @@ func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID
 		s.taskService.UpdateTaskError(taskID, err)
 		return
 	}
+	recordTextUsage(s.billing, billingRefID, client)
 
 	s.taskService.UpdateTaskStatus(taskID, "processing", 50, "正在整理角色数据...")
 

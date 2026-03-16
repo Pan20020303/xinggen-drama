@@ -56,6 +56,9 @@ type CreditTransaction struct {
 	ServiceType *string               `gorm:"type:varchar(20);index" json:"service_type,omitempty"` // text, image, video
 	Model       *string               `gorm:"type:varchar(100);index" json:"model,omitempty"`
 	Description *string               `gorm:"type:varchar(255)" json:"description,omitempty"`
+	PromptTokens     *int             `gorm:"default:null" json:"prompt_tokens,omitempty"`
+	CompletionTokens *int             `gorm:"default:null" json:"completion_tokens,omitempty"`
+	TotalTokens      *int             `gorm:"default:null;index" json:"total_tokens,omitempty"`
 	CreatedAt   time.Time             `gorm:"not null;autoCreateTime" json:"created_at"`
 }
 

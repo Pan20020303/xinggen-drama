@@ -22,3 +22,12 @@ func TestAdminAuditLog_TableName(t *testing.T) {
 		t.Fatalf("expected table name admin_audit_logs, got %s", got)
 	}
 }
+
+func TestCreditTransactionModel_HasTokenFields(t *testing.T) {
+	txnType := reflect.TypeOf(CreditTransaction{})
+	for _, fieldName := range []string{"PromptTokens", "CompletionTokens", "TotalTokens"} {
+		if _, ok := txnType.FieldByName(fieldName); !ok {
+			t.Fatalf("expected CreditTransaction to have field %s", fieldName)
+		}
+	}
+}

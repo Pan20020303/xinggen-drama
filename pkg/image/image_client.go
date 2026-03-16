@@ -1,8 +1,11 @@
 package image
 
+import "github.com/drama-generator/backend/pkg/usage"
+
 type ImageClient interface {
 	GenerateImage(prompt string, opts ...ImageOption) (*ImageResult, error)
 	GetTaskStatus(taskID string) (*ImageResult, error)
+	GetLastUsage() usage.TokenUsage
 }
 
 type ImageResult struct {

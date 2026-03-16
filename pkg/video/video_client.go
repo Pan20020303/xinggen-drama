@@ -7,11 +7,14 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/drama-generator/backend/pkg/usage"
 )
 
 type VideoClient interface {
 	GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error)
 	GetTaskStatus(taskID string) (*VideoResult, error)
+	GetLastUsage() usage.TokenUsage
 }
 
 type VideoResult struct {
@@ -24,6 +27,7 @@ type VideoResult struct {
 	Height       int
 	Error        string
 	Completed    bool
+	Usage        usage.TokenUsage
 }
 
 type VideoOptions struct {
@@ -120,6 +124,7 @@ type RunwayClient struct {
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type RunwayRequest struct {
@@ -152,6 +157,7 @@ func NewRunwayClient(baseURL, apiKey, model string) *RunwayClient {
 }
 
 func (c *RunwayClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration:    5,
 		AspectRatio: "16:9",
@@ -268,11 +274,16 @@ func (c *RunwayClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	return videoResult, nil
 }
 
+func (c *RunwayClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
+}
+
 type PikaClient struct {
 	BaseURL    string
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	lastUsage  usage.TokenUsage
 }
 
 type PikaRequest struct {
@@ -307,6 +318,7 @@ func NewPikaClient(baseURL, apiKey, model string) *PikaClient {
 }
 
 func (c *PikaClient) GenerateVideo(imageURL, prompt string, opts ...VideoOption) (*VideoResult, error) {
+	c.lastUsage = usage.TokenUsage{}
 	options := &VideoOptions{
 		Duration:    3,
 		AspectRatio: "16:9",
@@ -424,4 +436,8 @@ func (c *PikaClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	}
 
 	return videoResult, nil
+}
+
+func (c *PikaClient) GetLastUsage() usage.TokenUsage {
+	return c.lastUsage
 }

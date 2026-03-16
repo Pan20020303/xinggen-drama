@@ -60,6 +60,7 @@ func (s *StoryboardService) OptimizeVideoPrompt(userID uint, storyboardID string
 	if err != nil {
 		return "", err
 	}
+	recordTextUsage(s.billing, billingRefID, client)
 
 	optimized = normalizeOptimizedPrompt(optimized)
 	if optimized == "" {
