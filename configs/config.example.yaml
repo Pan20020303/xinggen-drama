@@ -13,8 +13,14 @@ server:
   write_timeout: 600
 
 database:
-  type: "sqlite"
-  path: "./data/drama_generator.db"
+  type: "mysql"
+  host: "mysql"
+  port: 3306
+  user: "xinggen"
+  password: "xinggen123"
+  database: "xinggen_drama"
+  charset: "utf8mb4"
+  path: "./data/drama_generator.db" # 保留用于 SQLite 兼容和历史数据迁移来源
   max_idle: 10
   max_open: 100
 

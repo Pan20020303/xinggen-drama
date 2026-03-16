@@ -10,7 +10,7 @@
 
 | 类型 | 技术 |
 |------|------|
-| **后端** | Go 1.23+, Gin, GORM, SQLite |
+| **后端** | Go 1.23+, Gin, GORM, MySQL（默认）/SQLite（兼容） |
 | **前端** | Vue 3.4+, TypeScript 5+, Vite 5, Element Plus, TailwindCSS, Pinia |
 | **视频处理** | FFmpeg |
 | **AI 服务** | OpenAI, Gemini, 火山（豆包）, MiniMax 等 |
@@ -120,7 +120,7 @@ api/
 ```
 infrastructure/
 ├── database/               # 数据库连接与迁移
-│   ├── database.go         # 数据库初始化（SQLite/MySQL/PostgreSQL）
+│   ├── database.go         # 数据库初始化（MySQL 默认，兼容 SQLite）
 │   └── migrate.go          # GORM 自动迁移
 ├── storage/                # 文件存储
 │   └── local_storage.go    # 本地文件存储实现
@@ -215,7 +215,7 @@ Docker 构建环境变量模板，包含镜像源加速配置。
 ## 数据库
 
 ### 类型
-默认使用 **SQLite**，支持 MySQL 和 PostgreSQL。
+默认部署使用 **MySQL**，代码层保留 **SQLite** 兼容能力用于本地调试和历史数据导入。
 
 ### 迁移脚本 (`migrations/`)
 

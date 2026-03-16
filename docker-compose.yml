@@ -1,4 +1,31 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: xinggen-mysql
+    command:
+      - --default-authentication-plugin=caching_sha2_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_DATABASE=xinggen_drama
+      - MYSQL_USER=xinggen
+      - MYSQL_PASSWORD=xinggen123
+      - MYSQL_ROOT_PASSWORD=root123
+    ports:
+      - "3306:3306"
+    volumes:
+      - xinggen-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - xinggen-network
+
   xinggen-drama:
     # image: xinggen-drama:latest
     container_name: xinggen-drama
@@ -25,9 +52,14 @@ services:
       # 例如：- ./data:/app/data （需要 chmod 777 ./data）
     environment:
       - TZ=Asia/Shanghai
+      - SQLITE_MIGRATION_SOURCE=/app/data/drama_generator.db
+      - SQLITE_MIGRATION_MARKER=/app/data/.sqlite_to_mysql_done
       # 访问宿主机服务说明：
       # 使用 host.docker.internal 代替 127.0.0.1
       # 例如：http://host.docker.internal:11434 (Ollama)
+    depends_on:
+      mysql:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"  # 统一支持所有平台
     restart: unless-stopped
@@ -42,6 +74,8 @@ services:
 
 volumes:
   xinggen-data:
+    driver: local
+  xinggen-mysql:
     driver: local
 
 networks:

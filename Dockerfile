@@ -78,6 +78,9 @@ RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o xinggen-drama .
 # 构建迁移脚本可执行文件
 RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o migrate cmd/migrate/main.go
 
+# 构建 SQLite -> MySQL 历史数据迁移工具
+RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o sqlite-to-mysql cmd/sqlite_to_mysql/main.go
+
 # ==================== 阶段3: 运行时镜像 ====================
 # 每个阶段前重新声明构建参数
 ARG DOCKER_REGISTRY=
@@ -110,6 +113,7 @@ WORKDIR /app
 # 从构建阶段复制可执行文件
 COPY --from=backend-builder /app/xinggen-drama .
 COPY --from=backend-builder /app/migrate .
+COPY --from=backend-builder /app/sqlite-to-mysql .
 
 # 复制前端构建产物
 COPY --from=frontend-builder /app/web/dist ./web/dist
@@ -117,6 +121,10 @@ COPY --from=frontend-builder /app/web/dist ./web/dist
 # 复制配置文件模板并创建默认配置
 COPY configs/config.example.yaml ./configs/
 RUN cp ./configs/config.example.yaml ./configs/config.yaml
+
+# 复制 Docker 启动脚本
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # 复制数据库迁移文件
 COPY migrations ./migrations/
@@ -132,4 +140,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:5678/health || exit 1
 
 # 启动应用
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["./xinggen-drama"]

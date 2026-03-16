@@ -102,7 +102,8 @@
 | **Node.js** | 18+      | 前端构建环境         |
 | **npm**     | 9+       | 包管理工具           |
 | **FFmpeg**  | 4.0+     | 视频处理（**必需**） |
-| **SQLite**  | 3.x      | 数据库（已内置）     |
+| **MySQL**   | 8.0+     | 默认部署数据库       |
+| **SQLite**  | 3.x      | 兼容调试与历史迁移   |
 
 #### 安装 FFmpeg
 
@@ -154,7 +155,13 @@ server:
   write_timeout: 600
 
 database:
-  type: "sqlite"
+  type: "mysql"
+  host: "mysql"
+  port: 3306
+  user: "xinggen"
+  password: "xinggen123"
+  database: "xinggen_drama"
+  charset: "utf8mb4"
   path: "./data/drama_generator.db"
   max_idle: 10
   max_open: 100
@@ -175,10 +182,13 @@ ai:
 - `app.debug`: 调试模式开关（开发环境建议设为 true）
 - `server.port`: 服务运行端口
 - `server.cors_origins`: 允许跨域访问的前端地址
-- `database.path`: SQLite 数据库文件路径
+- `database.host` / `database.port` / `database.user` / `database.password` / `database.database`: MySQL 连接配置
+- `database.path`: SQLite 数据文件路径，保留用于兼容调试和历史数据迁移
 - `storage.local_path`: 本地文件存储路径
 - `storage.base_url`: 静态资源访问 URL
 - `ai.default_*_provider`: AI 服务提供商配置（在 Web 界面中配置具体的 API Key）
+
+如果你是在本机直接运行、且不准备额外启动 MySQL，请把 `database.type` 改回 `sqlite`，并保留 `database.path` 指向本地数据库文件。
 
 ### 📥 安装依赖
 
@@ -233,7 +243,9 @@ go run main.go
 
 ### 🗄️ 数据库初始化
 
-数据库表会在首次启动时自动创建（使用 GORM AutoMigrate），无需手动迁移。
+默认情况下数据库表会在首次启动时自动创建（使用 GORM AutoMigrate），无需手动执行建表。
+
+如果 Docker 数据卷中已存在旧的 `data/drama_generator.db` SQLite 文件，容器启动时会自动尝试将历史数据迁移到 MySQL，并在成功后写入迁移标记文件，避免重复导入。
 
 ---
 
@@ -250,6 +262,13 @@ go run main.go
 ### 🐳 Docker 部署（推荐）
 
 #### 方式一：Docker Compose（推荐）
+
+当前 Docker Compose 默认启动两个容器：
+
+- `xinggen-mysql`: MySQL 8 数据库
+- `xinggen-drama`: 应用服务
+
+首次切换到 MySQL 时，如果旧数据卷里还保留了 SQLite 文件 `data/drama_generator.db`，应用容器会在启动阶段自动执行一次 SQLite -> MySQL 历史数据迁移。
 
 #### 🚀 国内网络加速（可选）
 

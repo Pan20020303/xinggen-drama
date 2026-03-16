@@ -102,7 +102,8 @@ Experience AI short drama generation:
 | **Node.js** | 18+     | Frontend build environment      |
 | **npm**     | 9+      | Package manager                 |
 | **FFmpeg**  | 4.0+    | Video processing (**Required**) |
-| **SQLite**  | 3.x     | Database (built-in)             |
+| **MySQL**   | 8.0+    | Default deployment database     |
+| **SQLite**  | 3.x     | Compatibility and legacy import |
 
 #### Installing FFmpeg
 
@@ -154,7 +155,13 @@ server:
   write_timeout: 600
 
 database:
-  type: "sqlite"
+  type: "mysql"
+  host: "mysql"
+  port: 3306
+  user: "xinggen"
+  password: "xinggen123"
+  database: "xinggen_drama"
+  charset: "utf8mb4"
   path: "./data/drama_generator.db"
   max_idle: 10
   max_open: 100
@@ -175,10 +182,13 @@ ai:
 - `app.debug`: Debug mode switch (recommended true for development)
 - `server.port`: Service port
 - `server.cors_origins`: Allowed CORS origins for frontend
-- `database.path`: SQLite database file path
+- `database.host` / `database.port` / `database.user` / `database.password` / `database.database`: MySQL connection settings
+- `database.path`: SQLite file path kept for compatibility and legacy migration
 - `storage.local_path`: Local file storage path
 - `storage.base_url`: Static resource access URL
 - `ai.default_*_provider`: AI service provider configuration (API keys configured in Web UI)
+
+If you are running the project locally without provisioning MySQL, change `database.type` back to `sqlite` and keep `database.path` pointing to the local database file.
 
 ### 📥 Installation
 
@@ -233,7 +243,9 @@ Access: `http://localhost:5678`
 
 ### 🗄️ Database Initialization
 
-Database tables are automatically created on first startup (using GORM AutoMigrate), no manual migration needed.
+Database tables are automatically created on first startup (using GORM AutoMigrate), no manual schema migration is required.
+
+If an older SQLite file already exists at `data/drama_generator.db`, the Docker startup flow will try to import that historical data into MySQL once and then write a migration marker to avoid duplicate imports.
 
 ---
 
@@ -250,6 +262,13 @@ Database tables are automatically created on first startup (using GORM AutoMigra
 ### 🐳 Docker Deployment (Recommended)
 
 #### Method 1: Docker Compose (Recommended)
+
+The default Docker Compose setup now starts two containers:
+
+- `xinggen-mysql`: MySQL 8 database
+- `xinggen-drama`: application service
+
+When upgrading from a previous SQLite-based deployment, the application container will automatically run a one-time SQLite -> MySQL import if it detects the legacy SQLite file in the mounted data volume.
 
 #### 🚀 China Network Acceleration (Optional)
 

@@ -91,6 +91,10 @@ func (c *DatabaseConfig) DSN() string {
 	if c.Type == "sqlite" {
 		return c.Path
 	}
+	charset := c.Charset
+	if charset == "" {
+		charset = "utf8mb4"
+	}
 	// MySQL DSN
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
 		c.User,
@@ -98,6 +102,6 @@ func (c *DatabaseConfig) DSN() string {
 		c.Host,
 		c.Port,
 		c.Database,
-		c.Charset,
+		charset,
 	)
 }
