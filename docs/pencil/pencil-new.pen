@@ -1,0 +1,420 @@
+{
+  "version": "2.8",
+  "children": [
+    {
+      "type": "frame",
+      "id": "xrjGY",
+      "x": 0,
+      "y": 0,
+      "name": "Login Page",
+      "width": 1440,
+      "height": 900,
+      "fill": "#000000",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "RfVGc",
+          "x": 0,
+          "y": 0,
+          "name": "Background",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "./images/generated-1772088909104.png",
+            "mode": "fill"
+          },
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "type": "text",
+          "id": "3kjVz",
+          "x": 64,
+          "y": 48,
+          "name": "Logo",
+          "fill": "#FFFFFF",
+          "content": "xinggen",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "bold"
+        },
+        {
+          "type": "frame",
+          "id": "OIPbV",
+          "x": 940,
+          "y": 200,
+          "name": "Login Panel",
+          "width": 400,
+          "height": 583,
+          "fill": "#121212CC",
+          "cornerRadius": 16,
+          "layout": "vertical",
+          "gap": 24,
+          "padding": 40,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Ov9Rz",
+              "name": "Header",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "WO713",
+                  "name": "Welcome Title",
+                  "fill": "#FFFFFF",
+                  "content": "欢迎来到 xinggen",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "bold"
+                },
+                {
+                  "type": "text",
+                  "id": "uKtWZ",
+                  "name": "Subtitle",
+                  "fill": "#FFFFFF99",
+                  "content": "xinggen，让想象发生",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "UIXJp",
+              "name": "Form Container",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "H3wwq",
+                  "name": "Phone Input",
+                  "width": "fill_container",
+                  "height": 48,
+                  "fill": "#FFFFFF0D",
+                  "cornerRadius": 8,
+                  "gap": 12,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "V988a",
+                      "name": "phoneInput",
+                      "fill": "#FFFFFF4D",
+                      "content": "请输入邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "hHR54",
+                  "name": "Code Input",
+                  "width": "fill_container",
+                  "height": 48,
+                  "fill": "#FFFFFF0D",
+                  "cornerRadius": 8,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "45F2H",
+                      "name": "codeInput",
+                      "fill": "#FFFFFF4D",
+                      "content": "请输入密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ztCpr",
+              "name": "Submit Button",
+              "width": "fill_container",
+              "height": 50,
+              "fill": "#0084FF",
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "UUz4U",
+                  "name": "submitText",
+                  "fill": "#FFFFFF",
+                  "content": "登 录",
+                  "textAlign": "center",
+                  "fontFamily": "sans-serif",
+                  "fontSize": 18,
+                  "fontWeight": "bold"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "q5Qt4",
+              "name": "Footer",
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "vhOCU",
+                  "name": "footer",
+                  "fill": "#FFFFFF66",
+                  "content": "登录即表示您同意遵守 用户协议 和 隐私政策",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "dTSAF",
+              "name": "Secondary Button",
+              "height": 44,
+              "fill": "#FFFFFF1A",
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "FasPS",
+                  "name": "adminText",
+                  "fill": "#FFFFFFB3",
+                  "content": "切换管理端登录",
+                  "textAlign": "center",
+                  "fontFamily": "sans-serif",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "ZNeGj",
+      "x": 0,
+      "y": 1060,
+      "name": "Register Page",
+      "width": 1440,
+      "height": 900,
+      "fill": "#000000",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "3TCnW",
+          "x": 0,
+          "y": 0,
+          "name": "Background",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "./images/generated-1772088909104.png",
+            "mode": "fill"
+          },
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "type": "text",
+          "id": "9pzB7",
+          "x": 64,
+          "y": 48,
+          "name": "Logo",
+          "fill": "#FFFFFF",
+          "content": "xinggen",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "bold"
+        },
+        {
+          "type": "frame",
+          "id": "aPL6e",
+          "x": 940,
+          "y": 200,
+          "name": "Login Panel",
+          "width": 400,
+          "height": 575,
+          "fill": "#121212CC",
+          "cornerRadius": 16,
+          "layout": "vertical",
+          "gap": 24,
+          "padding": 40,
+          "children": [
+            {
+              "type": "frame",
+              "id": "9Di4T",
+              "name": "Header",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "CPmXe",
+                  "name": "Welcome Title",
+                  "fill": "#FFFFFF",
+                  "content": "注册 xinggen 账号",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "bold"
+                },
+                {
+                  "type": "text",
+                  "id": "D9z5Z",
+                  "name": "Subtitle",
+                  "fill": "#FFFFFF99",
+                  "content": "xinggen，让想象发生",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "sojea",
+              "name": "Form Container",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "UVt7q",
+                  "name": "Phone Input",
+                  "width": "fill_container",
+                  "height": 48,
+                  "fill": "#FFFFFF0D",
+                  "cornerRadius": 8,
+                  "gap": 12,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "9m1sF",
+                      "name": "phoneInput",
+                      "fill": "#FFFFFF4D",
+                      "content": "请输入邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "IiwKy",
+                  "name": "Code Input",
+                  "width": "fill_container",
+                  "height": 48,
+                  "fill": "#FFFFFF0D",
+                  "cornerRadius": 8,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "pmIDS",
+                      "name": "codeInput",
+                      "fill": "#FFFFFF4D",
+                      "content": "至少 6 位密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ggbxb",
+                  "name": "Password Input",
+                  "width": "fill_container",
+                  "height": 48,
+                  "fill": "#FFFFFF0D",
+                  "cornerRadius": 8,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "vqGUQ",
+                      "name": "pwdInput",
+                      "fill": "#FFFFFF4D",
+                      "content": "请再次输入密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "uRPOf",
+              "name": "Submit Button",
+              "width": "fill_container",
+              "height": 50,
+              "fill": "#0084FF",
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "8R6rF",
+                  "name": "submitText",
+                  "fill": "#FFFFFF",
+                  "content": "注 册",
+                  "textAlign": "center",
+                  "fontFamily": "sans-serif",
+                  "fontSize": 18,
+                  "fontWeight": "bold"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "CL6pf",
+              "name": "Footer",
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "cHvqY",
+                  "name": "footer",
+                  "fill": "#FFFFFF66",
+                  "content": "已有账号？直接登录\n登录/注册即同意 用户协议 和 隐私政策",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "themes": {
+    "Theme": [
+      "Default"
+    ],
+    "Theme-1": [
+      "Default",
+      "Variant-1",
+      "Variant-2"
+    ]
+  }
+}
