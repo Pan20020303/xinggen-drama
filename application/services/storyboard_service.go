@@ -78,10 +78,10 @@ type storyboardSegmentResult struct {
 const (
 	storyboardMinMaxTokens       = 4000
 	storyboardMaxMaxTokens       = 32000
-	storyboardSegmentTargetRunes = 900
-	storyboardSegmentMinRunes    = 450
-	storyboardSegmentMaxRunes    = 1200
-	storyboardSegmentConcurrency = 3
+	storyboardSegmentTargetRunes = 1800
+	storyboardSegmentMinRunes    = 900
+	storyboardSegmentMaxRunes    = 2400
+	storyboardSegmentConcurrency = 5
 )
 
 func estimateStoryboardMaxTokens(scriptLength int) int {
@@ -326,8 +326,8 @@ func buildPreviousScriptContext(segment string) string {
 		return ""
 	}
 	runes := []rune(trimmed)
-	if len(runes) > 280 {
-		runes = runes[len(runes)-280:]
+	if len(runes) > 400 {
+		runes = runes[len(runes)-400:]
 	}
 	return strings.TrimSpace(string(runes))
 }
@@ -611,9 +611,8 @@ func (s *StoryboardService) buildStoryboardPrompt(scriptContent, characterList, 
 
 	if s.promptI18n.IsEnglish() {
 		builder.WriteString("\n\n[Output Contract]\n")
-		builder.WriteString(`Return a JSON object: {"storyboards":[...]}. Each storyboard must include shot_number, title, shot_type, angle, time, location, scene_id, movement, action, dialogue, result, atmosphere, emotion, duration, bgm_prompt, sound_effect, characters, is_primary.`)
+		builder.WriteString(`Return a JSON object: {"storyboards":[...]}. Each storyboard must include shot_number, title, shot_type, angle, time, location, scene_id, movement, action, dialogue, result, atmosphere, emotion, duration, characters.`)
 		builder.WriteString("\n- Keep one independent action per shot; do not merge beats.\n")
-		builder.WriteString("- Keep all descriptive fields concrete and visual, but avoid filler.\n")
 		builder.WriteString("- duration must be an integer between 4 and 12.\n")
 		builder.WriteString("- characters must be an array of numeric ids from the provided list.\n")
 		builder.WriteString("- scene_id must be a numeric id from the provided scene list or null.\n")
@@ -623,8 +622,7 @@ func (s *StoryboardService) buildStoryboardPrompt(scriptContent, characterList, 
 		builder.WriteString("\n\n【输出约束】\n")
 		builder.WriteString(`返回 JSON 对象：{"storyboards":[...]}` + "\n")
 		builder.WriteString("- 每个镜头只保留一个独立动作单元，不要合并剧情。\n")
-		builder.WriteString("- 每个 storyboard 必须包含：shot_number、title、shot_type、angle、time、location、scene_id、movement、action、dialogue、result、atmosphere、emotion、duration、bgm_prompt、sound_effect、characters、is_primary。\n")
-		builder.WriteString("- 描述字段要具体、可视化，但不要堆砌重复措辞。\n")
+		builder.WriteString("- 每个 storyboard 必须包含：shot_number、title、shot_type、angle、time、location、scene_id、movement、action、dialogue、result、atmosphere、emotion、duration、characters。\n")
 		builder.WriteString("- duration 必须是 4-12 的整数。\n")
 		builder.WriteString("- characters 只能填写上方角色列表中的数字 ID。\n")
 		builder.WriteString("- scene_id 只能填写上方场景列表中的数字 ID，没有匹配则填 null。\n")

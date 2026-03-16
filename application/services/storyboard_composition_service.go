@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	models "github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
@@ -348,9 +349,10 @@ func (s *StoryboardCompositionService) UpdateScene(sceneID string, req *UpdateSc
 }
 
 type GenerateSceneImageRequest struct {
-	SceneID uint   `json:"scene_id"`
-	Prompt  string `json:"prompt"`
-	Model   string `json:"model"`
+	SceneID        uint    `json:"scene_id"`
+	Prompt         string  `json:"prompt"`
+	Model          string  `json:"model"`
+	ImageLocalPath *string `json:"image_local_path"`
 }
 
 func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImageRequest) (*models.ImageGeneration, error) {
@@ -367,17 +369,8 @@ func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImag
 		return nil, fmt.Errorf("unauthorized")
 	}
 
-	// 构建场景图片生成提示词
-	prompt := req.Prompt
-	if prompt == "" {
-		// 使用场景的Prompt字段
-		prompt = scene.Prompt
-		if prompt == "" {
-			// 如果Prompt为空，使用Location和Time构建
-			prompt = fmt.Sprintf("%s场景，%s", scene.Location, scene.Time)
-		}
-		s.log.Infow("Using scene prompt", "scene_id", req.SceneID, "prompt", prompt)
-	}
+	prompt, imageLocalPath := resolveSceneGenerationInput(scene, req.Prompt, req.ImageLocalPath)
+	s.log.Infow("Using scene prompt", "scene_id", req.SceneID, "prompt", prompt, "has_local_path", imageLocalPath != nil && *imageLocalPath != "")
 
 	// 使用imageGen服务直接生成
 	if s.imageGen != nil {
@@ -389,6 +382,7 @@ func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImag
 			Model:     req.Model,   // 使用用户指定的模型
 			Size:      "2560x1440", // 3,686,400像素，满足doubao模型最低要求（16:9比例）
 			Quality:   "standard",
+			ImageLocalPath: imageLocalPath,
 		}
 		imageGen, err := s.imageGen.GenerateImage(scene.UserID, genReq)
 		if err != nil {
@@ -409,6 +403,23 @@ func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImag
 	}
 
 	return nil, fmt.Errorf("image generation service not available")
+}
+
+func resolveSceneGenerationInput(scene models.Scene, overridePrompt string, imageLocalPathOverride *string) (string, *string) {
+	prompt := overridePrompt
+	if prompt == "" {
+		prompt = scene.Prompt
+	}
+	if prompt == "" {
+		prompt = fmt.Sprintf("%s场景，%s", scene.Location, scene.Time)
+	}
+	if imageLocalPathOverride != nil {
+		if strings.TrimSpace(*imageLocalPathOverride) == "" {
+			return prompt, nil
+		}
+		return prompt, imageLocalPathOverride
+	}
+	return prompt, scene.LocalPath
 }
 
 type UpdateScenePromptRequest struct {

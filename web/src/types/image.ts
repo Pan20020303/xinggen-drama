@@ -56,7 +56,8 @@ export interface GenerateImageRequest {
 
 export interface ImageGenerationListParams {
   drama_id?: string
-  scene_id?: string
+  scene_id?: string | number
+  character_id?: number
   storyboard_id?: number
   frame_type?: string
   status?: ImageStatus

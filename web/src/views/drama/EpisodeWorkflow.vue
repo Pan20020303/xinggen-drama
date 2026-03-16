@@ -248,7 +248,10 @@
                       />
                     </div>
 
-                    <div class="card-image-container">
+                    <div
+                      class="card-image-container clickable-preview"
+                      @click="openImageCreator(char, 'character')"
+                    >
                       <div v-if="hasImage(char)" class="char-image">
                         <el-image :src="getImageUrl(char)" fit="cover" />
                       </div>
@@ -437,7 +440,10 @@
                       </div>
                     </div>
 
-                    <div class="card-image-container">
+                    <div
+                      class="card-image-container clickable-preview"
+                      @click="openImageCreator(scene, 'scene')"
+                    >
                       <div v-if="hasImage(scene)" class="scene-image">
                         <el-image :src="getImageUrl(scene)" fit="cover" />
                       </div>
@@ -467,8 +473,6 @@
                       <div
                         v-else-if="scene.image_generation_status === 'failed'"
                         class="scene-placeholder failed"
-                        @click="generateSceneImage(scene.id)"
-                        style="cursor: pointer"
                       >
                         <el-icon :size="64"><WarningFilled /></el-icon>
                         <span>{{ $t("common.generateFailed") }}</span>
@@ -1091,6 +1095,200 @@
         </el-upload>
       </el-dialog>
 
+      <el-dialog
+        v-model="imageCreatorVisible"
+        :title="imageCreatorTitle"
+        width="960px"
+      >
+        <div class="image-creator-dialog">
+          <div class="image-creator-preview-column">
+            <div class="image-creator-section-header">
+              <span>当前预览</span>
+              <div class="image-creator-section-actions">
+                <el-tag
+                  v-if="imageCreatorSelectedHistory"
+                  size="small"
+                  type="success"
+                >
+                  历史结果
+                </el-tag>
+                <el-button
+                  v-if="imageCreatorSelectedHistory"
+                  text
+                  size="small"
+                  @click="resetImageCreatorPreview"
+                >
+                  恢复当前图
+                </el-button>
+              </div>
+            </div>
+            <div class="image-creator-main-preview">
+              <el-image
+                v-if="imageCreatorCurrentImage"
+                :src="imageCreatorCurrentImage"
+                fit="cover"
+                preview-teleported
+              />
+              <div v-else class="image-creator-placeholder">
+                <el-icon :size="48">
+                  <Picture />
+                </el-icon>
+                <span>当前还没有图片</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="image-creator-sidebar">
+            <div class="image-creator-reference">
+              <div class="image-creator-section-header">
+                <span>参考图</span>
+                <el-tag
+                  size="small"
+                  :type="imageCreatorMode === 'image' ? 'success' : 'info'"
+                >
+                  {{ imageCreatorMode === "image" ? "图生图" : "文生图" }}
+                </el-tag>
+              </div>
+              <div class="image-creator-reference-preview">
+                <el-image
+                  v-if="imageCreatorReferenceUrl"
+                  :src="imageCreatorReferenceUrl"
+                  fit="cover"
+                />
+                <div v-else class="image-creator-reference-empty">
+                  上传 1 张参考图后可切换图生图
+                </div>
+              </div>
+            </div>
+
+            <el-form label-position="top" class="image-creator-form">
+              <el-form-item label="生成模式">
+                <el-radio-group v-model="imageCreatorMode">
+                  <el-radio-button label="text">文生图</el-radio-button>
+                  <el-radio-button label="image">图生图</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+
+              <el-form-item label="提示词">
+                <el-input
+                  v-model="imageCreatorPrompt"
+                  type="textarea"
+                  :rows="5"
+                  placeholder="请输入或调整生成提示词"
+                />
+              </el-form-item>
+
+              <el-form-item label="上传参考图">
+                <el-upload
+                  class="image-creator-upload"
+                  drag
+                  :action="uploadAction"
+                  :headers="uploadHeaders"
+                  :on-success="handleImageCreatorUploadSuccess"
+                  :on-error="handleUploadError"
+                  :show-file-list="false"
+                  accept="image/jpeg,image/png,image/jpg,image/webp"
+                >
+                  <el-icon class="el-icon--upload"><Upload /></el-icon>
+                  <div class="el-upload__text">
+                    拖拽图片到这里，或<em>点击上传</em>
+                  </div>
+                  <template #tip>
+                    <div class="el-upload__tip">
+                      仅支持一张参考图。选择图生图时将使用该图片作为生成参考。
+                    </div>
+                  </template>
+                </el-upload>
+              </el-form-item>
+            </el-form>
+          </div>
+        </div>
+
+        <div class="image-creator-history">
+          <div class="image-creator-section-header">
+            <span>历史结果</span>
+            <div class="image-creator-section-actions">
+              <el-tag size="small" type="info">
+                {{ imageCreatorHistory.length }} 张
+              </el-tag>
+            </div>
+          </div>
+
+          <el-skeleton
+            v-if="imageCreatorHistoryLoading"
+            :rows="3"
+            animated
+          />
+          <div
+            v-else-if="imageCreatorHistory.length > 0"
+            class="image-creator-history-grid"
+          >
+            <div
+              v-for="historyImage in imageCreatorHistory"
+              :key="historyImage.id"
+              class="image-creator-history-item"
+              :class="{
+                active: imageCreatorSelectedHistoryId === historyImage.id,
+                current: isImageCreatorCurrentImage(historyImage),
+              }"
+              @click="selectImageCreatorHistoryImage(historyImage)"
+            >
+              <el-image :src="getImageUrl(historyImage)" fit="cover" />
+              <div class="image-creator-history-meta">
+                <div class="image-creator-history-tags">
+                  <el-tag
+                    v-if="isImageCreatorCurrentImage(historyImage)"
+                    size="small"
+                    type="primary"
+                  >
+                    当前图
+                  </el-tag>
+                  <el-tag
+                    v-if="imageCreatorSelectedHistoryId === historyImage.id"
+                    size="small"
+                    type="success"
+                  >
+                    主预览
+                  </el-tag>
+                </div>
+                <span>{{ formatImageCreatorHistoryTime(historyImage.created_at) }}</span>
+              </div>
+              <div class="image-creator-history-actions">
+                <el-button
+                  size="small"
+                  @click.stop="useHistoryImageAsReference(historyImage)"
+                >
+                  设为参考图
+                </el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  text
+                  :loading="imageCreatorDeletingId === historyImage.id"
+                  @click.stop="deleteImageCreatorHistoryImage(historyImage)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else description="暂时还没有历史生成结果" />
+        </div>
+
+        <template #footer>
+          <el-button @click="imageCreatorVisible = false">
+            {{ $t("common.cancel") }}
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="imageCreatorSubmitting"
+            @click="submitImageCreator"
+          >
+            生成图片
+          </el-button>
+        </template>
+      </el-dialog>
+
       <!-- 添加场景对话框 -->
       <el-dialog
         v-model="addSceneDialogVisible"
@@ -1222,6 +1420,7 @@ import { imageAPI } from "@/api/image";
 import { useAuthStore } from "@/stores/auth";
 import { usePricingStore } from "@/stores/pricing";
 import type { Drama } from "@/types/drama";
+import type { ImageGeneration } from "@/types/image";
 import { AppHeader } from "@/components/common";
 import { getImageUrl, hasImage } from "@/utils/image";
 
@@ -1275,6 +1474,7 @@ const batchSceneImageTotalCost = computed(
 const promptDialogVisible = ref(false);
 const libraryDialogVisible = ref(false);
 const uploadDialogVisible = ref(false);
+const imageCreatorVisible = ref(false);
 const addSceneDialogVisible = ref(false);
 const extractScenesDialogVisible = ref(false);
 const currentEditItem = ref<any>({ name: "" });
@@ -1282,6 +1482,18 @@ const currentEditType = ref<"character" | "scene">("character");
 const editPrompt = ref("");
 const libraryItems = ref<any[]>([]);
 const currentUploadTarget = ref<any>(null);
+const imageCreatorItem = ref<any>(null);
+const imageCreatorType = ref<"character" | "scene">("character");
+const imageCreatorPrompt = ref("");
+const imageCreatorMode = ref<"text" | "image">("text");
+const imageCreatorReferenceUrl = ref("");
+const imageCreatorReferenceLocalPath = ref("");
+const imageCreatorPreviewUrl = ref("");
+const imageCreatorSelectedHistoryId = ref<number | null>(null);
+const imageCreatorHistory = ref<ImageGeneration[]>([]);
+const imageCreatorHistoryLoading = ref(false);
+const imageCreatorDeletingId = ref<number | null>(null);
+const imageCreatorSubmitting = ref(false);
 
 // 添加场景相关
 const newScene = ref<any>({
@@ -1296,6 +1508,22 @@ const uploadAction = computed(() => "/api/v1/upload/image");
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem("token")}`,
 }));
+const imageCreatorTitle = computed(() =>
+  imageCreatorType.value === "character" ? "角色图片创作" : "场景图片创作",
+);
+const imageCreatorSelectedHistory = computed(() =>
+  imageCreatorHistory.value.find(
+    (item) => item.id === imageCreatorSelectedHistoryId.value,
+  ) || null,
+);
+const imageCreatorCurrentImage = computed(() => {
+  if (imageCreatorPreviewUrl.value) {
+    return imageCreatorPreviewUrl.value;
+  }
+  const item = imageCreatorItem.value;
+  if (!item) return "";
+  return getImageUrl(item);
+});
 
 const hasScript = computed(() => {
   const currentEp = currentEpisode.value;
@@ -1703,12 +1931,18 @@ const pollExtractTask = async (
   );
 };
 
-const generateCharacterImage = async (characterId: number) => {
+const generateCharacterImage = async (
+  characterId: number,
+  options?: { imageLocalPath?: string; onCompleted?: () => Promise<void> | void },
+) => {
   generatingCharacterImages.value[characterId] = true;
 
   try {
     const response = await characterLibraryAPI.generateCharacterImage(
       characterId.toString(),
+      {
+        image_local_path: options?.imageLocalPath,
+      },
     );
     await authStore.refreshMe();
     const imageGenId = response.image_generation?.id;
@@ -1718,11 +1952,13 @@ const generateCharacterImage = async (characterId: number) => {
       // 轮询检查生成状态
       await pollImageStatus(imageGenId, async () => {
         await loadDramaData();
+        await options?.onCompleted?.();
         ElMessage.success("角色图片生成完成！");
       });
     } else {
       ElMessage.success("角色图片生成已启动");
       await loadDramaData();
+      await options?.onCompleted?.();
     }
   } catch (error: any) {
     ElMessage.error(error.message || "生成失败");
@@ -1772,12 +2008,21 @@ const batchGenerateCharacterImages = async () => {
   }
 };
 
-const generateSceneImage = async (sceneId: string) => {
+const generateSceneImage = async (
+  sceneId: string,
+  options?: {
+    prompt?: string;
+    imageLocalPath?: string;
+    onCompleted?: () => Promise<void> | void;
+  },
+) => {
   generatingSceneImages.value[sceneId] = true;
 
   try {
     const response = await dramaAPI.generateSceneImage({
       scene_id: parseInt(sceneId),
+      prompt: options?.prompt,
+      image_local_path: options?.imageLocalPath,
     });
     await authStore.refreshMe();
     const imageGenId = response.image_generation?.id;
@@ -1787,11 +2032,13 @@ const generateSceneImage = async (sceneId: string) => {
       // 轮询检查生成状态
       await pollImageStatus(imageGenId, async () => {
         await loadDramaData();
+        await options?.onCompleted?.();
         ElMessage.success($t("workflow.sceneImageComplete"));
       });
     } else {
       ElMessage.success($t("workflow.sceneImageStarted"));
       await loadDramaData();
+      await options?.onCompleted?.();
     }
   } catch (error: any) {
     ElMessage.error(error.message || "生成失败");
@@ -2182,14 +2429,301 @@ const savePrompt = async () => {
   }
 };
 
+const getImageCreatorPrompt = (item: any, type: "character" | "scene") => {
+  if (type === "character") {
+    return item.appearance || item.description || item.name || "";
+  }
+  return item.prompt || item.description || item.location || "";
+};
+
+const formatImageCreatorHistoryTime = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const isSameImageResource = (
+  left?: { image_url?: string; local_path?: string } | null,
+  right?: { image_url?: string; local_path?: string } | null,
+) => {
+  if (!left || !right) return false;
+  if (left.local_path && right.local_path) {
+    return left.local_path === right.local_path;
+  }
+  if (left.image_url && right.image_url) {
+    return left.image_url === right.image_url;
+  }
+  return false;
+};
+
+const refreshImageCreatorItemFromEpisode = () => {
+  if (!imageCreatorItem.value || !currentEpisode.value) return;
+
+  if (imageCreatorType.value === "character") {
+    const nextItem = currentEpisode.value.characters?.find(
+      (item) => item.id === imageCreatorItem.value.id,
+    );
+    if (nextItem) {
+      imageCreatorItem.value = nextItem;
+    }
+    return;
+  }
+
+  const nextItem = currentEpisode.value.scenes?.find(
+    (item) => item.id?.toString() === imageCreatorItem.value.id?.toString(),
+  );
+  if (nextItem) {
+    imageCreatorItem.value = nextItem;
+  }
+};
+
+const syncImageCreatorSelectionWithCurrentImage = () => {
+  const currentItem = imageCreatorItem.value;
+  if (!currentItem) {
+    imageCreatorSelectedHistoryId.value = null;
+    imageCreatorPreviewUrl.value = "";
+    return;
+  }
+
+  const matchedHistory = imageCreatorHistory.value.find((historyImage) =>
+    isSameImageResource(historyImage, currentItem),
+  );
+
+  imageCreatorSelectedHistoryId.value = matchedHistory?.id || null;
+  imageCreatorPreviewUrl.value = "";
+};
+
+const loadImageCreatorHistory = async () => {
+  if (!imageCreatorItem.value) return;
+
+  imageCreatorHistoryLoading.value = true;
+  try {
+    const params: Record<string, any> = {
+      drama_id: dramaId,
+      status: "completed",
+      page_size: 50,
+    };
+
+    if (imageCreatorType.value === "character") {
+      params.character_id = Number(imageCreatorItem.value.id);
+    } else {
+      params.scene_id = Number(imageCreatorItem.value.id);
+    }
+
+    const result = await imageAPI.listImages(params);
+    imageCreatorHistory.value = result.items || [];
+    syncImageCreatorSelectionWithCurrentImage();
+  } catch (error: any) {
+    imageCreatorHistory.value = [];
+    ElMessage.error(error.message || "加载历史图片失败");
+  } finally {
+    imageCreatorHistoryLoading.value = false;
+  }
+};
+
+const selectImageCreatorHistoryImage = (historyImage: ImageGeneration) => {
+  imageCreatorSelectedHistoryId.value = historyImage.id;
+  imageCreatorPreviewUrl.value = getImageUrl(historyImage);
+};
+
+const resetImageCreatorPreview = () => {
+  syncImageCreatorSelectionWithCurrentImage();
+};
+
+const useHistoryImageAsReference = (historyImage: ImageGeneration) => {
+  if (!historyImage.local_path) {
+    ElMessage.warning("该历史图片没有本地文件，暂时不能作为图生图参考");
+    return;
+  }
+
+  imageCreatorReferenceUrl.value = getImageUrl(historyImage);
+  imageCreatorReferenceLocalPath.value = historyImage.local_path;
+  imageCreatorMode.value = "image";
+  ElMessage.success("已设为参考图");
+};
+
+const persistImageCreatorCurrentImage = async (
+  nextImage: ImageGeneration | null,
+) => {
+  const payload = {
+    image_url: nextImage?.image_url || "",
+    local_path: nextImage?.local_path || "",
+  };
+
+  if (imageCreatorType.value === "character") {
+    await characterLibraryAPI.updateCharacter(imageCreatorItem.value.id, payload);
+  } else {
+    await dramaAPI.updateScene(imageCreatorItem.value.id.toString(), payload);
+  }
+};
+
+const deleteImageCreatorHistoryImage = async (historyImage: ImageGeneration) => {
+  try {
+    await ElMessageBox.confirm(
+      "删除后该历史结果将不可恢复。是否继续？",
+      "删除历史图片",
+      {
+        type: "warning",
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+      },
+    );
+  } catch {
+    return;
+  }
+
+  imageCreatorDeletingId.value = historyImage.id;
+  try {
+    await imageAPI.deleteImage(historyImage.id);
+
+    const remainingHistory = imageCreatorHistory.value.filter(
+      (item) => item.id !== historyImage.id,
+    );
+    const deletingCurrentImage =
+      !!imageCreatorItem.value &&
+      isSameImageResource(historyImage, imageCreatorItem.value);
+
+    imageCreatorHistory.value = remainingHistory;
+
+    if (deletingCurrentImage) {
+      await persistImageCreatorCurrentImage(remainingHistory[0] || null);
+      await loadDramaData();
+      refreshImageCreatorItemFromEpisode();
+    }
+
+    if (imageCreatorSelectedHistoryId.value === historyImage.id) {
+      syncImageCreatorSelectionWithCurrentImage();
+    }
+
+    ElMessage.success("历史图片已删除");
+  } catch (error: any) {
+    ElMessage.error(error.message || "删除历史图片失败");
+  } finally {
+    imageCreatorDeletingId.value = null;
+  }
+};
+
+const refreshImageCreatorAfterGeneration = async () => {
+  refreshImageCreatorItemFromEpisode();
+  await loadImageCreatorHistory();
+  if (imageCreatorHistory.value[0]) {
+    selectImageCreatorHistoryImage(imageCreatorHistory.value[0]);
+  }
+};
+
+const isImageCreatorCurrentImage = (historyImage: ImageGeneration) =>
+  isSameImageResource(historyImage, imageCreatorItem.value);
+
+const openImageCreator = (item: any, type: "character" | "scene") => {
+  imageCreatorItem.value = item;
+  imageCreatorType.value = type;
+  imageCreatorPrompt.value = getImageCreatorPrompt(item, type);
+  imageCreatorReferenceUrl.value = "";
+  imageCreatorReferenceLocalPath.value = "";
+  imageCreatorPreviewUrl.value = "";
+  imageCreatorSelectedHistoryId.value = null;
+  imageCreatorHistory.value = [];
+  imageCreatorMode.value = "text";
+  imageCreatorVisible.value = true;
+  void loadImageCreatorHistory();
+};
+
+const handleImageCreatorUploadSuccess = (response: any) => {
+  const imageUrl = response.url || response.data?.url;
+  const localPath = response.local_path || response.data?.local_path;
+
+  if (!imageUrl || !localPath) {
+    ElMessage.error("上传失败：未获取到参考图信息");
+    return;
+  }
+
+  imageCreatorReferenceUrl.value = imageUrl;
+  imageCreatorReferenceLocalPath.value = localPath;
+  imageCreatorMode.value = "image";
+  ElMessage.success("参考图上传成功");
+};
+
+const submitImageCreator = async () => {
+  if (!imageCreatorItem.value) return;
+  if (!imageCreatorPrompt.value.trim()) {
+    ElMessage.warning("请先填写提示词");
+    return;
+  }
+  if (
+    imageCreatorMode.value === "image" &&
+    !imageCreatorReferenceLocalPath.value.trim()
+  ) {
+    ElMessage.warning("图生图模式需要先上传参考图");
+    return;
+  }
+
+  imageCreatorSubmitting.value = true;
+  try {
+    if (imageCreatorType.value === "character") {
+      await characterLibraryAPI.updateCharacter(imageCreatorItem.value.id, {
+        appearance: imageCreatorPrompt.value.trim(),
+        local_path:
+          imageCreatorMode.value === "image"
+            ? imageCreatorReferenceLocalPath.value
+            : "",
+      });
+      await generateCharacterImage(imageCreatorItem.value.id, {
+        imageLocalPath:
+          imageCreatorMode.value === "image"
+            ? imageCreatorReferenceLocalPath.value
+            : "",
+        onCompleted: refreshImageCreatorAfterGeneration,
+      });
+    } else {
+      await dramaAPI.updateScene(imageCreatorItem.value.id.toString(), {
+        prompt: imageCreatorPrompt.value.trim(),
+        local_path:
+          imageCreatorMode.value === "image"
+            ? imageCreatorReferenceLocalPath.value
+            : "",
+      });
+      await generateSceneImage(imageCreatorItem.value.id.toString(), {
+        prompt: imageCreatorPrompt.value.trim(),
+        imageLocalPath:
+          imageCreatorMode.value === "image"
+            ? imageCreatorReferenceLocalPath.value
+            : "",
+        onCompleted: refreshImageCreatorAfterGeneration,
+      });
+    }
+
+    ElMessage.success("图片生成完成，已加入历史结果");
+  } catch (error: any) {
+    ElMessage.error(error.message || "生成失败");
+  } finally {
+    imageCreatorSubmitting.value = false;
+  }
+};
+
 const uploadCharacterImage = (characterId: number) => {
-  currentUploadTarget.value = { id: characterId, type: "character" };
-  uploadDialogVisible.value = true;
+  const target = currentEpisode.value?.characters?.find(
+    (char) => char.id === characterId,
+  );
+  if (target) {
+    openImageCreator(target, "character");
+  }
 };
 
 const uploadSceneImage = (sceneId: string) => {
-  currentUploadTarget.value = { id: sceneId, type: "scene" };
-  uploadDialogVisible.value = true;
+  const target = currentEpisode.value?.scenes?.find(
+    (scene) => scene.id.toString() === sceneId.toString(),
+  );
+  if (target) {
+    openImageCreator(target, "scene");
+  }
 };
 
 const selectFromLibrary = async (characterId: number) => {
@@ -2968,6 +3502,161 @@ onMounted(() => {
     .el-button {
       margin: 0;
     }
+  }
+}
+
+.clickable-preview {
+  cursor: pointer;
+}
+
+.image-creator-dialog {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.image-creator-preview-column,
+.image-creator-sidebar,
+.image-creator-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.image-creator-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-creator-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-creator-main-preview,
+.image-creator-reference-preview {
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  min-height: 220px;
+}
+
+.image-creator-main-preview :deep(.el-image),
+.image-creator-reference-preview :deep(.el-image) {
+  width: 100%;
+  min-height: 220px;
+  display: block;
+}
+
+.image-creator-placeholder,
+.image-creator-reference-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.image-creator-form {
+  min-width: 0;
+}
+
+.image-creator-upload {
+  width: 100%;
+}
+
+.image-creator-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.image-creator-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.image-creator-history-item {
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+
+  &:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  &.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  &.current {
+    border-color: color-mix(in srgb, var(--success) 45%, var(--border-primary));
+  }
+
+  :deep(.el-image) {
+    width: 100%;
+    height: 132px;
+    display: block;
+  }
+}
+
+.image-creator-history-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.image-creator-history-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.image-creator-history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 12px;
+
+  .el-button {
+    min-height: 32px;
+    margin: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .image-creator-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .image-creator-history-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   }
 }
 

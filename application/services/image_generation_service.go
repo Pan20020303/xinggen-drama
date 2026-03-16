@@ -618,7 +618,7 @@ func (s *ImageGenerationService) GetImageGeneration(userID uint, imageGenID uint
 	return &imageGen, nil
 }
 
-func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint, sceneID *uint, storyboardID *uint, frameType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
+func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint, sceneID *uint, characterID *uint, storyboardID *uint, frameType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
 	query := s.db.Model(&models.ImageGeneration{}).Where("user_id = ?", userID)
 
 	if dramaID != nil {
@@ -627,6 +627,10 @@ func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint
 
 	if sceneID != nil {
 		query = query.Where("scene_id = ?", *sceneID)
+	}
+
+	if characterID != nil {
+		query = query.Where("character_id = ?", *characterID)
 	}
 
 	if storyboardID != nil {

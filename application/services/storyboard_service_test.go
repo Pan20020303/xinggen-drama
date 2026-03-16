@@ -298,7 +298,8 @@ func TestMaxConcurrentStoryboardSegments(t *testing.T) {
 		{total: 1, want: 1},
 		{total: 2, want: 2},
 		{total: 3, want: 3},
-		{total: 8, want: 3},
+		{total: 5, want: 5},
+		{total: 8, want: 5},
 	}
 
 	for _, tt := range tests {

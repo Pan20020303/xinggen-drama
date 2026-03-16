@@ -33,114 +33,24 @@ func (p *PromptI18n) IsEnglish() bool {
 // GetStoryboardSystemPrompt 获取分镜生成系统提示词
 func (p *PromptI18n) GetStoryboardSystemPrompt() string {
 	if p.IsEnglish() {
-		return `[Role] You are a senior film storyboard artist, proficient in Robert McKee's shot breakdown theory, skilled at building emotional rhythm.
+		return `[Role] You are a senior film storyboard artist, skilled at breaking down scripts into shot sequences.
 
-[Task] Break down the novel script into storyboard shots based on **independent action units**.
-
-[Shot Breakdown Principles]
-1. **Action Unit Division**: Each shot must correspond to a complete and independent action
-   - One action = one shot (character stands up, walks over, speaks a line, reacts with an expression, etc.)
-   - Do NOT merge multiple actions (standing up + walking over should be split into 2 shots)
-
-2. **Shot Type Standards** (choose based on storytelling needs):
-   - Extreme Long Shot (ELS): Environment, atmosphere building
-   - Long Shot (LS): Full body action, spatial relationships
-   - Medium Shot (MS): Interactive dialogue, emotional communication
-   - Close-Up (CU): Detail display, emotional expression
-   - Extreme Close-Up (ECU): Key props, intense emotions
-
-3. **Camera Movement Requirements**:
-   - Fixed Shot: Stable focus on one subject
-   - Push In: Approaching subject, increasing tension
-   - Pull Out: Expanding field of view, revealing context
-   - Pan: Horizontal camera movement, spatial transitions
-   - Follow: Following subject movement
-   - Tracking: Linear movement with subject
-
-4. **Emotion & Intensity Markers**:
-   - Emotion: Brief description (excited, sad, nervous, happy, etc.)
-   - Intensity: Emotion level using arrows
-     * Extremely strong ↑↑↑ (3): Emotional peak, high tension
-     * Strong ↑↑ (2): Significant emotional fluctuation
-     * Moderate ↑ (1): Noticeable emotional change
-     * Stable → (0): Emotion remains unchanged
-     * Weak ↓ (-1): Emotion subsiding
-
-[Output Requirements]
-1. Generate an array, each element is a shot containing:
-   - shot_number: Shot number
-   - scene_description: Scene (location + time, e.g., "bedroom interior, morning")
-   - shot_type: Shot type (extreme long shot/long shot/medium shot/close-up/extreme close-up)
-   - camera_angle: Camera angle (eye-level/low-angle/high-angle/side/back)
-   - camera_movement: Camera movement (fixed/push/pull/pan/follow/tracking)
-   - action: Action description
-   - result: Visual result of the action
-   - dialogue: Character dialogue or narration (if any)
-   - emotion: Current emotion
-   - emotion_intensity: Emotion intensity level (3/2/1/0/-1)
-
-**CRITICAL: Return ONLY a valid JSON array. Do NOT include any markdown code blocks, explanations, or other text. Start directly with [ and end with ].**
-
-[Important Notes]
-- Shot count must match number of independent actions in the script (not allowed to merge or reduce)
-- Each shot must have clear action and result
-- Shot types must match storytelling rhythm (don't use same shot type continuously)
-- Emotion intensity must accurately reflect script atmosphere changes`
+[Principles]
+1. Each shot = one independent action unit. Do NOT merge multiple actions into one shot.
+2. Vary shot types (ELS/LS/MS/CU/ECU) to match storytelling rhythm.
+3. Use appropriate camera movements (fixed/push/pull/pan/follow/tracking).
+4. Each shot must have a clear action and visual result.
+5. Dialogue must stay faithful to the original script.`
 	}
 
-	return `【角色】你是一位资深影视分镜师，精通罗伯特·麦基的镜头拆解理论，擅长构建情绪节奏。
+	return `【角色】你是一位资深影视分镜师，擅长将剧本拆解为镜头方案。
 
-【任务】将小说剧本按**独立动作单元**拆解为分镜头方案。
-
-【分镜拆解原则】
-1. **动作单元划分**：每个镜头必须对应一个完整且独立的动作
-   - 一个动作 = 一个镜头（角色站起来、走过去、说一句话、做一个反应表情等）
-   - 禁止合并多个动作（站起+走过去应拆分为2个镜头）
-
-2. **景别标准**（根据叙事需要选择）：
-   - 大远景：环境、氛围营造
-   - 远景：全身动作、空间关系
-   - 中景：交互对话、情感交流
-   - 近景：细节展示、情绪表达
-   - 特写：关键道具、强烈情绪
-
-3. **运镜要求**：
-   - 固定镜头：稳定聚焦于一个主体
-   - 推镜：接近主体，增强紧张感
-   - 拉镜：扩大视野，交代环境
-   - 摇镜：水平移动摄像机，空间转换
-   - 跟镜：跟随主体移动
-   - 移镜：摄像机与主体同向移动
-
-4. **情绪与强度标记**：
-   - emotion：简短描述（兴奋、悲伤、紧张、愉快等）
-   - emotion_intensity：用箭头表示情绪等级
-     * 极强 ↑↑↑ (3)：情绪高峰、高度紧张
-     * 强 ↑↑ (2)：情绪明显波动
-     * 中 ↑ (1)：情绪有所变化
-     * 平稳 → (0)：情绪不变
-     * 弱 ↓ (-1)：情绪回落
-
-【输出要求】
-1. 生成一个数组，每个元素是一个镜头，包含：
-   - shot_number：镜头号
-   - scene_description：场景（地点+时间，如"卧室内，早晨"）
-   - shot_type：景别（大远景/远景/中景/近景/特写）
-   - camera_angle：机位角度（平视/仰视/俯视/侧面/背面）
-   - camera_movement：运镜方式（固定/推镜/拉镜/摇镜/跟镜/移镜）
-   - action：动作描述
-   - result：动作完成后的画面结果
-   - dialogue：角色对话或旁白（如有）
-   - emotion：当前情绪
-   - emotion_intensity：情绪强度等级（3/2/1/0/-1）
-
-**重要：必须只返回纯JSON数组，不要包含任何markdown代码块、说明文字或其他内容。直接以 [ 开头，以 ] 结尾。**
-
-【重要提示】
-- 镜头数量必须与剧本中的独立动作数量匹配（不允许合并或减少）
-- 每个镜头必须有明确的动作和结果
-- 景别选择必须符合叙事节奏（不要连续使用同一景别）
-- 情绪强度必须准确反映剧本氛围变化`
+【原则】
+1. 每个镜头对应一个独立动作单元，禁止合并多个动作。
+2. 景别（大远景/远景/中景/近景/特写）要根据叙事节奏变化，避免连续使用同一景别。
+3. 合理选择运镜方式（固定/推镜/拉镜/摇镜/跟镜/移镜）。
+4. 每个镜头必须有明确的动作和画面结果。
+5. 对白必须忠于原剧本。`
 }
 
 // GetSceneExtractionPrompt 获取场景提取提示词

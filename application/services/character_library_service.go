@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	models "github.com/drama-generator/backend/domain/models"
@@ -274,7 +275,7 @@ func (s *CharacterLibraryService) DeleteCharacter(userID uint, characterID uint)
 }
 
 // GenerateCharacterImage AI生成角色形象
-func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterID string, imageService *ImageGenerationService, modelName string, style string) (*models.ImageGeneration, error) {
+func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterID string, imageService *ImageGenerationService, modelName string, style string, imageLocalPathOverride *string) (*models.ImageGeneration, error) {
 	// 查找角色
 	var character models.Character
 	if err := s.db.Where("id = ? AND user_id = ?", characterID, userID).First(&character).Error; err != nil {
@@ -293,22 +294,7 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 		return nil, err
 	}
 
-	// 构建生成提示词 - 使用详细的外貌描述，添加干净背景要求
-	prompt := ""
-
-	// 优先使用appearance字段，它包含了最详细的外貌描述
-	if character.Appearance != nil && *character.Appearance != "" {
-		prompt = *character.Appearance
-	} else if character.Description != nil && *character.Description != "" {
-		prompt = *character.Description
-	} else {
-		prompt = character.Name
-	}
-
-	// 使用已经加载的 drama 的 style 信息
-	if drama.Style != "" && drama.Style != "realistic" {
-		prompt += ", " + drama.Style
-	}
+	prompt, imageLocalPath := resolveCharacterGenerationInput(character, drama, imageLocalPathOverride)
 	// 调用图片生成服务
 	dramaIDStr := fmt.Sprintf("%d", character.DramaID)
 	imageType := "character"
@@ -321,6 +307,7 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 		Model:       modelName,   // 使用用户指定的模型
 		Size:        "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
 		Quality:     "standard",
+		ImageLocalPath: imageLocalPath,
 	}
 
 	imageGen, err := imageService.GenerateImage(userID, req)
@@ -335,6 +322,28 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 	// 立即返回ImageGeneration对象，让前端可以轮询状态
 	s.log.Infow("Character image generation started", "character_id", characterID, "image_gen_id", imageGen.ID)
 	return imageGen, nil
+}
+
+func resolveCharacterGenerationInput(character models.Character, drama models.Drama, imageLocalPathOverride *string) (string, *string) {
+	prompt := character.Name
+	if character.Appearance != nil && *character.Appearance != "" {
+		prompt = *character.Appearance
+	} else if character.Description != nil && *character.Description != "" {
+		prompt = *character.Description
+	}
+
+	if drama.Style != "" && drama.Style != "realistic" {
+		prompt += ", " + drama.Style
+	}
+
+	if imageLocalPathOverride != nil {
+		if strings.TrimSpace(*imageLocalPathOverride) == "" {
+			return prompt, nil
+		}
+		return prompt, imageLocalPathOverride
+	}
+
+	return prompt, character.LocalPath
 }
 
 // waitAndUpdateCharacterImage 后台异步等待图片生成完成并更新角色image_url
@@ -443,7 +452,7 @@ func (s *CharacterLibraryService) BatchGenerateCharacterImages(userID uint, char
 	for _, characterID := range characterIDs {
 		// 为每个角色启动单独的 goroutine
 		go func(charID string) {
-			imageGen, err := s.GenerateCharacterImage(userID, charID, imageService, modelName, "") // 批量生成暂不支持自定义风格，使用默认值
+			imageGen, err := s.GenerateCharacterImage(userID, charID, imageService, modelName, "", nil) // 批量生成暂不支持自定义风格，使用默认值
 			if err != nil {
 				s.log.Errorw("Failed to generate character image in batch",
 					"character_id", charID,

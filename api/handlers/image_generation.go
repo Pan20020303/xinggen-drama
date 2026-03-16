@@ -210,6 +210,15 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 		}
 	}
 
+	var characterID *uint
+	if characterIDStr := c.Query("character_id"); characterIDStr != "" {
+		id, err := strconv.ParseUint(characterIDStr, 10, 32)
+		if err == nil {
+			uid := uint(id)
+			characterID = &uid
+		}
+	}
+
 	var storyboardID *uint
 	if storyboardIDStr := c.Query("storyboard_id"); storyboardIDStr != "" {
 		id, err := strconv.ParseUint(storyboardIDStr, 10, 32)
@@ -238,7 +247,7 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 		dramaIDUint = &didUint
 	}
 
-	images, total, err := h.imageService.ListImageGenerations(userID, dramaIDUint, sceneID, storyboardID, frameType, status, page, pageSize)
+	images, total, err := h.imageService.ListImageGenerations(userID, dramaIDUint, sceneID, characterID, storyboardID, frameType, status, page, pageSize)
 
 	if err != nil {
 		h.log.Errorw("Failed to list images", "error", err)

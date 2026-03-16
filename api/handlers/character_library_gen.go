@@ -21,12 +21,13 @@ func (h *CharacterLibraryHandler) GenerateCharacterImage(c *gin.Context) {
 
 	// 获取请求体中的model和style参数
 	var req struct {
-		Model string `json:"model"`
-		Style string `json:"style"`
+		Model          string  `json:"model"`
+		Style          string  `json:"style"`
+		ImageLocalPath *string `json:"image_local_path"`
 	}
 	c.ShouldBindJSON(&req)
 
-	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style)
+	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style, req.ImageLocalPath)
 	if err != nil {
 		if errors.Is(err, services2.ErrInsufficientCredits) {
 			response.Forbidden(c, "积分不足")
