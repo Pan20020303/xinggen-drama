@@ -1,0 +1,250 @@
+# 用户注册与登录架构优化
+
+## 背景
+
+当前项目的认证架构已经具备了基本能力（注册、登录、JWT Token 鉴权、管理员独立 audience），但在以下方面存在改进空间：
+
+1. **Service 层直接耦合 gorm.DB** — [AuthService](file:///d:/code/github/huobao-drama/application/services/auth_service.go#23-30) 直接操作数据库，无法在不启动真实 DB 的情况下进行纯逻辑单测
+2. **DTO 混入 Service 层** — [RegisterRequest](file:///d:/code/github/huobao-drama/application/services/auth_service.go#31-35)、[LoginRequest](file:///d:/code/github/huobao-drama/web/src/types/auth.ts#10-14)、[AuthResponse](file:///d:/code/github/huobao-drama/web/src/types/auth.ts#20-24) 定义在 `application/services` 包中，导致 handler 层反向依赖 service 的内部类型
+3. **缺少 Token 刷新机制** — 当前 token 固定有效期（默认72h），过期后用户必须重新登录
+4. **缺少修改密码功能** — 用户无法在已登录状态下修改密码
+5. **`GetUserID` 函数重复定义** — 分别在 `middlewares` 和 `pkg/tenant` 两个包中
+6. **缺少登录专用限流** — 依赖全局 `RateLimitMiddleware`，对暴力破解防护不足
+
+## User Review Required
+
+> [!IMPORTANT]
+> 本次优化涉及**后端包结构调整**（新增 `domain/repository`、`application/dto` 目录），会修改现有文件的 import 路径。需确认以下事项：
+> 1. 是否同意引入 Repository 接口模式？如果当前项目规模暂时不需要可以跳过此项
+> 2. Token 刷新策略：建议采用**单 token + refresh endpoint**（保持简单），而非双 token（access + refresh）方案。是否同意？
+> 3. 修改密码功能是否在本次范围内？还是仅做架构调整？
+
+---
+
+## 现有架构分析
+
+```mermaid
+graph TD
+    subgraph "Frontend (Vue 3 + Pinia)"
+        A["Login.vue / Register.vue"] --> B["auth store (Pinia)"]
+        B --> C["api/auth.ts"]
+        C --> D["utils/request.ts (Axios)"]
+        D -->|Bearer Token| E["Router Guard"]
+    end
+
+    subgraph "Backend (Go + Gin)"
+        F["api/handlers/auth.go"] --> G["application/services/auth_service.go"]
+        G -->|直接依赖| H["gorm.DB"]
+        I["api/middlewares/auth.go"] --> G
+        G --> J["domain/models/user.go"]
+    end
+
+    D -->|HTTP| F
+```
+
+### 当前问题清单
+
+| 问题 | 位置 | 严重程度 |
+|------|------|----------|
+| AuthService 直接操作 gorm.DB | `auth_service.go` L23-29 | 中 |
+| DTO 类型定义在 service 包 | `auth_service.go` L31-44 | 低 |
+| 无 Token 刷新端点 | — | 高 |
+| 无修改密码 API | — | 中 |
+| `GetUserID` 重复定义 | `middlewares/auth.go` L92 + `pkg/tenant/tenant.go` L11 | 低 |
+| 登录无独立限流 | `routes.go` L67 | 中 |
+| 前端 401 处理使用 `window.location.href` 强刷 | `request.ts` L68-88 | 低 |
+
+---
+
+## Proposed Changes
+
+### Component 1: DTO 层分离
+
+将 Request/Response 类型从 `application/services` 移到独立的 `application/dto` 包，使 handler 和 service 共享相同 DTO 而无反向依赖。
+
+#### [NEW] [auth.go](file:///d:/code/github/huobao-drama/application/dto/auth.go)
+
+```go
+package dto
+
+// RegisterRequest、LoginRequest、AuthResponse、ChangePasswordRequest 等
+```
+
+#### [MODIFY] [auth_service.go](file:///d:/code/github/huobao-drama/application/services/auth_service.go)
+
+- 移除 `RegisterRequest`、`LoginRequest`、`AuthResponse` 的定义
+- 改为 import `application/dto` 包中的类型
+- Service 方法签名中引用 `dto.RegisterRequest` 等
+
+#### [MODIFY] [auth.go](file:///d:/code/github/huobao-drama/api/handlers/auth.go)
+
+- 改为 import `dto.RegisterRequest` 等，不再依赖 `services.RegisterRequest`
+
+---
+
+### Component 2: Repository 接口（可选）
+
+引入 `UserRepository` 接口，使 `AuthService` 依赖接口而非具体实现。
+
+#### [NEW] [user_repository.go](file:///d:/code/github/huobao-drama/domain/repository/user_repository.go)
+
+```go
+package repository
+
+type UserRepository interface {
+    FindByEmail(email string) (*models.User, error)
+    FindByID(id uint) (*models.User, error)
+    Create(user *models.User) error
+    UpdatePassword(userID uint, hash string) error
+}
+```
+
+#### [NEW] [user_repository_gorm.go](file:///d:/code/github/huobao-drama/infrastructure/persistence/user_repository_gorm.go)
+
+- `GormUserRepository` 实现上述接口
+
+#### [MODIFY] [auth_service.go](file:///d:/code/github/huobao-drama/application/services/auth_service.go)
+
+- `AuthService` 持有 `repository.UserRepository` 而非 `*gorm.DB`
+- 构造函数 `NewAuthService` 接收接口实例
+
+---
+
+### Component 3: Token 刷新端点
+
+#### [MODIFY] [auth_service.go](file:///d:/code/github/huobao-drama/application/services/auth_service.go)
+
+- 新增 `RefreshToken(oldToken string) (*dto.AuthResponse, error)` 方法
+- 逻辑：解析旧 token，验证有效期剩余 < 阈值（例如 < 24h），生成新 token 返回
+- 如果旧 token 已完全过期则拒绝刷新
+
+#### [MODIFY] [auth.go](file:///d:/code/github/huobao-drama/api/handlers/auth.go)
+
+- 新增 `func (h *AuthHandler) RefreshToken(c *gin.Context)` handler
+
+#### [MODIFY] [routes.go](file:///d:/code/github/huobao-drama/api/routes/routes.go)
+
+- 在 `secured` 路由组中新增 `POST /auth/refresh`
+
+#### [MODIFY] [auth.ts](file:///d:/code/github/huobao-drama/web/src/api/auth.ts)
+
+- 新增 `refresh()` API 方法
+
+#### [MODIFY] [auth.ts](file:///d:/code/github/huobao-drama/web/src/stores/auth.ts)
+
+- 新增 `refreshToken()` action
+- 在 `request.ts` 的 401 拦截器中先尝试刷新 token，刷新失败再跳转登录页
+
+---
+
+### Component 4: 修改密码 API
+
+#### [MODIFY] [auth_service.go](file:///d:/code/github/huobao-drama/application/services/auth_service.go)
+
+- 新增 `ChangePassword(userID uint, req *dto.ChangePasswordRequest) error`
+- 校验旧密码，更新新密码的 bcrypt hash
+
+#### [MODIFY] [auth.go](file:///d:/code/github/huobao-drama/api/handlers/auth.go)
+
+- 新增 `func (h *AuthHandler) ChangePassword(c *gin.Context)` handler
+
+#### [MODIFY] [routes.go](file:///d:/code/github/huobao-drama/api/routes/routes.go)
+
+- 在 `secured` 路由组中新增 `PUT /auth/password`
+
+#### [MODIFY] [auth.ts](file:///d:/code/github/huobao-drama/web/src/api/auth.ts)
+
+- 新增 `changePassword(data)` API 方法
+
+#### [MODIFY] [auth.ts](file:///d:/code/github/huobao-drama/web/src/types/auth.ts)
+
+- 新增 `ChangePasswordRequest` 类型
+
+---
+
+### Component 5: 消除 GetUserID 重复
+
+#### [MODIFY] [auth.go](file:///d:/code/github/huobao-drama/api/middlewares/auth.go)
+
+- 删除 `GetUserID` 函数（L92-99），统一使用 `pkg/tenant.GetUserID`
+
+#### [MODIFY] 所有引用 `middlewares.GetUserID` 的文件
+
+- 搜索并替换为 `tenant.GetUserID`
+
+---
+
+### Component 6: 登录限流中间件
+
+#### [NEW] [login_rate_limit.go](file:///d:/code/github/huobao-drama/api/middlewares/login_rate_limit.go)
+
+- 基于 IP 的登录限流中间件（例如同一 IP 每分钟最多 10 次登录尝试）
+- 使用内存 Map + TTL（项目规模暂不需要 Redis）
+
+#### [MODIFY] [routes.go](file:///d:/code/github/huobao-drama/api/routes/routes.go)
+
+- 在 `/auth/login` 和 `/admin/auth/login` 路由上应用该中间件
+
+---
+
+## 目标架构
+
+```mermaid
+graph TD
+    subgraph "Frontend"
+        A["Login.vue / Register.vue"] --> B["auth store"]
+        B --> C["api/auth.ts"]
+        C --> D["request.ts"]
+        D -->|"401 → 自动 refresh"| D
+        D -->|Bearer Token| E["Router Guard"]
+    end
+
+    subgraph "Backend"
+        F["handlers/auth.go"] -->|"dto.*"| G["services/auth_service.go"]
+        G -->|"repository.UserRepository"| H["persistence/user_repository_gorm.go"]
+        H --> I["gorm.DB"]
+        J["middlewares/auth.go"] --> G
+        K["middlewares/login_rate_limit.go"] --> F
+    end
+
+    D -->|HTTP| F
+```
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+1. **运行现有测试确保无回归：**
+   ```bash
+   cd d:\code\github\huobao-drama
+   go test ./application/services/... -v -run TestAdmin
+   go test ./api/middlewares/... -v
+   ```
+
+2. **为新增功能编写测试：**
+   - `application/services/auth_service_test.go` 中新增：
+     - `TestRefreshToken_Success`（token 剩余时间 < 阈值时成功刷新）
+     - `TestRefreshToken_Expired`（已过期 token 拒绝刷新）
+     - `TestChangePassword_Success`（旧密码正确时成功修改）
+     - `TestChangePassword_WrongOldPassword`（旧密码错误时失败）
+   - `api/middlewares/login_rate_limit_test.go`：
+     - `TestLoginRateLimit_AllowsNormal`
+     - `TestLoginRateLimit_BlocksExcessive`
+
+3. **运行全部测试：**
+   ```bash
+   cd d:\code\github\huobao-drama
+   go test ./... -count=1
+   ```
+
+### Manual Verification
+
+> 以下步骤需要用户在本地启动服务后进行人工验证：
+> 1. 启动后端服务，使用 Postman / curl 调用 `POST /api/v1/auth/register` 注册新用户
+> 2. 使用新用户调用 `POST /api/v1/auth/login` 获取 token
+> 3. 使用 token 调用 `POST /api/v1/auth/refresh` 验证 token 刷新
+> 4. 使用 token 调用 `PUT /api/v1/auth/password` 修改密码
+> 5. 使用新密码重新登录验证
+> 6. 连续快速请求 `/auth/login` 超过 10 次，验证限流中间件返回 429
