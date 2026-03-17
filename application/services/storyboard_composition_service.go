@@ -353,6 +353,12 @@ type GenerateSceneImageRequest struct {
 	Prompt         string  `json:"prompt"`
 	Model          string  `json:"model"`
 	ImageLocalPath *string `json:"image_local_path"`
+	Size           string  `json:"size"`
+	Quality        string  `json:"quality"`
+	Style          *string `json:"style"`
+	Steps          *int    `json:"steps"`
+	CfgScale       *float64 `json:"cfg_scale"`
+	Seed           *int64  `json:"seed"`
 }
 
 func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImageRequest) (*models.ImageGeneration, error) {
@@ -383,6 +389,24 @@ func (s *StoryboardCompositionService) GenerateSceneImage(req *GenerateSceneImag
 			Size:      "2560x1440", // 3,686,400像素，满足doubao模型最低要求（16:9比例）
 			Quality:   "standard",
 			ImageLocalPath: imageLocalPath,
+		}
+		if req.Size != "" {
+			genReq.Size = req.Size
+		}
+		if req.Quality != "" {
+			genReq.Quality = req.Quality
+		}
+		if req.Style != nil {
+			genReq.Style = req.Style
+		}
+		if req.Steps != nil {
+			genReq.Steps = req.Steps
+		}
+		if req.CfgScale != nil {
+			genReq.CfgScale = req.CfgScale
+		}
+		if req.Seed != nil {
+			genReq.Seed = req.Seed
 		}
 		imageGen, err := s.imageGen.GenerateImage(scene.UserID, genReq)
 		if err != nil {

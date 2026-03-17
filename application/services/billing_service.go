@@ -217,6 +217,9 @@ func (s *BillingService) RecordAIUsage(referenceID string, tokenUsage usage.Toke
 	if referenceID == "" {
 		return nil
 	}
+	if tokenUsage.PromptTokens <= 0 && tokenUsage.CompletionTokens <= 0 && tokenUsage.TotalTokens <= 0 {
+		return nil
+	}
 
 	return s.db.Model(&models.CreditTransaction{}).
 		Where("reference_id = ? AND amount < 0", referenceID).

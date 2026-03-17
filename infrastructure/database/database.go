@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/drama-generator/backend/domain/models"
@@ -70,7 +71,7 @@ func NewDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 }
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	modelList := []interface{}{
 		// 用户与计费
 		&models.User{},
 		&models.CreditTransaction{},
@@ -100,5 +101,24 @@ func AutoMigrate(db *gorm.DB) error {
 
 		// 任务管理
 		&models.AsyncTask{},
-	)
+	}
+
+	for _, model := range modelList {
+		if err := db.AutoMigrate(model); err != nil {
+			if isIgnorableMySQLAutoMigrateError(err) {
+				continue
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func isIgnorableMySQLAutoMigrateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Error 1091") && strings.Contains(msg, "Can't DROP 'uni_")
 }

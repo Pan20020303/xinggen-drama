@@ -24,10 +24,15 @@ func (h *CharacterLibraryHandler) GenerateCharacterImage(c *gin.Context) {
 		Model          string  `json:"model"`
 		Style          string  `json:"style"`
 		ImageLocalPath *string `json:"image_local_path"`
+		Size           string  `json:"size"`
+		Quality        string  `json:"quality"`
+		Steps          *int    `json:"steps"`
+		CfgScale       *float64 `json:"cfg_scale"`
+		Seed           *int64  `json:"seed"`
 	}
 	c.ShouldBindJSON(&req)
 
-	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style, req.ImageLocalPath)
+	imageGen, err := h.libraryService.GenerateCharacterImage(userID, characterID, h.imageService, req.Model, req.Style, req.ImageLocalPath, req.Size, req.Quality, req.Steps, req.CfgScale, req.Seed)
 	if err != nil {
 		if errors.Is(err, services2.ErrInsufficientCredits) {
 			response.Forbidden(c, "积分不足")

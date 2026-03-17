@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -84,6 +85,18 @@ func NewVolcesArkClient(baseURL, apiKey, model, endpoint, queryEndpoint string) 
 	if queryEndpoint == "" {
 		queryEndpoint = endpoint
 	}
+
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+	}
+
 	return &VolcesArkClient{
 		BaseURL:       baseURL,
 		APIKey:        apiKey,
@@ -91,9 +104,75 @@ func NewVolcesArkClient(baseURL, apiKey, model, endpoint, queryEndpoint string) 
 		Endpoint:      endpoint,
 		QueryEndpoint: queryEndpoint,
 		HTTPClient: &http.Client{
-			Timeout: 300 * time.Second,
+			Timeout:   300 * time.Second,
+			Transport: transport,
 		},
 	}
+}
+
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if netErr, ok := err.(net.Error); ok && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	retryableFragments := []string{
+		"tls handshake timeout",
+		"timeout awaiting response headers",
+		"i/o timeout",
+		"connection reset by peer",
+		"unexpected eof",
+		"eof",
+	}
+
+	for _, frag := range retryableFragments {
+		if strings.Contains(msg, frag) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *VolcesArkClient) doRequestWithRetry(method, endpoint string, jsonBody []byte) (*http.Response, error) {
+	const maxAttempts = 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var bodyReader io.Reader
+		if len(jsonBody) > 0 {
+			bodyReader = bytes.NewReader(jsonBody)
+		}
+
+		req, err := http.NewRequest(method, endpoint, bodyReader)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		if len(jsonBody) > 0 {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+		resp, err := c.HTTPClient.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+		if attempt == maxAttempts || !isRetryableNetworkError(err) {
+			break
+		}
+
+		backoff := time.Duration(attempt) * time.Second
+		fmt.Printf("[VolcesARK] Request failed (attempt %d/%d): %v, retrying in %s\n", attempt, maxAttempts, err, backoff)
+		time.Sleep(backoff)
+	}
+
+	return nil, fmt.Errorf("send request: %w", lastErr)
 }
 
 // GenerateVideo 生成视频（支持首帧、首尾帧、参考图等多种模式）
@@ -223,17 +302,9 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 	fmt.Printf("[VolcesARK] Generating video - Endpoint: %s, FullURL: %s, Model: %s\n", c.Endpoint, endpoint, model)
 	fmt.Printf("[VolcesARK] Request body: %s\n", string(jsonData))
 
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
+	resp, err := c.doRequestWithRetry(http.MethodPost, endpoint, jsonData)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -276,16 +347,9 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 			fmt.Printf("[VolcesARK] Retrying with single-image i2v fallback for seedance-1-5-pro\n")
 			fmt.Printf("[VolcesARK] Fallback request body: %s\n", string(fallbackJSON))
 
-			retryReq, rErr := http.NewRequest("POST", endpoint, bytes.NewBuffer(fallbackJSON))
+			retryResp, rErr := c.doRequestWithRetry(http.MethodPost, endpoint, fallbackJSON)
 			if rErr != nil {
-				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-			}
-			retryReq.Header.Set("Content-Type", "application/json")
-			retryReq.Header.Set("Authorization", "Bearer "+c.APIKey)
-
-			retryResp, rErr := c.HTTPClient.Do(retryReq)
-			if rErr != nil {
-				return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+				return nil, fmt.Errorf("fallback request failed: %w", rErr)
 			}
 			defer retryResp.Body.Close()
 
@@ -302,7 +366,7 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 				return nil, fmt.Errorf("API error (status %d): %s", retryResp.StatusCode, string(retryBody))
 			}
 		} else {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 		}
 	}
 
@@ -329,6 +393,7 @@ func (c *VolcesArkClient) GenerateVideo(imageURL, prompt string, opts ...VideoOp
 		Status:    result.Status,
 		Completed: result.Status == "completed" || result.Status == "succeeded",
 		Duration:  result.Duration,
+		Usage:     c.lastUsage,
 	}
 
 	if result.Content.VideoURL != "" {
@@ -353,16 +418,9 @@ func (c *VolcesArkClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 	endpoint := c.BaseURL + queryPath
 	fmt.Printf("[VolcesARK] Querying task status - TaskID: %s, QueryEndpoint: %s, FullURL: %s\n", taskID, c.QueryEndpoint, endpoint)
 
-	req, err := http.NewRequest("GET", endpoint, nil)
+	resp, err := c.doRequestWithRetry(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -385,7 +443,13 @@ func (c *VolcesArkClient) GetTaskStatus(taskID string) (*VideoResult, error) {
 		Status:    result.Status,
 		Completed: result.Status == "completed" || result.Status == "succeeded",
 		Duration:  result.Duration,
+		Usage: usage.TokenUsage{
+			PromptTokens:     0,
+			CompletionTokens: result.Usage.CompletionTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+		},
 	}
+	c.lastUsage = videoResult.Usage
 
 	if result.Error != nil {
 		videoResult.Error = fmt.Sprintf("%v", result.Error)

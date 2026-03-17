@@ -1,11 +1,13 @@
 package database
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/drama-generator/backend/pkg/config"
 	"gorm.io/gorm"
@@ -56,7 +58,18 @@ func sqliteToMySQLMigrationTables() []string {
 func normalizeSQLiteValue(value interface{}) interface{} {
 	switch v := value.(type) {
 	case []byte:
-		return string(v)
+		sanitized := bytes.ReplaceAll(v, []byte{0}, []byte{})
+		if !utf8.Valid(sanitized) {
+			sanitized = bytes.ToValidUTF8(sanitized, []byte("�"))
+		}
+		return string(sanitized)
+	case string:
+		raw := []byte(v)
+		raw = bytes.ReplaceAll(raw, []byte{0}, []byte{})
+		if !utf8.Valid(raw) {
+			raw = bytes.ToValidUTF8(raw, []byte("�"))
+		}
+		return string(raw)
 	default:
 		return value
 	}

@@ -275,7 +275,7 @@ func (s *CharacterLibraryService) DeleteCharacter(userID uint, characterID uint)
 }
 
 // GenerateCharacterImage AI生成角色形象
-func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterID string, imageService *ImageGenerationService, modelName string, style string, imageLocalPathOverride *string) (*models.ImageGeneration, error) {
+func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterID string, imageService *ImageGenerationService, modelName string, style string, imageLocalPathOverride *string, size string, quality string, steps *int, cfgScale *float64, seed *int64) (*models.ImageGeneration, error) {
 	// 查找角色
 	var character models.Character
 	if err := s.db.Where("id = ? AND user_id = ?", characterID, userID).First(&character).Error; err != nil {
@@ -308,6 +308,21 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 		Size:        "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
 		Quality:     "standard",
 		ImageLocalPath: imageLocalPath,
+	}
+	if size != "" {
+		req.Size = size
+	}
+	if quality != "" {
+		req.Quality = quality
+	}
+	if steps != nil {
+		req.Steps = steps
+	}
+	if cfgScale != nil {
+		req.CfgScale = cfgScale
+	}
+	if seed != nil {
+		req.Seed = seed
 	}
 
 	imageGen, err := imageService.GenerateImage(userID, req)
@@ -452,7 +467,7 @@ func (s *CharacterLibraryService) BatchGenerateCharacterImages(userID uint, char
 	for _, characterID := range characterIDs {
 		// 为每个角色启动单独的 goroutine
 		go func(charID string) {
-			imageGen, err := s.GenerateCharacterImage(userID, charID, imageService, modelName, "", nil) // 批量生成暂不支持自定义风格，使用默认值
+			imageGen, err := s.GenerateCharacterImage(userID, charID, imageService, modelName, "", nil, "", "", nil, nil, nil) // 批量生成暂不支持自定义参数，使用默认值
 			if err != nil {
 				s.log.Errorw("Failed to generate character image in batch",
 					"character_id", charID,

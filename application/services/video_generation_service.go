@@ -12,6 +12,7 @@ import (
 	"github.com/drama-generator/backend/infrastructure/storage"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
+	"github.com/drama-generator/backend/pkg/usage"
 	"github.com/drama-generator/backend/pkg/utils"
 	"github.com/drama-generator/backend/pkg/video"
 	"gorm.io/gorm"
@@ -360,9 +361,16 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 		s.updateVideoGenError(videoGenID, err.Error())
 		return
 	}
+
+	recordedUsage := usage.TokenUsage{}
 	if videoGen.BillingRefID != nil {
-		if err := s.billingService.RecordAIUsage(*videoGen.BillingRefID, client.GetLastUsage()); err != nil {
-			s.log.Warnw("Failed to record video token usage", "video_generation_id", videoGenID, "error", err)
+		initialUsage := client.GetLastUsage()
+		if hasTokenUsage(initialUsage) {
+			if err := s.billingService.RecordAIUsage(*videoGen.BillingRefID, initialUsage); err != nil {
+				s.log.Warnw("Failed to record video token usage", "video_generation_id", videoGenID, "error", err)
+			} else {
+				recordedUsage = initialUsage
+			}
 		}
 	}
 
@@ -376,7 +384,7 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 		// Start background goroutine to poll task status
 		// This allows the API to return immediately while video generation continues asynchronously
 		// The goroutine will poll until completion, failure, or timeout (max 300 attempts * 10s = 50 minutes)
-		go s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model)
+		go s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model, recordedUsage)
 		return
 	}
 
@@ -388,7 +396,7 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 	s.updateVideoGenError(videoGenID, "no task ID or video URL returned")
 }
 
-func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, provider string, model string) {
+func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, provider string, model string, recordedUsage usage.TokenUsage) {
 	// CRITICAL FIX: Validate taskID parameter to prevent invalid API calls
 	// Empty taskID would cause unnecessary API calls and potential errors
 	if taskID == "" {
@@ -450,6 +458,18 @@ func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, 
 		// CRITICAL FIX: Validate that video URL exists when task is marked as completed
 		// Some APIs may mark task as completed but fail to provide the video URL
 		if result.Completed {
+			if videoGen.BillingRefID != nil && *videoGen.BillingRefID != "" {
+				latestUsage := result.Usage
+				if !hasTokenUsage(latestUsage) {
+					latestUsage = client.GetLastUsage()
+				}
+				delta := usageDelta(latestUsage, recordedUsage)
+				if hasTokenUsage(delta) {
+					if err := s.billingService.RecordAIUsage(*videoGen.BillingRefID, delta); err != nil {
+						s.log.Warnw("Failed to record video token usage on completion", "video_generation_id", videoGenID, "error", err)
+					}
+				}
+			}
 			if result.VideoURL != "" {
 				// Successfully completed with video URL - download and update database
 				s.completeVideoGeneration(videoGenID, result.VideoURL, &result.Duration, &result.Width, &result.Height, nil)
@@ -693,8 +713,28 @@ func (s *VideoGenerationService) RecoverPendingTasks() {
 
 		// Start goroutine to poll task status for each pending video
 		// Each goroutine will poll independently until completion or timeout
-		go s.pollTaskStatus(videoGen.ID, *videoGen.TaskID, videoGen.Provider, videoGen.Model)
+		go s.pollTaskStatus(videoGen.ID, *videoGen.TaskID, videoGen.Provider, videoGen.Model, usage.TokenUsage{})
 	}
+}
+
+func usageDelta(latest usage.TokenUsage, recorded usage.TokenUsage) usage.TokenUsage {
+	delta := usage.TokenUsage{
+		PromptTokens:     latest.PromptTokens - recorded.PromptTokens,
+		CompletionTokens: latest.CompletionTokens - recorded.CompletionTokens,
+		TotalTokens:      latest.TotalTokens - recorded.TotalTokens,
+	}
+
+	if delta.PromptTokens < 0 {
+		delta.PromptTokens = 0
+	}
+	if delta.CompletionTokens < 0 {
+		delta.CompletionTokens = 0
+	}
+	if delta.TotalTokens < 0 {
+		delta.TotalTokens = 0
+	}
+
+	return delta
 }
 
 func (s *VideoGenerationService) GetVideoGeneration(userID uint, id uint) (*models.VideoGeneration, error) {
