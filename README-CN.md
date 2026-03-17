@@ -20,10 +20,6 @@
 
 星亘 Drama 是一个基于 AI 的短剧自动化生产平台，实现从剧本生成、角色设计、分镜制作到视频合成的全流程自动化。
 
-星亘短剧商业版地址：[星亘短剧商业版](https://drama.chatfire.site/shortvideo)
-
-星亘小说生成：[星亘小说生成](https://marketing.chatfire.site/xinggen-novel/)
-
 ### 🎯 核心价值
 
 - **🤖 AI 驱动**：使用大语言模型解析剧本，提取角色、场景和分镜信息
@@ -187,8 +183,6 @@ ai:
 - `storage.local_path`: 本地文件存储路径
 - `storage.base_url`: 静态资源访问 URL
 - `ai.default_*_provider`: AI 服务提供商配置（在 Web 界面中配置具体的 API Key）
-
-如果你是在本机直接运行、且不准备额外启动 MySQL，请把 `database.type` 改回 `sqlite`，并保留 `database.path` 指向本地数据库文件。
 
 ### 📥 安装依赖
 
