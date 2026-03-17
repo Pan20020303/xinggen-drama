@@ -1,7 +1,9 @@
 import { Prop } from './prop'
 
+export type EntityId = string
+
 export interface Drama {
-  id: string
+  id: EntityId
 
   title: string
   description?: string
@@ -26,8 +28,8 @@ export interface Drama {
 export type DramaStatus = 'draft' | 'planning' | 'production' | 'completed' | 'archived' | 'generating' | 'error'
 
 export interface Character {
-  id: number
-  drama_id: string
+  id: EntityId
+  drama_id: EntityId
   name: string
   role?: string
   description?: string
@@ -47,8 +49,8 @@ export interface Character {
 }
 
 export interface Episode {
-  id: string
-  drama_id: string
+  id: EntityId
+  drama_id: EntityId
   episode_number: number
   title: string
   content: string
@@ -72,8 +74,8 @@ export interface Episode {
 }
 
 export interface Storyboard {
-  id: string
-  episode_id: string
+  id: EntityId
+  episode_id: EntityId
   storyboard_number: number
   title?: string
   description?: string
@@ -89,7 +91,10 @@ export interface Storyboard {
   image_url?: string
   video_url?: string
   composed_image?: string
-  scene_id?: string
+  composed_url?: string
+  background_id?: EntityId
+  background_url?: string
+  scene_id?: EntityId
   scene?: Scene
   created_at: string
   updated_at: string
@@ -97,8 +102,10 @@ export interface Storyboard {
 }
 
 export interface Scene {
-  id: string
-  drama_id: string
+  id: EntityId
+  drama_id: EntityId
+  episode_id?: EntityId
+  storyboard_id?: EntityId
   location: string
   time: string
   prompt: string

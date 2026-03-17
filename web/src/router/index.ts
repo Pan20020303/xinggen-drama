@@ -10,31 +10,31 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/admin',
-    redirect: '/admin/users'
-  },
-  {
-    path: '/admin/users',
-    name: 'AdminUsers',
-    component: () => import('../views/admin/AdminUsers.vue'),
-    meta: { requiresAdminAuth: true }
-  },
-  {
-    path: '/admin/billing',
-    name: 'AdminBilling',
-    component: () => import('../views/admin/AdminBilling.vue'),
-    meta: { requiresAdminAuth: true }
-  },
-  {
-    path: '/admin/ai-config',
-    name: 'AdminAIConfig',
-    component: () => import('../views/admin/AdminAIConfig.vue'),
-    meta: { requiresAdminAuth: true }
-  },
-  {
-    path: '/admin/token-stats',
-    name: 'AdminTokenStats',
-    component: () => import('../views/admin/AdminTokenStats.vue'),
-    meta: { requiresAdminAuth: true }
+    component: () => import('../views/admin/AdminLayout.vue'),
+    meta: { requiresAdminAuth: true },
+    redirect: '/admin/users',
+    children: [
+      {
+        path: 'users',
+        name: 'AdminUsers',
+        component: () => import('../views/admin/AdminUsers.vue')
+      },
+      {
+        path: 'billing',
+        name: 'AdminBilling',
+        component: () => import('../views/admin/AdminBilling.vue')
+      },
+      {
+        path: 'ai-config',
+        name: 'AdminAIConfig',
+        component: () => import('../views/admin/AdminAIConfig.vue')
+      },
+      {
+        path: 'token-stats',
+        name: 'AdminTokenStats',
+        component: () => import('../views/admin/AdminTokenStats.vue')
+      }
+    ]
   },
   {
     path: '/login',

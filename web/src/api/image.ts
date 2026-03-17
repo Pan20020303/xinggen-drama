@@ -3,6 +3,7 @@ import type {
   ImageGeneration,
   ImageGenerationListParams
 } from '../types/image'
+import type { EntityId } from '../types/drama'
 import request from '../utils/request'
 
 export const imageAPI = {
@@ -10,15 +11,15 @@ export const imageAPI = {
     return request.post<ImageGeneration>('/images', data)
   },
 
-  generateForScene(sceneId: number) {
+  generateForScene(sceneId: EntityId) {
     return request.post<ImageGeneration[]>(`/images/scene/${sceneId}`)
   },
 
-  batchGenerateForEpisode(episodeId: number) {
+  batchGenerateForEpisode(episodeId: EntityId) {
     return request.post<ImageGeneration[]>(`/images/episode/${episodeId}/batch`)
   },
 
-  getImage(id: number) {
+  getImage(id: EntityId) {
     return request.get<ImageGeneration>(`/images/${id}`)
   },
 
@@ -34,14 +35,14 @@ export const imageAPI = {
     }>('/images', { params })
   },
 
-  deleteImage(id: number) {
+  deleteImage(id: EntityId) {
     return request.delete(`/images/${id}`)
   },
 
   // 上传图片并创建图片生成记录
   uploadImage(data: {
-    storyboard_id: number
-    drama_id: number
+    storyboard_id: EntityId
+    drama_id: EntityId
     frame_type: string
     image_url: string
     prompt?: string

@@ -333,7 +333,8 @@ const availableModels = computed(() => {
   // 提取所有模型，去重
   const models = new Set<string>();
   activeConfigsForProvider.forEach((config) => {
-    config.model.forEach((m) => models.add(m));
+    const modelList = Array.isArray(config.model) ? config.model : [config.model];
+    modelList.forEach((m) => models.add(m));
   });
 
   return Array.from(models);

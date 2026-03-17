@@ -1136,6 +1136,77 @@
                 <span>当前还没有图片</span>
               </div>
             </div>
+
+            <div class="image-creator-history">
+              <div class="image-creator-section-header">
+                <span>历史结果</span>
+                <div class="image-creator-section-actions">
+                  <el-tag size="small" type="info">
+                    {{ imageCreatorHistory.length }} 张
+                  </el-tag>
+                </div>
+              </div>
+
+              <el-skeleton
+                v-if="imageCreatorHistoryLoading"
+                :rows="3"
+                animated
+              />
+              <div
+                v-else-if="imageCreatorHistory.length > 0"
+                class="image-creator-history-grid"
+              >
+                <div
+                  v-for="historyImage in imageCreatorHistory"
+                  :key="historyImage.id"
+                  class="image-creator-history-item"
+                  :class="{
+                    active: imageCreatorSelectedHistoryId === historyImage.id,
+                    current: isImageCreatorCurrentImage(historyImage),
+                  }"
+                  @click="selectImageCreatorHistoryImage(historyImage)"
+                >
+                  <el-image :src="getImageUrl(historyImage)" fit="cover" />
+                  <div class="image-creator-history-meta">
+                    <div class="image-creator-history-tags">
+                      <el-tag
+                        v-if="isImageCreatorCurrentImage(historyImage)"
+                        size="small"
+                        type="primary"
+                      >
+                        当前图
+                      </el-tag>
+                      <el-tag
+                        v-if="imageCreatorSelectedHistoryId === historyImage.id"
+                        size="small"
+                        type="success"
+                      >
+                        主预览
+                      </el-tag>
+                    </div>
+                    <span>{{ formatImageCreatorHistoryTime(historyImage.created_at) }}</span>
+                  </div>
+                  <div class="image-creator-history-actions">
+                    <el-button
+                      size="small"
+                      @click.stop="useHistoryImageAsReference(historyImage)"
+                    >
+                      设为参考图
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      text
+                      :loading="imageCreatorDeletingId === historyImage.id"
+                      @click.stop="deleteImageCreatorHistoryImage(historyImage)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else description="暂时还没有历史生成结果" />
+            </div>
           </div>
 
           <div class="image-creator-sidebar">
@@ -1156,8 +1227,35 @@
                   fit="cover"
                 />
                 <div v-else class="image-creator-reference-empty">
-                  上传 1 张参考图后可切换图生图
+                  图生图时可上传参考图，或直接使用当前图 / 历史图
                 </div>
+              </div>
+              <div class="image-creator-reference-actions">
+                <el-button
+                  size="small"
+                  :disabled="!imageCreatorCanUseCurrentImage"
+                  @click="useCurrentImageAsReference"
+                >
+                  使用当前图
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="!imageCreatorSelectedHistory"
+                  @click="
+                    imageCreatorSelectedHistory &&
+                    useHistoryImageAsReference(imageCreatorSelectedHistory)
+                  "
+                >
+                  使用主预览
+                </el-button>
+                <el-button
+                  size="small"
+                  text
+                  :disabled="!imageCreatorReferenceUrl"
+                  @click="clearImageCreatorReference"
+                >
+                  清空参考图
+                </el-button>
               </div>
             </div>
 
@@ -1173,12 +1271,75 @@
                 <el-input
                   v-model="imageCreatorPrompt"
                   type="textarea"
-                  :rows="5"
+                  :rows="6"
                   placeholder="请输入或调整生成提示词"
                 />
               </el-form-item>
 
-              <el-form-item label="上传参考图">
+              <el-form-item label="模型">
+                <el-select
+                  v-model="imageCreatorModel"
+                  placeholder="选择图片模型"
+                  filterable
+                >
+                  <el-option
+                    v-for="model in imageCreatorImageModelOptions"
+                    :key="model"
+                    :label="model"
+                    :value="model"
+                  />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="图片比例">
+                <el-radio-group v-model="imageCreatorSize" class="image-creator-size-group">
+                  <el-radio-button
+                    v-for="option in imageCreatorSizeOptions"
+                    :key="option.value"
+                    :label="option.value"
+                  >
+                    {{ option.label }}
+                  </el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+
+              <el-form-item label="图片质量">
+                <el-radio-group v-model="imageCreatorQuality">
+                  <el-radio-button label="standard">标准</el-radio-button>
+                  <el-radio-button label="hd">高清</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+
+              <el-form-item label="风格">
+                <el-radio-group v-model="imageCreatorStyle">
+                  <el-radio-button label="vivid">鲜艳</el-radio-button>
+                  <el-radio-button label="natural">自然</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+
+              <el-form-item label="采样步数">
+                <el-slider v-model="imageCreatorSteps" :min="10" :max="50" />
+              </el-form-item>
+
+              <el-form-item label="提示词相关性">
+                <el-slider
+                  v-model="imageCreatorCfgScale"
+                  :min="1"
+                  :max="20"
+                  :step="0.5"
+                />
+              </el-form-item>
+
+              <el-form-item label="随机种子">
+                <el-input-number
+                  v-model="imageCreatorSeed"
+                  :min="1"
+                  :controls="false"
+                  placeholder="留空随机"
+                />
+              </el-form-item>
+
+              <el-form-item v-if="imageCreatorMode === 'image'" label="上传参考图">
                 <el-upload
                   class="image-creator-upload"
                   drag
@@ -1195,84 +1356,13 @@
                   </div>
                   <template #tip>
                     <div class="el-upload__tip">
-                      仅支持一张参考图。选择图生图时将使用该图片作为生成参考。
+                      图生图模式下可上传 1 张参考图，也可直接使用当前图或历史结果。
                     </div>
                   </template>
                 </el-upload>
               </el-form-item>
             </el-form>
           </div>
-        </div>
-
-        <div class="image-creator-history">
-          <div class="image-creator-section-header">
-            <span>历史结果</span>
-            <div class="image-creator-section-actions">
-              <el-tag size="small" type="info">
-                {{ imageCreatorHistory.length }} 张
-              </el-tag>
-            </div>
-          </div>
-
-          <el-skeleton
-            v-if="imageCreatorHistoryLoading"
-            :rows="3"
-            animated
-          />
-          <div
-            v-else-if="imageCreatorHistory.length > 0"
-            class="image-creator-history-grid"
-          >
-            <div
-              v-for="historyImage in imageCreatorHistory"
-              :key="historyImage.id"
-              class="image-creator-history-item"
-              :class="{
-                active: imageCreatorSelectedHistoryId === historyImage.id,
-                current: isImageCreatorCurrentImage(historyImage),
-              }"
-              @click="selectImageCreatorHistoryImage(historyImage)"
-            >
-              <el-image :src="getImageUrl(historyImage)" fit="cover" />
-              <div class="image-creator-history-meta">
-                <div class="image-creator-history-tags">
-                  <el-tag
-                    v-if="isImageCreatorCurrentImage(historyImage)"
-                    size="small"
-                    type="primary"
-                  >
-                    当前图
-                  </el-tag>
-                  <el-tag
-                    v-if="imageCreatorSelectedHistoryId === historyImage.id"
-                    size="small"
-                    type="success"
-                  >
-                    主预览
-                  </el-tag>
-                </div>
-                <span>{{ formatImageCreatorHistoryTime(historyImage.created_at) }}</span>
-              </div>
-              <div class="image-creator-history-actions">
-                <el-button
-                  size="small"
-                  @click.stop="useHistoryImageAsReference(historyImage)"
-                >
-                  设为参考图
-                </el-button>
-                <el-button
-                  size="small"
-                  type="danger"
-                  text
-                  :loading="imageCreatorDeletingId === historyImage.id"
-                  @click.stop="deleteImageCreatorHistoryImage(historyImage)"
-                >
-                  删除
-                </el-button>
-              </div>
-            </div>
-          </div>
-          <el-empty v-else description="暂时还没有历史生成结果" />
         </div>
 
         <template #footer>
@@ -1459,8 +1549,8 @@ const generatingCharacterImages = ref<Record<number, boolean>>({});
 const generatingSceneImages = ref<Record<string, boolean>>({});
 
 // 选择状态
-const selectedCharacterIds = ref<number[]>([]);
-const selectedSceneIds = ref<number[]>([]);
+const selectedCharacterIds = ref<string[]>([]);
+const selectedSceneIds = ref<string[]>([]);
 const selectAllCharacters = ref(false);
 const selectAllScenes = ref(false);
 const batchCharacterImageTotalCost = computed(
@@ -1486,13 +1576,20 @@ const imageCreatorItem = ref<any>(null);
 const imageCreatorType = ref<"character" | "scene">("character");
 const imageCreatorPrompt = ref("");
 const imageCreatorMode = ref<"text" | "image">("text");
+const imageCreatorModel = ref("");
+const imageCreatorSize = ref("2560x1440");
+const imageCreatorQuality = ref("standard");
+const imageCreatorStyle = ref("vivid");
+const imageCreatorSteps = ref(30);
+const imageCreatorCfgScale = ref(7.5);
+const imageCreatorSeed = ref<number | undefined>(undefined);
 const imageCreatorReferenceUrl = ref("");
 const imageCreatorReferenceLocalPath = ref("");
 const imageCreatorPreviewUrl = ref("");
-const imageCreatorSelectedHistoryId = ref<number | null>(null);
+const imageCreatorSelectedHistoryId = ref<string | null>(null);
 const imageCreatorHistory = ref<ImageGeneration[]>([]);
 const imageCreatorHistoryLoading = ref(false);
-const imageCreatorDeletingId = ref<number | null>(null);
+const imageCreatorDeletingId = ref<string | null>(null);
 const imageCreatorSubmitting = ref(false);
 
 // 添加场景相关
@@ -1513,7 +1610,7 @@ const imageCreatorTitle = computed(() =>
 );
 const imageCreatorSelectedHistory = computed(() =>
   imageCreatorHistory.value.find(
-    (item) => item.id === imageCreatorSelectedHistoryId.value,
+    (item) => String(item.id) === imageCreatorSelectedHistoryId.value,
   ) || null,
 );
 const imageCreatorCurrentImage = computed(() => {
@@ -1524,6 +1621,34 @@ const imageCreatorCurrentImage = computed(() => {
   if (!item) return "";
   return getImageUrl(item);
 });
+const imageCreatorCanUseCurrentImage = computed(() =>
+  Boolean(imageCreatorItem.value && getImageUrl(imageCreatorItem.value)),
+);
+const imageCreatorImageModelOptions = computed(() => {
+  const configs = pricingStore.pricing?.platform_configs || [];
+  const defaults = pricingStore.getDefaultModel("image");
+  const models = new Set<string>();
+
+  if (defaults) {
+    models.add(defaults);
+  }
+
+  configs
+    .filter((cfg) => cfg.service_type === "image" && cfg.is_active)
+    .forEach((cfg) => {
+      (cfg.model || []).forEach((model) => {
+        if (model) models.add(model);
+      });
+    });
+
+  return Array.from(models);
+});
+const imageCreatorSizeOptions = [
+  { label: "16:9 横图", value: "2560x1440" },
+  { label: "4:3 经典", value: "2048x1536" },
+  { label: "1:1 方图", value: "1536x1536" },
+  { label: "9:16 竖图", value: "1440x2560" },
+];
 
 const hasScript = computed(() => {
   const currentEp = currentEpisode.value;
@@ -1635,13 +1760,13 @@ const checkAndStartPolling = async () => {
 
         if (charImageGen) {
           // 启动轮询
-          generatingCharacterImages.value[char.id] = true;
-          pollImageStatus(charImageGen.id, async () => {
-            await loadDramaData();
-            ElMessage.success(`${char.name}的图片生成完成！`);
-          }).finally(() => {
-            generatingCharacterImages.value[char.id] = false;
-          });
+        generatingCharacterImages.value[String(char.id)] = true;
+        pollImageStatus(charImageGen.id, async () => {
+          await loadDramaData();
+          ElMessage.success(`${char.name}的图片生成完成！`);
+        }).finally(() => {
+          generatingCharacterImages.value[String(char.id)] = false;
+        });
         }
       } catch (error) {
         console.error("[轮询] 查询角色图片生成记录失败:", error);
@@ -1671,12 +1796,12 @@ const checkAndStartPolling = async () => {
 
         if (sceneImageGen) {
           // 启动轮询
-          generatingSceneImages.value[scene.id] = true;
+          generatingSceneImages.value[String(scene.id)] = true;
           pollImageStatus(sceneImageGen.id, async () => {
             await loadDramaData();
             ElMessage.success(`${scene.location}的图片生成完成！`);
           }).finally(() => {
-            generatingSceneImages.value[scene.id] = false;
+            generatingSceneImages.value[String(scene.id)] = false;
           });
         }
       } catch (error) {
@@ -1784,7 +1909,7 @@ const handleExtractCharactersAndBackgrounds = async () => {
 
 // 轮询检查图片生成状态
 const pollImageStatus = async (
-  imageGenId: number,
+  imageGenId: string,
   onComplete: () => Promise<void>,
 ) => {
   const maxAttempts = 100; // 最多轮询100次
@@ -1831,7 +1956,7 @@ const extractCharactersAndBackgrounds = async () => {
     const [characterTask, backgroundTask] = await Promise.all([
       generationAPI.generateCharacters({
         drama_id: dramaId.toString(),
-        episode_id: episodeId,
+        episode_id: Number(episodeId),
         outline: currentEpisode.value.script_content || "",
         count: 0,
       }),
@@ -1932,15 +2057,30 @@ const pollExtractTask = async (
 };
 
 const generateCharacterImage = async (
-  characterId: number,
-  options?: { imageLocalPath?: string; onCompleted?: () => Promise<void> | void },
+  characterId: string,
+  options?: {
+    model?: string;
+    size?: string;
+    quality?: string;
+    steps?: number;
+    cfgScale?: number;
+    seed?: number;
+    imageLocalPath?: string;
+    onCompleted?: () => Promise<void> | void;
+  },
 ) => {
   generatingCharacterImages.value[characterId] = true;
 
   try {
     const response = await characterLibraryAPI.generateCharacterImage(
-      characterId.toString(),
+        characterId,
       {
+        model: options?.model,
+        size: options?.size,
+        quality: options?.quality,
+        steps: options?.steps,
+        cfg_scale: options?.cfgScale,
+        seed: options?.seed,
         image_local_path: options?.imageLocalPath,
       },
     );
@@ -2012,6 +2152,13 @@ const generateSceneImage = async (
   sceneId: string,
   options?: {
     prompt?: string;
+    model?: string;
+    size?: string;
+    quality?: string;
+    style?: string;
+    steps?: number;
+    cfgScale?: number;
+    seed?: number;
     imageLocalPath?: string;
     onCompleted?: () => Promise<void> | void;
   },
@@ -2020,8 +2167,15 @@ const generateSceneImage = async (
 
   try {
     const response = await dramaAPI.generateSceneImage({
-      scene_id: parseInt(sceneId),
+      scene_id: sceneId,
       prompt: options?.prompt,
+      model: options?.model,
+      size: options?.size,
+      quality: options?.quality,
+      style: options?.style,
+      steps: options?.steps,
+      cfg_scale: options?.cfgScale,
+      seed: options?.seed,
       image_local_path: options?.imageLocalPath,
     });
     await authStore.refreshMe();
@@ -2497,7 +2651,9 @@ const syncImageCreatorSelectionWithCurrentImage = () => {
     isSameImageResource(historyImage, currentItem),
   );
 
-  imageCreatorSelectedHistoryId.value = matchedHistory?.id || null;
+  imageCreatorSelectedHistoryId.value = matchedHistory?.id
+    ? String(matchedHistory.id)
+    : null;
   imageCreatorPreviewUrl.value = "";
 };
 
@@ -2513,9 +2669,9 @@ const loadImageCreatorHistory = async () => {
     };
 
     if (imageCreatorType.value === "character") {
-      params.character_id = Number(imageCreatorItem.value.id);
+      params.character_id = String(imageCreatorItem.value.id);
     } else {
-      params.scene_id = Number(imageCreatorItem.value.id);
+      params.scene_id = String(imageCreatorItem.value.id);
     }
 
     const result = await imageAPI.listImages(params);
@@ -2530,7 +2686,7 @@ const loadImageCreatorHistory = async () => {
 };
 
 const selectImageCreatorHistoryImage = (historyImage: ImageGeneration) => {
-  imageCreatorSelectedHistoryId.value = historyImage.id;
+  imageCreatorSelectedHistoryId.value = String(historyImage.id);
   imageCreatorPreviewUrl.value = getImageUrl(historyImage);
 };
 
@@ -2580,7 +2736,7 @@ const deleteImageCreatorHistoryImage = async (historyImage: ImageGeneration) => 
     return;
   }
 
-  imageCreatorDeletingId.value = historyImage.id;
+  imageCreatorDeletingId.value = String(historyImage.id);
   try {
     await imageAPI.deleteImage(historyImage.id);
 
@@ -2626,6 +2782,13 @@ const openImageCreator = (item: any, type: "character" | "scene") => {
   imageCreatorItem.value = item;
   imageCreatorType.value = type;
   imageCreatorPrompt.value = getImageCreatorPrompt(item, type);
+  imageCreatorModel.value = imageDefaultModel.value || "";
+  imageCreatorSize.value = "2560x1440";
+  imageCreatorQuality.value = "standard";
+  imageCreatorStyle.value = "vivid";
+  imageCreatorSteps.value = 30;
+  imageCreatorCfgScale.value = 7.5;
+  imageCreatorSeed.value = undefined;
   imageCreatorReferenceUrl.value = "";
   imageCreatorReferenceLocalPath.value = "";
   imageCreatorPreviewUrl.value = "";
@@ -2649,6 +2812,27 @@ const handleImageCreatorUploadSuccess = (response: any) => {
   imageCreatorReferenceLocalPath.value = localPath;
   imageCreatorMode.value = "image";
   ElMessage.success("参考图上传成功");
+};
+
+const useCurrentImageAsReference = () => {
+  if (!imageCreatorCanUseCurrentImage.value || !imageCreatorItem.value) {
+    ElMessage.warning("当前没有可作为参考图的图片");
+    return;
+  }
+
+  imageCreatorReferenceUrl.value = getImageUrl(imageCreatorItem.value);
+  imageCreatorReferenceLocalPath.value =
+    imageCreatorItem.value.local_path || "";
+  imageCreatorMode.value = "image";
+  ElMessage.success("已将当前图片设为参考图");
+};
+
+const clearImageCreatorReference = () => {
+  imageCreatorReferenceUrl.value = "";
+  imageCreatorReferenceLocalPath.value = "";
+  if (imageCreatorMode.value === "image") {
+    imageCreatorMode.value = "text";
+  }
 };
 
 const submitImageCreator = async () => {
@@ -2676,6 +2860,12 @@ const submitImageCreator = async () => {
             : "",
       });
       await generateCharacterImage(imageCreatorItem.value.id, {
+        model: imageCreatorModel.value,
+        size: imageCreatorSize.value,
+        quality: imageCreatorQuality.value,
+        steps: imageCreatorSteps.value,
+        cfgScale: imageCreatorCfgScale.value,
+        seed: imageCreatorSeed.value,
         imageLocalPath:
           imageCreatorMode.value === "image"
             ? imageCreatorReferenceLocalPath.value
@@ -2692,6 +2882,13 @@ const submitImageCreator = async () => {
       });
       await generateSceneImage(imageCreatorItem.value.id.toString(), {
         prompt: imageCreatorPrompt.value.trim(),
+        model: imageCreatorModel.value,
+        size: imageCreatorSize.value,
+        quality: imageCreatorQuality.value,
+        style: imageCreatorStyle.value,
+        steps: imageCreatorSteps.value,
+        cfgScale: imageCreatorCfgScale.value,
+        seed: imageCreatorSeed.value,
         imageLocalPath:
           imageCreatorMode.value === "image"
             ? imageCreatorReferenceLocalPath.value
@@ -2708,7 +2905,7 @@ const submitImageCreator = async () => {
   }
 };
 
-const uploadCharacterImage = (characterId: number) => {
+const uploadCharacterImage = (characterId: string) => {
   const target = currentEpisode.value?.characters?.find(
     (char) => char.id === characterId,
   );
@@ -2726,7 +2923,7 @@ const uploadSceneImage = (sceneId: string) => {
   }
 };
 
-const selectFromLibrary = async (characterId: number) => {
+const selectFromLibrary = async (characterId: string) => {
   try {
     const result = await characterLibraryAPI.list({ page_size: 50 });
     libraryItems.value = result.items || [];
@@ -2818,7 +3015,7 @@ const handleUploadError = () => {
   ElMessage.error("上传失败，请重试");
 };
 
-const deleteCharacter = async (characterId: number) => {
+const deleteCharacter = async (characterId: string) => {
   try {
     await ElMessageBox.confirm(
       $t("workflow.deleteCharacterConfirm"),
@@ -2897,8 +3094,8 @@ const saveScene = async () => {
   try {
     // 创建场景，关联到当前章节
     await dramaAPI.createScene({
-      drama_id: parseInt(dramaId),
-      episode_id: parseInt(currentEpisode.value.id),
+      drama_id: dramaId,
+      episode_id: String(currentEpisode.value.id),
       location: newScene.value.location,
       time: newScene.value.time || "",
       prompt: newScene.value.prompt,
@@ -3577,16 +3774,26 @@ onMounted(() => {
   width: 100%;
 }
 
+.image-creator-reference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .image-creator-history {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
 .image-creator-history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
+  max-height: 440px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .image-creator-history-item {
@@ -3620,6 +3827,16 @@ onMounted(() => {
     height: 132px;
     display: block;
   }
+}
+
+.image-creator-size-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.image-creator-size-group :deep(.el-radio-button) {
+  margin-right: 0;
 }
 
 .image-creator-history-meta {

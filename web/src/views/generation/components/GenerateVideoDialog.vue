@@ -178,7 +178,7 @@ const generating = ref(false)
 const dramas = ref<Drama[]>([])
 const images = ref<ImageGeneration[]>([])
 
-const form = reactive<GenerateVideoRequest & { image_gen_id?: number }>({
+const form = reactive<GenerateVideoRequest & { image_gen_id?: string }>({
   drama_id: props.dramaId || '',
   image_gen_id: undefined,
   image_url: '',
@@ -187,8 +187,8 @@ const form = reactive<GenerateVideoRequest & { image_gen_id?: number }>({
   duration: 5,
   aspect_ratio: '16:9',
   motion_level: 50,
-  camera_motion: undefined,
-  style: undefined,
+  camera_motion: '',
+  style: '',
   seed: undefined
 })
 
@@ -258,7 +258,7 @@ const onDramaChange = (dramaId: string) => {
   }
 }
 
-const onImageChange = (imageGenId: number | undefined) => {
+const onImageChange = (imageGenId: string | undefined) => {
   if (!imageGenId) {
     form.image_url = ''
     return

@@ -406,22 +406,23 @@ import { getVideoUrl } from '@/utils/image'
 
 interface Scene {
   id: string
-  storyboard_id: string
+  storyboard_id?: string
   storyboard_number: number
   title?: string
   description?: string
   location?: string
   time?: string
-  video_url: string
+  video_url?: string
   asset_id?: string
   duration?: number
 }
 
 interface TimelineClip {
   id: string
-  storyboard_id: string
-  storyboard_number: number
-  video_url: string
+  scene_id?: string
+  storyboard_id?: string
+  storyboard_number?: number
+  video_url?: string
   asset_id?: string // 素材库中的资源ID
   start_time: number
   end_time: number
@@ -1798,7 +1799,7 @@ const handleExport = async () => {
 
     // 初始化FFmpeg
     await videoMerger.initialize((progress) => {
-      mergeProgress.value = progress
+      mergeProgress.value = progress.progress
     })
 
     // 准备视频片段数据（包含转场信息）

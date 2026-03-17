@@ -239,7 +239,7 @@ const downloadImage = (image: ImageGeneration) => {
   window.open(image.image_url, '_blank')
 }
 
-const deleteImage = async (id: number) => {
+const deleteImage = async (id: string) => {
   try {
     await imageAPI.deleteImage(id)
     ElMessage.success('删除成功')

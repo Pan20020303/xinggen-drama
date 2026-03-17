@@ -3,6 +3,7 @@ import type {
   VideoGeneration,
   VideoGenerationListParams
 } from '../types/video'
+import type { EntityId } from '../types/drama'
 import request from '../utils/request'
 
 export const videoAPI = {
@@ -10,19 +11,19 @@ export const videoAPI = {
     return request.post<VideoGeneration>('/videos', data)
   },
 
-  generateFromImage(imageGenId: number) {
+  generateFromImage(imageGenId: EntityId) {
     return request.post<VideoGeneration>(`/videos/image/${imageGenId}`)
   },
 
-  batchGenerateForEpisode(episodeId: number) {
+  batchGenerateForEpisode(episodeId: EntityId) {
     return request.post<VideoGeneration[]>(`/videos/episode/${episodeId}/batch`)
   },
 
-  getVideoGeneration(id: number) {
+  getVideoGeneration(id: EntityId) {
     return request.get<VideoGeneration>(`/videos/${id}`)
   },
   
-  getVideo(id: number) {
+  getVideo(id: EntityId) {
     return request.get<VideoGeneration>(`/videos/${id}`)
   },
 
@@ -38,7 +39,7 @@ export const videoAPI = {
     }>('/videos', { params })
   },
 
-  deleteVideo(id: number) {
+  deleteVideo(id: EntityId) {
     return request.delete(`/videos/${id}`)
   }
 }

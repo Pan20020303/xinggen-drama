@@ -8,10 +8,7 @@
       <div class="header-right">
         <LanguageSwitcher />
         <ThemeToggle />
-        <el-button @click="router.push('/admin/users')">用户管理</el-button>
-        <el-button @click="router.push('/admin/billing')">计费管理</el-button>
-        <el-button @click="router.push('/admin/ai-config')">模型配置</el-button>
-        <el-button type="danger" @click="handleLogout">退出管理端</el-button>
+        <el-button type="danger" @click="handleLogout">退出</el-button>
       </div>
     </header>
 
@@ -147,70 +144,121 @@ onMounted(() => {
 <style scoped>
 .admin-page {
   min-height: 100vh;
-  background: var(--bg-primary);
-  padding: 16px;
+  background: #F7F6F3;
+  padding: 48px 64px;
+  font-family: 'Sora', sans-serif;
+  color: #2D2D2D;
+
+  --el-color-primary: #3D5A80;
+  --el-color-success: #10B981;
+  --el-color-danger: #C53D43;
+  --el-color-info: #6B7280;
+  --el-bg-color: transparent;
+  --el-bg-color-page: #F7F6F3;
+  --el-border-color: #E8E6E1;
+  --el-border-color-light: #E8E6E1;
+  --el-border-radius-base: 2px;
+  --el-box-shadow-light: none;
+  --el-fill-color-blank: transparent;
+  --el-text-color-primary: #2D2D2D;
+  --el-text-color-regular: #6B7280;
+}
+
+.admin-page :deep(.el-card) {
+  border: 1px solid #E8E6E1;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.admin-page :deep(.el-table) {
+  background: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-border-color: #E8E6E1;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+}
+
+.admin-page :deep(.el-table th.el-table__cell) {
+  font-family: 'Sora', sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.admin-page :deep(.el-button) {
+  border-radius: 2px;
+  font-family: 'Sora', sans-serif;
+  font-weight: 500;
 }
 
 .admin-header {
-  background: var(--bg-card);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-xl);
-  padding: 14px 16px;
-  margin-bottom: 12px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  margin-bottom: 40px;
 }
 
 .header-left h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.5px;
+  color: #2D2D2D;
 }
 
 .header-left p {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
+  margin: 8px 0 0;
+  color: #6B7280;
+  font-size: 14px;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
 }
 
 .filter-card {
-  margin-bottom: 12px;
+  margin-bottom: 24px;
 }
 
 .filters {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 24px;
+  margin-bottom: 24px;
 }
 
 .summary-card {
   text-align: left;
+  padding: 12px;
 }
 
 .summary-label {
-  color: var(--text-muted);
-  font-size: 13px;
+  color: #6B7280;
+  font-family: 'Sora', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .summary-value {
-  margin-top: 10px;
-  font-size: 28px;
-  font-weight: 700;
+  margin-top: 16px;
+  font-family: 'Sora', sans-serif;
+  font-size: 48px;
+  font-weight: 300;
+  letter-spacing: -1px;
+  color: #2D2D2D;
 }
 
 .card-header {
@@ -218,10 +266,13 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  font-family: 'Sora', sans-serif;
+  font-weight: 500;
+  font-size: 16px;
 }
 
 .muted {
-  color: var(--text-muted);
+  color: #9CA3AF;
   font-size: 12px;
 }
 

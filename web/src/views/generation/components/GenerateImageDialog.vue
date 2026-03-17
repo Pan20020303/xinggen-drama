@@ -244,7 +244,7 @@ const onDramaChange = (dramaId: string) => {
   }
 }
 
-const onSceneChange = (sceneId: number | undefined) => {
+const onSceneChange = (sceneId: string | undefined) => {
   if (!sceneId) return
   
   const scene = scenes.value.find(s => s.id === sceneId)

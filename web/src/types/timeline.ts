@@ -1,9 +1,10 @@
 import type { Asset } from './asset'
+import type { EntityId } from './drama'
 
 export interface Timeline {
-  id: number
-  drama_id: number
-  episode_id?: number
+  id: EntityId
+  drama_id: EntityId
+  episode_id?: EntityId
   name: string
   description?: string
   duration: number
@@ -18,8 +19,8 @@ export interface Timeline {
 export type TimelineStatus = 'draft' | 'editing' | 'completed' | 'exporting'
 
 export interface TimelineTrack {
-  id: number
-  timeline_id: number
+  id: EntityId
+  timeline_id: EntityId
   name: string
   type: TrackType
   order: number
@@ -33,26 +34,34 @@ export interface TimelineTrack {
 export type TrackType = 'video' | 'audio' | 'text'
 
 export interface TimelineClip {
-  id: number
-  track_id: number
-  asset_id?: number
+  id: EntityId
+  track_id?: EntityId
+  asset_id?: EntityId
   asset?: Asset
-  scene_id?: number
-  name: string
+  scene_id?: EntityId
+  storyboard_id?: EntityId
+  storyboard_number?: number
+  video_url?: string
+  audio_url?: string
+  source_clip_id?: EntityId
+  name?: string
   start_time: number
   end_time: number
   duration: number
+  position?: number
+  order?: number
   trim_start?: number
   trim_end?: number
   speed?: number
   volume?: number
-  is_muted: boolean
+  is_muted?: boolean
   fade_in?: number
   fade_out?: number
-  transition_in_id?: number
-  transition_out_id?: number
+  transition_in_id?: EntityId
+  transition_out_id?: EntityId
   in_transition?: ClipTransition
   out_transition?: ClipTransition
+  transition?: ClipTransition
   effects?: ClipEffect[]
   created_at: string
 }
@@ -65,7 +74,32 @@ export interface ClipTransition {
   config?: Record<string, any>
 }
 
-export type TransitionType = 'fade' | 'crossfade' | 'slide' | 'wipe' | 'zoom' | 'dissolve'
+export type TransitionType =
+  | 'fade'
+  | 'crossfade'
+  | 'slide'
+  | 'wipe'
+  | 'zoom'
+  | 'dissolve'
+  | 'none'
+  | 'fadeblack'
+  | 'fadewhite'
+  | 'fadegrays'
+  | 'slideleft'
+  | 'slideright'
+  | 'slideup'
+  | 'slidedown'
+  | 'wipeleft'
+  | 'wiperight'
+  | 'wipeup'
+  | 'wipedown'
+  | 'circleopen'
+  | 'circleclose'
+  | 'distance'
+  | 'horzopen'
+  | 'horzclose'
+  | 'vertopen'
+  | 'vertclose'
 
 export interface ClipEffect {
   id: number

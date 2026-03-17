@@ -1,6 +1,6 @@
 export interface GenerateCharactersRequest {
   drama_id: string
-  episode_id?: number
+  episode_id?: string | number
   outline?: string
   count?: number
   temperature?: number
@@ -19,6 +19,17 @@ export interface ParseScriptResult {
   summary: string
 }
 
+export interface ParsedScene {
+  storyboard_number: number
+  title?: string
+  location?: string
+  time?: string
+  characters?: string
+  dialogue?: string
+  content?: string
+  duration?: number
+}
+
 export interface ParsedCharacter {
   name: string
   role: string
@@ -32,8 +43,18 @@ export interface ParsedEpisode {
   description: string
   script_content: string
   duration: number
+  scenes: ParsedScene[]
   chapter_start?: number
   chapter_end?: number
   start_marker?: string
   end_marker?: string
+}
+
+export interface GenerateShotsRequest {
+  episode_id: string | number
+  script_content: string
+}
+
+export interface GenerateShotsResult {
+  shots: ParsedScene[]
 }

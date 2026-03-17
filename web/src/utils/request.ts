@@ -1,7 +1,9 @@
 import type { AxiosError, AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
+import { AxiosHeaders } from 'axios'
 import axios from 'axios'
 
 interface CustomAxiosInstance extends Omit<AxiosInstance, 'get' | 'post' | 'put' | 'patch' | 'delete'> {
+  <T = any>(config: AxiosRequestConfig): Promise<T>
   get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
   post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
   put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
@@ -141,8 +143,9 @@ request.interceptors.response.use(
           originalConfig._retry = true
           const newToken = await refreshUserToken()
           if (newToken) {
-            originalConfig.headers = originalConfig.headers || {}
-            originalConfig.headers.Authorization = `Bearer ${newToken}`
+            const headers = AxiosHeaders.from(originalConfig.headers)
+            headers.set('Authorization', `Bearer ${newToken}`)
+            originalConfig.headers = headers
             return request(originalConfig as AxiosRequestConfig)
           }
         }

@@ -1,3 +1,4 @@
+import type { EntityId } from '../types/drama'
 import request from '../utils/request'
 
 export interface CharacterLibraryItem {
@@ -59,34 +60,39 @@ export const characterLibraryAPI = {
   },
 
   // 上传角色图片
-  uploadCharacterImage(characterId: string, imageUrl: string) {
+  uploadCharacterImage(characterId: EntityId, imageUrl: string) {
     return request.put(`/characters/${characterId}/image`, { image_url: imageUrl })
   },
 
   // 从角色库应用形象
-  applyFromLibrary(characterId: string, libraryItemId: string) {
+  applyFromLibrary(characterId: EntityId, libraryItemId: EntityId) {
     return request.put(`/characters/${characterId}/image-from-library`, {
       library_item_id: libraryItemId
     })
   },
 
   // 将角色添加到角色库
-  addCharacterToLibrary(characterId: string, category?: string) {
+  addCharacterToLibrary(characterId: EntityId, category?: string) {
     return request.post<CharacterLibraryItem>(`/characters/${characterId}/add-to-library`, {
       category
     })
   },
 
   // AI生成角色形象
-  generateCharacterImage(characterId: string, data?: { model?: string; image_local_path?: string }) {
-    return request.post<{ image_url: string }>(`/characters/${characterId}/generate-image`, {
+  generateCharacterImage(characterId: EntityId, data?: { model?: string; image_local_path?: string; size?: string; quality?: string; steps?: number; cfg_scale?: number; seed?: number }) {
+    return request.post<{ image_url?: string; image_generation?: { id: EntityId } }>(`/characters/${characterId}/generate-image`, {
       model: data?.model,
-      image_local_path: data?.image_local_path
+      image_local_path: data?.image_local_path,
+      size: data?.size,
+      quality: data?.quality,
+      steps: data?.steps,
+      cfg_scale: data?.cfg_scale,
+      seed: data?.seed
     })
   },
 
   // 批量生成角色形象
-  batchGenerateCharacterImages(characterIds: string[], model?: string) {
+  batchGenerateCharacterImages(characterIds: Array<string | number>, model?: string) {
     return request.post<{ message: string; count: number }>('/characters/batch-generate-images', {
       character_ids: characterIds,
       model
@@ -94,7 +100,7 @@ export const characterLibraryAPI = {
   },
 
   // 更新角色信息
-  updateCharacter(characterId: number, data: {
+  updateCharacter(characterId: EntityId, data: {
     name?: string
     appearance?: string
     personality?: string
@@ -106,12 +112,12 @@ export const characterLibraryAPI = {
   },
 
   // 删除角色
-  deleteCharacter(characterId: number) {
+  deleteCharacter(characterId: EntityId) {
     return request.delete(`/characters/${characterId}`)
   },
 
   // 从剧本提取角色
-  extractFromEpisode(episodeId: number) {
+  extractFromEpisode(episodeId: EntityId) {
     return request.post<{ task_id: string; message: string }>(`/episodes/${episodeId}/characters/extract`)
   }
 }

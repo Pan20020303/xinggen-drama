@@ -445,7 +445,9 @@ interface Storyboard {
   dialogue?: string
   duration?: number
   background_url?: string
+  background_id?: string | number
   video_url?: string
+  composed_url?: string
   scene_id?: string | number
   title?: string
   bgm_prompt?: string
@@ -475,7 +477,7 @@ const emit = defineEmits<{
 const currentShotIndex = ref(0)
 const activeTab = ref('info')
 const timelineZoom = ref(5)
-const selectedCharacters = ref<string[]>([])
+const selectedCharacters = ref<Array<string | number>>([])
 const availableCharacters = ref<any[]>([])
 const backgroundPrompt = ref('')
 const backgroundsCache = ref<Background[]>([])
@@ -550,7 +552,7 @@ const autoSelectCharacters = () => {
   if (!currentShot.value) return
   
   const description = `${currentShot.value.dialogue || ''} ${currentShot.value.action || ''}`.toLowerCase()
-  const matchedCharacters: string[] = []
+  const matchedCharacters: Array<string | number> = []
   
   // 遍历所有可用角色，检查是否在描述中被提及
   availableCharacters.value.forEach(char => {
@@ -710,7 +712,7 @@ const handleGenerateBackground = async () => {
         : currentShot.value.background_id
       
       await dramaAPI.generateSingleBackground(
-        bgId, 
+        String(bgId), 
         props.dramaId,
         backgroundPrompt.value
       )
@@ -757,7 +759,8 @@ const handleGenerateVideo = async () => {
     ElMessage.info('正在生成视频...')
     
     await videoAPI.generateVideo({
-      scene_id: parseInt(currentShot.value.id),
+      scene_id: String(currentShot.value.id),
+      drama_id: props.dramaId || '',
       prompt: currentShot.value.action
     })
     
@@ -776,7 +779,7 @@ const handleUploadBackground = () => {
   ElMessage.info('上传功能开发中')
 }
 
-const getCharacterById = (id: string) => {
+const getCharacterById = (id: string | number) => {
   return availableCharacters.value.find(c => c.id === id)
 }
 
@@ -788,7 +791,7 @@ const handleComposeScene = async () => {
     return
   }
   
-  if (selectedCharacters.length === 0) {
+  if (selectedCharacters.value.length === 0) {
     ElMessage.warning('请先选择场景角色')
     return
   }

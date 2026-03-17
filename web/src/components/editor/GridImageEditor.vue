@@ -115,15 +115,15 @@ import { imageAPI } from "@/api/image";
 const { t: $t } = useI18n();
 
 interface GridImage {
-  id?: number;
+  id?: string | number;
   url?: string;
   file?: File;
   source?: string;
 }
 
 interface ImageGeneration {
-  id: number;
-  frame_type: string;
+  id: string | number;
+  frame_type?: string;
   image_url?: string;
   local_path?: string;
   [key: string]: any;
@@ -131,8 +131,8 @@ interface ImageGeneration {
 
 const props = defineProps<{
   modelValue: boolean;
-  storyboardId: number;
-  dramaId: number;
+  storyboardId: string | number;
+  dramaId: string | number;
   allImages: ImageGeneration[];
 }>();
 
@@ -327,8 +327,8 @@ const createGridImage = async () => {
     if (imageUrl) {
       // 创建图片生成记录（关联到动作序列帧类型）
       await imageAPI.uploadImage({
-        storyboard_id: props.storyboardId,
-        drama_id: props.dramaId,
+        storyboard_id: String(props.storyboardId),
+        drama_id: String(props.dramaId),
         frame_type: "action",
         image_url: imageUrl,
         prompt: `${$t("editor.createGridImage")} - ${gridType.value}${$t("editor.gridType")}`,

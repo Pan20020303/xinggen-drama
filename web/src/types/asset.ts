@@ -1,8 +1,8 @@
 export interface Asset {
-  id: number
-  drama_id?: number
-  episode_id?: number
-  storyboard_id?: number
+  id: string
+  drama_id?: string
+  episode_id?: string
+  storyboard_id?: string
   storyboard_num?: number
   name: string
   description?: string
@@ -17,8 +17,8 @@ export interface Asset {
   height?: number
   duration?: number
   format?: string
-  image_gen_id?: number
-  video_gen_id?: number
+  image_gen_id?: string
+  video_gen_id?: string
   tags?: AssetTag[]
   collections?: AssetCollection[]
   is_favorite: boolean
@@ -46,7 +46,7 @@ export interface AssetCollection {
 }
 
 export interface CreateAssetRequest {
-  drama_id?: number
+  drama_id?: string
   name: string
   description?: string
   type: AssetType
@@ -60,8 +60,8 @@ export interface CreateAssetRequest {
   height?: number
   duration?: number
   format?: string
-  image_gen_id?: number
-  video_gen_id?: number
+  image_gen_id?: string
+  video_gen_id?: string
   tag_ids?: number[]
 }
 
@@ -76,8 +76,8 @@ export interface UpdateAssetRequest {
 
 export interface ListAssetsParams {
   drama_id?: string
-  episode_id?: number
-  storyboard_id?: number
+  episode_id?: string
+  storyboard_id?: string
   type?: 'image' | 'video' | 'audio'
   category?: string
   tag_ids?: number[]

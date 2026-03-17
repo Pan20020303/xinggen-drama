@@ -31,7 +31,7 @@ interface DeleteOperationParams {
 }
 
 interface GenerateImageOptions {
-  characterIds?: number[]
+  characterIds?: string[]
   sceneIds?: string[]
 }
 
@@ -131,7 +131,7 @@ export const useEpisodeStore = defineStore('episode', () => {
             if (character) {
               promises.push(
                 dramaAPI.generateSceneImage({
-                  scene_id: character.id.toString(),
+                  scene_id: character.id,
                   prompt: character.appearance || character.description || character.name,
                   model: undefined
                 })

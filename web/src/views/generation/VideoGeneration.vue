@@ -187,7 +187,7 @@ const total = ref(0)
 const showGenerateDialog = ref(false)
 const showDetailDialog = ref(false)
 const selectedVideo = ref<VideoGeneration>()
-let pollInterval: number | null = null
+let pollInterval: ReturnType<typeof setInterval> | null = null
 
 const filters = reactive({
   drama_id: undefined as string | undefined,
@@ -243,7 +243,7 @@ const downloadVideo = (video: VideoGeneration) => {
   window.open(video.video_url, '_blank')
 }
 
-const deleteVideo = async (id: number) => {
+const deleteVideo = async (id: string) => {
   try {
     await videoAPI.deleteVideo(id)
     ElMessage.success('删除成功')

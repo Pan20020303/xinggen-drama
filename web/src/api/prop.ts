@@ -1,5 +1,6 @@
 import request from '../utils/request'
 import type { Prop, CreatePropRequest, UpdatePropRequest } from '../types/prop'
+import type { EntityId } from '../types/drama'
 
 export const propAPI = {
     list(dramaId: string | number) {
@@ -8,19 +9,19 @@ export const propAPI = {
     create(data: CreatePropRequest) {
         return request.post<Prop>('/props', data)
     },
-    update(id: number, data: UpdatePropRequest) {
+    update(id: EntityId, data: UpdatePropRequest) {
         return request.put<void>('/props/' + id, data)
     },
-    delete(id: number) {
+    delete(id: EntityId) {
         return request.delete<void>('/props/' + id)
     },
-    extractFromScript(episodeId: number) {
+    extractFromScript(episodeId: EntityId) {
         return request.post<{ task_id: string }>(`/episodes/${episodeId}/props/extract`)
     },
-    generateImage(id: number) {
+    generateImage(id: EntityId) {
         return request.post<{ task_id: string }>(`/props/${id}/generate`)
     },
-    associateWithStoryboard(storyboardId: number, propIds: number[]) {
+    associateWithStoryboard(storyboardId: EntityId, propIds: Array<string | number>) {
         return request.post<void>(`/storyboards/${storyboardId}/props`, { prop_ids: propIds })
     }
 }

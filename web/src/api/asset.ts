@@ -6,6 +6,7 @@ import type {
     ListAssetsParams,
     UpdateAssetRequest
 } from '../types/asset'
+import type { EntityId } from '../types/drama'
 import request from '../utils/request'
 
 export const assetAPI = {
@@ -13,11 +14,11 @@ export const assetAPI = {
     return request.post<Asset>('/assets', data)
   },
 
-  updateAsset(id: number, data: UpdateAssetRequest) {
+  updateAsset(id: EntityId, data: UpdateAssetRequest) {
     return request.put<Asset>(`/assets/${id}`, data)
   },
 
-  getAsset(id: number) {
+  getAsset(id: EntityId) {
     return request.get<Asset>(`/assets/${id}`)
   },
 
@@ -33,15 +34,15 @@ export const assetAPI = {
     }>('/assets', { params })
   },
 
-  deleteAsset(id: number) {
+  deleteAsset(id: EntityId) {
     return request.delete(`/assets/${id}`)
   },
 
-  importFromImage(imageGenId: number) {
+  importFromImage(imageGenId: EntityId) {
     return request.post<Asset>(`/assets/import/image/${imageGenId}`)
   },
 
-  importFromVideo(videoGenId: number) {
+  importFromVideo(videoGenId: EntityId) {
     return request.post<Asset>(`/assets/import/video/${videoGenId}`)
   }
 }

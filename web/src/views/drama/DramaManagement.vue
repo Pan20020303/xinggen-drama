@@ -927,6 +927,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ArrowLeft,
@@ -954,6 +955,7 @@ import { getImageUrl, getVideoUrl, hasImage } from "@/utils/image";
 
 const router = useRouter();
 const route = useRoute();
+const { t } = useI18n();
 
 const drama = ref<Drama>();
 const activeTab = ref((route.query.tab as string) || "overview");
@@ -976,7 +978,7 @@ const extractScenesDialogVisible = ref(false);
 const editingCharacter = ref<any>(null);
 const editingScene = ref<any>(null);
 const editingProp = ref<any>(null);
-const selectedExtractEpisodeId = ref<number | null>(null);
+const selectedExtractEpisodeId = ref<string | number | null>(null);
 
 const newCharacter = ref({
   name: "",
@@ -1313,6 +1315,7 @@ const openAddCharacterDialog = () => {
     personality: "",
     description: "",
     image_url: "",
+    local_path: "",
   };
   addCharacterDialogVisible.value = true;
 };
@@ -1366,7 +1369,7 @@ const handleExtractCharacters = async () => {
 
   try {
     const res = await characterLibraryAPI.extractFromEpisode(
-      selectedExtractEpisodeId.value,
+      String(selectedExtractEpisodeId.value),
     );
     extractCharactersDialogVisible.value = false;
 
@@ -1513,6 +1516,7 @@ const openAddSceneDialog = () => {
     location: "",
     prompt: "",
     image_url: "",
+    local_path: "",
   };
   addSceneDialogVisible.value = true;
 };
@@ -1741,7 +1745,9 @@ const handleExtractProps = async () => {
   if (!selectedExtractEpisodeId.value) return;
 
   try {
-    const res = await propAPI.extractFromScript(selectedExtractEpisodeId.value);
+    const res = await propAPI.extractFromScript(
+      String(selectedExtractEpisodeId.value),
+    );
     extractPropsDialogVisible.value = false;
 
     // 自动刷新几次

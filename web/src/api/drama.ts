@@ -5,6 +5,7 @@ import type {
   DramaStats,
   UpdateDramaRequest
 } from '../types/drama'
+import type { EntityId } from '../types/drama'
 import request from '../utils/request'
 
 export const dramaAPI = {
@@ -24,15 +25,15 @@ export const dramaAPI = {
     return request.post<Drama>('/dramas', data)
   },
 
-  get(id: string) {
+  get(id: EntityId) {
     return request.get<Drama>(`/dramas/${id}`)
   },
 
-  update(id: string, data: UpdateDramaRequest) {
+  update(id: EntityId, data: UpdateDramaRequest) {
     return request.put<Drama>(`/dramas/${id}`, data)
   },
 
-  delete(id: string) {
+  delete(id: EntityId) {
     return request.delete(`/dramas/${id}`)
   },
 
@@ -44,7 +45,7 @@ export const dramaAPI = {
     return request.put(`/dramas/${id}/outline`, data)
   },
 
-  getCharacters(dramaId: string) {
+  getCharacters(dramaId: EntityId) {
     return request.get(`/dramas/${dramaId}/characters`)
   },
 
@@ -91,7 +92,7 @@ export const dramaAPI = {
     return request.post(`/images/episode/${episodeId}/batch`)
   },
 
-  generateSingleBackground(backgroundId: number, dramaId: string, prompt: string) {
+  generateSingleBackground(backgroundId: EntityId, dramaId: EntityId, prompt: string) {
     return request.post('/images', {
       background_id: backgroundId,
       drama_id: dramaId,
@@ -99,21 +100,21 @@ export const dramaAPI = {
     })
   },
 
-  getStoryboards(episodeId: string) {
+  getStoryboards(episodeId: EntityId) {
     return request.get(`/episodes/${episodeId}/storyboards`)
   },
 
-  updateStoryboard(storyboardId: string, data: any) {
+  updateStoryboard(storyboardId: EntityId, data: any) {
     return request.put(`/storyboards/${storyboardId}`, data)
   },
 
-  optimizeVideoPrompt(storyboardId: string, data: { prompt?: string; model?: string }) {
+  optimizeVideoPrompt(storyboardId: EntityId, data: { prompt?: string; model?: string }) {
     return request.post<{ prompt: string }>(`/storyboards/${storyboardId}/optimize-video-prompt`, data)
   },
 
-  updateScene(sceneId: string, data: {
-    background_id?: string;
-    characters?: string[];
+  updateScene(sceneId: EntityId, data: {
+    background_id?: EntityId;
+    characters?: Array<string | number>;
     location?: string;
     time?: string;
     prompt?: string;
@@ -128,8 +129,8 @@ export const dramaAPI = {
   },
 
   createScene(data: {
-    drama_id: number;
-    episode_id?: number;
+    drama_id: EntityId;
+    episode_id?: EntityId;
     location: string;
     time?: string;
     prompt?: string;
@@ -140,15 +141,15 @@ export const dramaAPI = {
     return request.post('/scenes', data)
   },
 
-  generateSceneImage(data: { scene_id: number; prompt?: string; model?: string; image_local_path?: string }) {
-    return request.post<{ image_generation: { id: number } }>('/scenes/generate-image', data)
+  generateSceneImage(data: { scene_id: EntityId; prompt?: string; model?: string; image_local_path?: string; size?: string; quality?: string; style?: string; steps?: number; cfg_scale?: number; seed?: number }) {
+    return request.post<{ image_generation: { id: EntityId } }>('/scenes/generate-image', data)
   },
 
-  updateScenePrompt(sceneId: string, prompt: string) {
+  updateScenePrompt(sceneId: EntityId, prompt: string) {
     return request.put(`/scenes/${sceneId}/prompt`, { prompt })
   },
 
-  deleteScene(sceneId: string) {
+  deleteScene(sceneId: EntityId) {
     return request.delete(`/scenes/${sceneId}`)
   },
 
@@ -158,19 +159,19 @@ export const dramaAPI = {
   },
 
   createStoryboard(data: {
-    episode_id: number;
+    episode_id: EntityId;
     storyboard_number: number;
     title?: string;
     description?: string;
     action?: string;
     dialogue?: string;
-    scene_id?: number;
+    scene_id?: EntityId;
     duration: number;
   }) {
     return request.post('/storyboards', data)
   },
 
-  deleteStoryboard(storyboardId: number) {
+  deleteStoryboard(storyboardId: EntityId) {
     return request.delete(`/storyboards/${storyboardId}`)
   }
 }

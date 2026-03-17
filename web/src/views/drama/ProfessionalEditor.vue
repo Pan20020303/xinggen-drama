@@ -2117,7 +2117,7 @@
             <el-button
               v-if="previewVideo.video_url"
               size="small"
-              @click="window.open(previewVideo.video_url, '_blank')"
+              @click="openPreviewVideo"
             >
               {{ $t("professionalEditor.downloadVideo") }}
             </el-button>
@@ -2225,7 +2225,7 @@ const { t: $t } = useI18n();
 
 const dramaId = Number(route.params.dramaId);
 const episodeNumber = Number(route.params.episodeNumber);
-const episodeId = ref<number>(0);
+const episodeId = ref<string>("");
 const authStore = useAuthStore();
 const pricingStore = usePricingStore();
 
@@ -2247,7 +2247,7 @@ const showSceneImagePreview = ref(false);
 const showSettings = ref(false);
 const showVideoPreview = ref(false);
 const previewVideo = ref<VideoGeneration | null>(null);
-const addingToAssets = ref<Set<number>>(new Set());
+const addingToAssets = ref<Set<string>>(new Set());
 
 const currentPlayState = ref<"playing" | "paused">("paused");
 const currentTime = ref(0);
@@ -2256,7 +2256,7 @@ const totalDuration = computed(() => {
   return storyboards.value.reduce((sum, s) => sum + (s.duration || 0), 0);
 });
 
-const selectedCharacters = ref<number[]>([]);
+const selectedCharacters = ref<string[]>([]);
 const narrativeTab = ref("shot-prompt");
 
 // 图片生成相关状态
@@ -2314,21 +2314,21 @@ const MAX_IMAGE_REFERENCE_COUNT = 4;
 
 interface ImageReferenceCandidate {
   key: string;
-  id: number;
+  id: string;
   type: "scene" | "character" | "upload";
   name: string;
   image_url?: string;
   local_path?: string;
 }
-const uploadedImageReferenceMap = ref<Record<number, ImageReferenceCandidate[]>>(
+const uploadedImageReferenceMap = ref<Record<string, ImageReferenceCandidate[]>>(
   {},
 );
 
 // 视频生成相关状态
 const videoDuration = ref(5); // 默认5秒，会根据镜头duration自动更新
 const selectedVideoFrameType = ref<FrameType>("first");
-const selectedImagesForVideo = ref<number[]>([]);
-const selectedLastImageForVideo = ref<number | null>(null);
+const selectedImagesForVideo = ref<string[]>([]);
+const selectedLastImageForVideo = ref<string | null>(null);
 const generatingVideo = ref(false);
 const generatedVideos = ref<VideoGeneration[]>([]);
 const videoAssets = ref<Asset[]>([]);
@@ -2347,6 +2347,12 @@ const videoModelCapabilities = ref<VideoModelCapability[]>([]);
 let videoPollingTimer: any = null;
 let mergePollingTimer: any = null; // 视频合成列表轮询定时器
 
+const openPreviewVideo = () => {
+  if (previewVideo.value?.video_url) {
+    window.open(previewVideo.value.video_url, "_blank");
+  }
+};
+
 // 视频合成列表
 const videoMerges = ref<VideoMerge[]>([]);
 const loadingMerges = ref(false);
@@ -2363,7 +2369,7 @@ interface VideoModelCapability {
 }
 
 interface VideoReferenceCandidate {
-  id: number;
+  id: string;
   image_url?: string;
   local_path?: string;
   frame_type?: string;
@@ -2574,18 +2580,18 @@ const availableReferenceModes = computed(() => {
 
 // 帧提示词存储key生成函数
 const getPromptStorageKey = (
-  storyboardId: number | undefined,
+  storyboardId: string | number | undefined,
   frameType: FrameType,
 ) => {
   if (!storyboardId) return null;
   return `frame_prompt_${storyboardId}_${frameType}`;
 };
 
-const isCharacterSelected = (charId: number) => {
+const isCharacterSelected = (charId: string) => {
   return selectedCharacters.value.includes(charId);
 };
 
-const toggleCharacter = (charId: number) => {
+const toggleCharacter = (charId: string) => {
   const index = selectedCharacters.value.indexOf(charId);
   if (index > -1) {
     selectedCharacters.value.splice(index, 1);
@@ -2804,13 +2810,12 @@ watch(selectedReferenceMode, () => {
   selectedLastImageForVideo.value = null;
 });
 
-const toCharacterId = (value: any): number | null => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
+const toCharacterId = (value: any): string | null => {
+  if (value == null || value === "") return null;
+  return String(value);
 };
 
-const getCharacterIdFromEntry = (entry: any): number | null => {
+const getCharacterIdFromEntry = (entry: any): string | null => {
   if (entry == null) return null;
   if (typeof entry === "object") {
     return toCharacterId(entry.id);
@@ -2823,7 +2828,7 @@ const currentStoryboardCharacters = computed(() => {
   const rawCharacters = currentStoryboard.value?.characters;
   if (!Array.isArray(rawCharacters) || rawCharacters.length === 0) return [];
 
-  const characterMap = new Map<number, any>();
+  const characterMap = new Map<string, any>();
   (characters.value || []).forEach((c: any) => {
     const id = toCharacterId(c?.id);
     if (id != null) {
@@ -2832,7 +2837,7 @@ const currentStoryboardCharacters = computed(() => {
   });
 
   const normalized: any[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
 
   rawCharacters.forEach((entry: any) => {
     const id = getCharacterIdFromEntry(entry);
@@ -2860,9 +2865,9 @@ const currentStoryboardCharacters = computed(() => {
 const sceneReferenceCandidate = computed<ImageReferenceCandidate | null>(() => {
   const bg = currentStoryboard.value?.background;
   if (!bg || !hasImage(bg)) return null;
-  const sceneId =
-    Number(bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || 0) ||
-    0;
+  const sceneId = String(
+    bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || "",
+  );
   return {
     key: `scene-${sceneId}`,
     id: sceneId,
@@ -2878,7 +2883,7 @@ const characterReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
     .filter((char: any) => hasImage(char))
     .map((char: any) => ({
       key: `char-${char.id}`,
-      id: Number(char.id),
+      id: String(char.id),
       type: "character" as const,
       name: char.name || `角色${char.id}`,
       image_url: char.image_url,
@@ -2887,7 +2892,7 @@ const characterReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
 });
 
 const uploadedReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
-  const storyboardId = Number(currentStoryboard.value?.id || 0);
+  const storyboardId = String(currentStoryboard.value?.id || "");
   if (!storyboardId) return [];
   return uploadedImageReferenceMap.value[storyboardId] || [];
 });
@@ -2994,7 +2999,7 @@ const uploadImageFileToServer = async (file: File): Promise<string> => {
 };
 
 const removeUploadedImageReference = (key: string) => {
-  const storyboardId = Number(currentStoryboard.value?.id || 0);
+  const storyboardId = String(currentStoryboard.value?.id || "");
   if (!storyboardId) return;
   const current = uploadedImageReferenceMap.value[storyboardId] || [];
   uploadedImageReferenceMap.value[storyboardId] = current.filter(
@@ -3009,7 +3014,7 @@ const uploadReferenceImage = async () => {
     return;
   }
 
-  const storyboardId = Number(currentStoryboard.value.id);
+  const storyboardId = String(currentStoryboard.value.id);
   const file = await pickImageFile();
   if (!file) return;
 
@@ -3027,7 +3032,7 @@ const uploadReferenceImage = async () => {
     const uploadedList = uploadedImageReferenceMap.value[storyboardId] || [];
     const candidate: ImageReferenceCandidate = {
       key,
-      id: now,
+      id: String(now),
       type: "upload",
       name: file.name || "上传图片",
       image_url: imageUrl,
@@ -3036,7 +3041,7 @@ const uploadReferenceImage = async () => {
     uploadedImageReferenceMap.value[storyboardId] = [candidate, ...uploadedList];
 
     if (
-      Number(currentStoryboard.value?.id || 0) === storyboardId &&
+      String(currentStoryboard.value?.id || "") === storyboardId &&
       selectedImageReferenceKeys.value.length < MAX_IMAGE_REFERENCE_COUNT
     ) {
       selectedImageReferenceKeys.value.push(key);
@@ -3096,7 +3101,7 @@ const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
 });
 
 const findReferenceCandidateById = (
-  id: number,
+  id: string,
 ): VideoReferenceCandidate | any | undefined => {
   return (
     allVideoReferenceCandidates.value.find((img) => img.id === id) ||
@@ -3121,13 +3126,13 @@ const currentStoryboardProps = computed(() => {
 });
 
 // 检查道具是否在当前镜头中
-const isPropInCurrentShot = (propId: number) => {
+const isPropInCurrentShot = (propId: string) => {
   if (!currentStoryboard.value?.props) return false;
   return currentStoryboard.value.props.some((p: any) => p.id === propId);
 };
 
 // 切换道具在镜头中的状态
-const togglePropInShot = async (propId: number) => {
+const togglePropInShot = async (propId: string) => {
   if (!currentStoryboard.value) return;
 
   let newProps = [...(currentStoryboard.value.props || [])];
@@ -3146,7 +3151,7 @@ const togglePropInShot = async (propId: number) => {
   try {
     const propIds = newProps.map((p: any) => p.id);
     await propAPI.associateWithStoryboard(
-      Number(currentStoryboard.value.id),
+      String(currentStoryboard.value.id),
       propIds,
     );
   } catch (error) {
@@ -3155,7 +3160,7 @@ const togglePropInShot = async (propId: number) => {
 };
 
 // 检查角色是否已在当前镜头中
-const isCharacterInCurrentShot = (charId: number) => {
+const isCharacterInCurrentShot = (charId: string) => {
   const targetId = toCharacterId(charId);
   if (targetId == null) return false;
   const shotChars = currentStoryboard.value?.characters;
@@ -3294,7 +3299,7 @@ const optimizeCurrentFramePrompt = async () => {
 
 // 检查是否正在生成提示词
 const isGeneratingPrompt = (
-  storyboardId: number | undefined,
+  storyboardId: string | number | undefined,
   frameType: string,
 ) => {
   if (!storyboardId) return false;
@@ -3489,7 +3494,7 @@ const addVideoToAssets = async (video: VideoGeneration) => {
         isReplacing = true;
         // 自动替换：先删除旧素材
         try {
-          await assetAPI.deleteAsset(existingAsset.id);
+          await assetAPI.deleteAsset(String(existingAsset.id));
         } catch (error) {
           console.error("删除旧素材失败:", error);
         }
@@ -3545,7 +3550,7 @@ const handleDeleteVideo = async (video: VideoGeneration) => {
     ElMessage.success("删除成功");
 
     // 重新加载当前镜头的视频列表
-    await loadStoryboardVideos(Number(currentStoryboard.value.id));
+    await loadStoryboardVideos(String(currentStoryboard.value.id));
   } catch (error: any) {
     if (error !== "cancel") {
       console.error("删除视频失败:", error);
@@ -3594,7 +3599,7 @@ const getStoryboardThumbnail = (storyboard: any) => {
 };
 
 // 处理图片选择（根据模型能力）
-const handleImageSelect = (imageId: number) => {
+const handleImageSelect = (imageId: string) => {
   if (!selectedReferenceMode.value) {
     ElMessage.warning("请先选择参考图模式");
     return;
@@ -3715,7 +3720,7 @@ const lastFrameSlotImage = computed(() => {
 });
 
 // 移除已选择的图片
-const removeSelectedImage = (imageId: number) => {
+const removeSelectedImage = (imageId: string) => {
   // 检查是否是尾帧
   if (selectedLastImageForVideo.value === imageId) {
     selectedLastImageForVideo.value = null;
@@ -3936,7 +3941,7 @@ const generateVideo = async () => {
 };
 
 // 加载分镜的视频参考图片（所有帧类型）
-const loadVideoReferenceImages = async (storyboardId: number) => {
+const loadVideoReferenceImages = async (storyboardId: string) => {
   try {
     const result = await imageAPI.listImages({
       storyboard_id: storyboardId,
@@ -3950,7 +3955,7 @@ const loadVideoReferenceImages = async (storyboardId: number) => {
 };
 
 // 加载分镜的视频列表
-const loadStoryboardVideos = async (storyboardId: number) => {
+const loadStoryboardVideos = async (storyboardId: string) => {
   loadingVideos.value = true;
   try {
     const result = await videoAPI.listVideos({
@@ -4038,7 +4043,7 @@ const stopVideoPolling = () => {
   }
 };
 
-const toggleCharacterInShot = async (charId: number) => {
+const toggleCharacterInShot = async (charId: string) => {
   if (!currentStoryboard.value) return;
   const normalizedCharId = toCharacterId(charId);
   if (normalizedCharId == null) return;
@@ -4110,7 +4115,7 @@ const toggleCharacterInShot = async (charId: number) => {
   }
 };
 
-const removeCharacterFromShot = async (charId: number) => {
+const removeCharacterFromShot = async (charId: string) => {
   if (!currentStoryboard.value) return;
   const normalizedCharId = toCharacterId(charId);
   if (normalizedCharId == null) return;
@@ -4183,7 +4188,7 @@ const loadData = async () => {
     }
 
     episode.value = ep;
-    episodeId.value = ep.id;
+    episodeId.value = String(ep.id);
 
     // 加载分镜列表
     const storyboardsRes = await dramaAPI.getStoryboards(ep.id.toString());
@@ -4212,7 +4217,7 @@ const loadData = async () => {
   }
 };
 
-const selectScene = async (sceneId: number) => {
+const selectScene = async (sceneId: string) => {
   if (!currentStoryboard.value) return;
 
   try {
@@ -4234,7 +4239,7 @@ const selectStoryboard = (id: string) => {
   currentStoryboardId.value = id;
 };
 
-const handleTimelineSelect = (sceneId: number) => {
+const handleTimelineSelect = (sceneId: string) => {
   selectStoryboard(String(sceneId));
 };
 
@@ -4276,7 +4281,7 @@ const uploadImage = () => {
     return;
   }
 
-  const targetStoryboardId = Number(currentStoryboard.value.id);
+const targetStoryboardId = String(currentStoryboard.value.id);
   const targetFrameType = selectedFrameType.value || "first";
   const targetPrompt = currentFramePrompt.value || "用户上传图片";
 
@@ -4293,13 +4298,13 @@ const uploadImage = () => {
       const imageUrl = await uploadImageFileToServer(file);
       await imageAPI.uploadImage({
         storyboard_id: targetStoryboardId,
-        drama_id: parseInt(dramaId),
+        drama_id: String(dramaId),
         frame_type: targetFrameType,
         image_url: imageUrl,
         prompt: targetPrompt,
       });
 
-      if (Number(currentStoryboard.value?.id || 0) === targetStoryboardId) {
+      if (String(currentStoryboard.value?.id || "") === targetStoryboardId) {
         await loadStoryboardImages(targetStoryboardId, targetFrameType);
       }
 
@@ -4394,7 +4399,7 @@ const handleCropSave = async (images: { blob: Blob; frameType: string }[]) => {
       // 调用上传接口
       await imageAPI.uploadImage({
         storyboard_id: currentStoryboard.value.id,
-        drama_id: Number(dramaId),
+        drama_id: String(dramaId),
         frame_type: img.frameType,
         image_url: imageUrl,
         prompt: cropImageData.value.prompt || "",
@@ -4433,7 +4438,7 @@ const handleAddStoryboard = async () => {
         : 1;
 
     await dramaAPI.createStoryboard({
-      episode_id: parseInt(episodeId.value),
+      episode_id: String(episodeId.value),
       storyboard_number: nextShotNumber,
       title: `镜头 ${nextShotNumber}`,
       description: "新镜头描述",
@@ -4476,8 +4481,7 @@ const handleDeleteStoryboard = async (storyboard: any) => {
 
     // If deleted current storyboard, clear selection or select another
     if (currentStoryboardId.value === storyboard.id) {
-      currentStoryboardId.value = undefined;
-      currentStoryboard.value = undefined;
+      currentStoryboardId.value = null;
     }
 
     await loadData();

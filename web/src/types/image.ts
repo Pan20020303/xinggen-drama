@@ -1,9 +1,11 @@
+import type { EntityId } from './drama'
+
 export interface ImageGeneration {
-  id: number
-  storyboard_id?: number
-  scene_id?: string
-  drama_id: string
-  character_id?: number
+  id: EntityId
+  storyboard_id?: EntityId
+  scene_id?: EntityId
+  drama_id: EntityId
+  character_id?: EntityId
   image_type?: string
   frame_type?: string
   provider: string
@@ -17,7 +19,7 @@ export interface ImageGeneration {
   cfg_scale?: number
   seed?: number
   image_url?: string
-  image_generation?: any
+  image_generation?: { id: EntityId }
   local_path?: string
   status: ImageStatus
   task_id?: string
@@ -34,9 +36,9 @@ export type ImageStatus = 'pending' | 'processing' | 'completed' | 'failed'
 export type ImageProvider = 'openai' | 'dalle' | 'midjourney' | 'stable_diffusion' | 'sd'
 
 export interface GenerateImageRequest {
-  scene_id?: number
-  storyboard_id?: number
-  drama_id: string
+  scene_id?: EntityId
+  storyboard_id?: EntityId
+  drama_id: EntityId
   image_type?: string
   frame_type?: string
   prompt: string
@@ -54,11 +56,24 @@ export interface GenerateImageRequest {
   height?: number
 }
 
+export interface ImageCreatorOptions {
+  mode: 'text' | 'image'
+  model?: string
+  size?: string
+  quality?: string
+  style?: string
+  steps?: number
+  cfg_scale?: number
+  seed?: number
+  imageLocalPath?: string
+  prompt?: string
+}
+
 export interface ImageGenerationListParams {
-  drama_id?: string
-  scene_id?: string | number
-  character_id?: number
-  storyboard_id?: number
+  drama_id?: EntityId
+  scene_id?: EntityId
+  character_id?: EntityId
+  storyboard_id?: EntityId
   frame_type?: string
   status?: ImageStatus
   page?: number
