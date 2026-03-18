@@ -14,6 +14,7 @@ const route = useRoute()
 const showFloatingNav = computed(() => {
   const path = route.path
   if (path.startsWith('/admin')) return false
+  if (path.includes('/professional')) return false
   return path !== '/login' && path !== '/register'
 })
 </script>

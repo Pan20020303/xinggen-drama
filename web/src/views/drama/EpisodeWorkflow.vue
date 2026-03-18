@@ -1044,7 +1044,7 @@
         </template>
       </el-dialog>
 
-      <!-- 角色库选择对话框 -->
+      <!-- 素材库选择对话框 -->
       <el-dialog
         v-model="libraryDialogVisible"
         :title="$t('workflow.selectFromLibrary')"
@@ -1057,7 +1057,7 @@
             class="library-item"
             @click="selectLibraryItem(item)"
           >
-            <el-image :src="getImageUrl(item)" fit="cover" />
+            <el-image :src="item.url || getImageUrl(item)" fit="cover" />
             <div class="library-item-name">{{ item.name }}</div>
           </div>
         </div>
@@ -1496,6 +1496,7 @@ import { dramaAPI } from "@/api/drama";
 import { generationAPI } from "@/api/generation";
 import { taskAPI, type AsyncTask } from "@/api/task";
 import { characterLibraryAPI } from "@/api/character-library";
+import { assetAPI } from "@/api/asset";
 import { imageAPI } from "@/api/image";
 import { useEpisodeBatchImageGeneration } from "@/composables/editor/useEpisodeBatchImageGeneration";
 import { useImageCreatorForm } from "@/composables/editor/useImageCreatorForm";
@@ -2462,9 +2463,13 @@ const uploadSceneImage = (sceneId: string) => {
 
 const selectFromLibrary = async (characterId: string) => {
   try {
-    const result = await characterLibraryAPI.list({ page_size: 50 });
+    const result = await assetAPI.listAssets({
+      type: "image",
+      category: "角色",
+      page_size: 50,
+    });
     libraryItems.value = result.items || [];
-    currentUploadTarget.value = characterId;
+    currentUploadTarget.value = { type: "character", id: characterId };
     libraryDialogVisible.value = true;
   } catch (error: any) {
     ElMessage.error(error.message || $t("workflow.loadLibraryFailed"));
@@ -2488,7 +2493,18 @@ const addToCharacterLibrary = async (character: any) => {
       },
     );
 
-    await characterLibraryAPI.addCharacterToLibrary(character.id.toString());
+    await assetAPI.createAsset({
+      drama_id: dramaId,
+      name: `${character.name}-角色素材`,
+      description:
+        character.appearance ||
+        character.description ||
+        `${character.name} 角色图片素材`,
+      type: "image",
+      category: "角色",
+      url: character.image_url,
+      local_path: character.local_path,
+    });
     ElMessage.success($t("workflow.addedToLibrary"));
   } catch (error: any) {
     if (error !== "cancel") {
@@ -2500,9 +2516,12 @@ const addToCharacterLibrary = async (character: any) => {
 const selectLibraryItem = async (item: any) => {
   try {
     if (currentUploadTarget.value?.type === "character") {
-      await characterLibraryAPI.applyFromLibrary(
+      await characterLibraryAPI.updateCharacter(
         currentUploadTarget.value.id.toString(),
-        item.id,
+        {
+          image_url: item.url,
+          local_path: item.local_path,
+        },
       );
       ElMessage.success("应用角色形象成功！");
       await loadDramaData();
@@ -2531,11 +2550,27 @@ const handleUploadSuccess = async (response: any) => {
           local_path: localPath,
         },
       );
+      await assetAPI.createAsset({
+        drama_id: dramaId,
+        name: `角色上传素材-${currentUploadTarget.value.id}`,
+        type: "image",
+        category: "角色",
+        url: imageUrl,
+        local_path: localPath,
+      });
       ElMessage.success("上传成功！");
     } else if (currentUploadTarget.value?.type === "scene") {
       // 更新场景图片
       await dramaAPI.updateScene(currentUploadTarget.value.id.toString(), {
         image_url: imageUrl,
+        local_path: localPath,
+      });
+      await assetAPI.createAsset({
+        drama_id: dramaId,
+        name: `场景上传素材-${currentUploadTarget.value.id}`,
+        type: "image",
+        category: "场景",
+        url: imageUrl,
         local_path: localPath,
       });
       ElMessage.success($t("workflow.sceneImageUploadSuccess"));
