@@ -4,6 +4,39 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return undefined
+          }
+
+          if (id.includes('@ffmpeg/ffmpeg') || id.includes('@ffmpeg/util')) {
+            return 'vendor-ffmpeg'
+          }
+
+          if (id.includes('@element-plus/icons-vue')) {
+            return 'vendor-ep-icons'
+          }
+
+          if (id.includes('element-plus') || id.includes('@element-plus')) {
+            return 'vendor-element-plus'
+          }
+
+          if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router') || id.includes('vue-i18n')) {
+            return 'vendor-vue'
+          }
+
+          if (id.includes('lodash-es') || id.includes('dayjs') || id.includes('cropperjs') || id.includes('lucide-vue-next')) {
+            return 'vendor-utils'
+          }
+
+          return 'vendor-misc'
+        }
+      }
+    }
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))

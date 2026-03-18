@@ -1210,17 +1210,19 @@
           </div>
 
           <div class="image-creator-sidebar">
-            <div class="image-creator-reference">
+            <div v-if="imageCreatorMode === 'image'" class="image-creator-reference">
               <div class="image-creator-section-header">
                 <span>参考图</span>
-                <el-tag
-                  size="small"
-                  :type="imageCreatorMode === 'image' ? 'success' : 'info'"
-                >
-                  {{ imageCreatorMode === "image" ? "图生图" : "文生图" }}
-                </el-tag>
+                <div class="image-creator-section-actions">
+                  <el-tag
+                    size="small"
+                    :type="imageCreatorMode === 'image' ? 'success' : 'info'"
+                  >
+                    {{ imageCreatorMode === "image" ? "图生图" : "文生图" }}
+                  </el-tag>
+                </div>
               </div>
-              <div class="image-creator-reference-preview">
+              <div class="image-creator-reference-preview compact">
                 <el-image
                   v-if="imageCreatorReferenceUrl"
                   :src="imageCreatorReferenceUrl"
@@ -1248,6 +1250,17 @@
                 >
                   使用主预览
                 </el-button>
+                <el-upload
+                  class="image-creator-inline-upload"
+                  :action="uploadAction"
+                  :headers="uploadHeaders"
+                  :on-success="handleImageCreatorUploadSuccess"
+                  :on-error="handleUploadError"
+                  :show-file-list="false"
+                  accept="image/jpeg,image/png,image/jpg,image/webp"
+                >
+                  <el-button size="small">上传参考图</el-button>
+                </el-upload>
                 <el-button
                   size="small"
                   text
@@ -1337,29 +1350,6 @@
                   :controls="false"
                   placeholder="留空随机"
                 />
-              </el-form-item>
-
-              <el-form-item v-if="imageCreatorMode === 'image'" label="上传参考图">
-                <el-upload
-                  class="image-creator-upload"
-                  drag
-                  :action="uploadAction"
-                  :headers="uploadHeaders"
-                  :on-success="handleImageCreatorUploadSuccess"
-                  :on-error="handleUploadError"
-                  :show-file-list="false"
-                  accept="image/jpeg,image/png,image/jpg,image/webp"
-                >
-                  <el-icon class="el-icon--upload"><Upload /></el-icon>
-                  <div class="el-upload__text">
-                    拖拽图片到这里，或<em>点击上传</em>
-                  </div>
-                  <template #tip>
-                    <div class="el-upload__tip">
-                      图生图模式下可上传 1 张参考图，也可直接使用当前图或历史结果。
-                    </div>
-                  </template>
-                </el-upload>
               </el-form-item>
             </el-form>
           </div>
@@ -1507,6 +1497,10 @@ import { generationAPI } from "@/api/generation";
 import { taskAPI, type AsyncTask } from "@/api/task";
 import { characterLibraryAPI } from "@/api/character-library";
 import { imageAPI } from "@/api/image";
+import { useEpisodeBatchImageGeneration } from "@/composables/editor/useEpisodeBatchImageGeneration";
+import { useImageCreatorForm } from "@/composables/editor/useImageCreatorForm";
+import { useImageCreatorHistory } from "@/composables/editor/useImageCreatorHistory";
+import { useStoryboardTaskTracker } from "@/composables/editor/useStoryboardTaskTracker";
 import { useAuthStore } from "@/stores/auth";
 import { usePricingStore } from "@/stores/pricing";
 import type { Drama } from "@/types/drama";
@@ -1529,11 +1523,8 @@ const imageDefaultCost = computed(() => pricingStore.getDefaultCost("image"));
 const imageDefaultModel = computed(() => pricingStore.getDefaultModel("image"));
 const extractCharactersAndBackgroundsCost = computed(() => textDefaultCost.value * 2);
 
-// 生成 localStorage key
 const getStepStorageKey = () =>
   `episode_workflow_step_${dramaId}_${episodeNumber}`;
-const getStoryboardTaskStorageKey = (episodeId: string) =>
-  `episode_workflow_storyboard_task_${episodeId}`;
 
 // 从 localStorage 恢复步骤，如果没有则默认为 0
 const savedStep = localStorage.getItem(getStepStorageKey());
@@ -1543,22 +1534,8 @@ const generatingScript = ref(false);
 const polishingScript = ref(false);
 const generatingShots = ref(false);
 const extractingCharactersAndBackgrounds = ref(false);
-const batchGeneratingCharacters = ref(false);
-const batchGeneratingScenes = ref(false);
 const generatingCharacterImages = ref<Record<number, boolean>>({});
 const generatingSceneImages = ref<Record<string, boolean>>({});
-
-// 选择状态
-const selectedCharacterIds = ref<string[]>([]);
-const selectedSceneIds = ref<string[]>([]);
-const selectAllCharacters = ref(false);
-const selectAllScenes = ref(false);
-const batchCharacterImageTotalCost = computed(
-  () => imageDefaultCost.value * selectedCharacterIds.value.length,
-);
-const batchSceneImageTotalCost = computed(
-  () => imageDefaultCost.value * selectedSceneIds.value.length,
-);
 
 // 对话框状态
 const promptDialogVisible = ref(false);
@@ -1574,23 +1551,6 @@ const libraryItems = ref<any[]>([]);
 const currentUploadTarget = ref<any>(null);
 const imageCreatorItem = ref<any>(null);
 const imageCreatorType = ref<"character" | "scene">("character");
-const imageCreatorPrompt = ref("");
-const imageCreatorMode = ref<"text" | "image">("text");
-const imageCreatorModel = ref("");
-const imageCreatorSize = ref("2560x1440");
-const imageCreatorQuality = ref("standard");
-const imageCreatorStyle = ref("vivid");
-const imageCreatorSteps = ref(30);
-const imageCreatorCfgScale = ref(7.5);
-const imageCreatorSeed = ref<number | undefined>(undefined);
-const imageCreatorReferenceUrl = ref("");
-const imageCreatorReferenceLocalPath = ref("");
-const imageCreatorPreviewUrl = ref("");
-const imageCreatorSelectedHistoryId = ref<string | null>(null);
-const imageCreatorHistory = ref<ImageGeneration[]>([]);
-const imageCreatorHistoryLoading = ref(false);
-const imageCreatorDeletingId = ref<string | null>(null);
-const imageCreatorSubmitting = ref(false);
 
 // 添加场景相关
 const newScene = ref<any>({
@@ -1605,25 +1565,71 @@ const uploadAction = computed(() => "/api/v1/upload/image");
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem("token")}`,
 }));
-const imageCreatorTitle = computed(() =>
-  imageCreatorType.value === "character" ? "角色图片创作" : "场景图片创作",
-);
-const imageCreatorSelectedHistory = computed(() =>
-  imageCreatorHistory.value.find(
-    (item) => String(item.id) === imageCreatorSelectedHistoryId.value,
-  ) || null,
-);
-const imageCreatorCurrentImage = computed(() => {
-  if (imageCreatorPreviewUrl.value) {
-    return imageCreatorPreviewUrl.value;
-  }
-  const item = imageCreatorItem.value;
-  if (!item) return "";
-  return getImageUrl(item);
+const reloadImageCreatorEpisodeData = async () => {
+  await loadDramaData();
+};
+const {
+  imageCreatorHistory,
+  imageCreatorHistoryLoading,
+  imageCreatorDeletingId,
+  imageCreatorSelectedHistoryId,
+  imageCreatorPreviewUrl,
+  imageCreatorSelectedHistory,
+  loadImageCreatorHistory,
+  selectImageCreatorHistoryImage,
+  resetImageCreatorPreview,
+  useHistoryImageAsReference: selectHistoryImageAsReference,
+  deleteImageCreatorHistoryImage,
+  refreshImageCreatorAfterGeneration,
+  isImageCreatorCurrentImage,
+  syncSelectionWithCurrentImage,
+} = useImageCreatorHistory({
+  dramaId: computed(() => dramaId),
+  imageCreatorItem,
+  imageCreatorType,
+  getImageUrl,
+  listImages: (params) => imageAPI.listImages(params),
+  deleteImage: (id) => imageAPI.deleteImage(id),
+  persistCurrentImage: async (nextImage) => {
+    const payload = {
+      image_url: nextImage?.image_url || "",
+      local_path: nextImage?.local_path || "",
+    };
+
+    if (imageCreatorType.value === "character") {
+      await characterLibraryAPI.updateCharacter(imageCreatorItem.value.id, payload);
+    } else {
+      await dramaAPI.updateScene(imageCreatorItem.value.id.toString(), payload);
+    }
+  },
+  reloadCurrentItem: () => {
+    if (!imageCreatorItem.value || !currentEpisode.value) return;
+
+    if (imageCreatorType.value === "character") {
+      const nextItem = currentEpisode.value.characters?.find(
+        (item) => item.id === imageCreatorItem.value.id,
+      );
+      if (nextItem) imageCreatorItem.value = nextItem;
+      return;
+    }
+
+    const nextItem = currentEpisode.value.scenes?.find(
+      (item) => item.id?.toString() === imageCreatorItem.value.id?.toString(),
+    );
+    if (nextItem) imageCreatorItem.value = nextItem;
+  },
+  reloadEpisodeData: reloadImageCreatorEpisodeData,
+  notifySuccess: (message) => ElMessage.success(message),
+  notifyError: (message) => ElMessage.error(message),
+  notifyWarning: (message) => ElMessage.warning(message),
+  confirmDelete: async () => {
+    await ElMessageBox.confirm("删除后该历史结果将不可恢复。是否继续？", "删除历史图片", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  },
 });
-const imageCreatorCanUseCurrentImage = computed(() =>
-  Boolean(imageCreatorItem.value && getImageUrl(imageCreatorItem.value)),
-);
 const imageCreatorImageModelOptions = computed(() => {
   const configs = pricingStore.pricing?.platform_configs || [];
   const defaults = pricingStore.getDefaultModel("image");
@@ -1643,12 +1649,44 @@ const imageCreatorImageModelOptions = computed(() => {
 
   return Array.from(models);
 });
-const imageCreatorSizeOptions = [
-  { label: "16:9 横图", value: "2560x1440" },
-  { label: "4:3 经典", value: "2048x1536" },
-  { label: "1:1 方图", value: "1536x1536" },
-  { label: "9:16 竖图", value: "1440x2560" },
-];
+const {
+  imageCreatorPrompt,
+  imageCreatorMode,
+  imageCreatorModel,
+  imageCreatorSize,
+  imageCreatorQuality,
+  imageCreatorStyle,
+  imageCreatorSteps,
+  imageCreatorCfgScale,
+  imageCreatorSeed,
+  imageCreatorReferenceUrl,
+  imageCreatorReferenceLocalPath,
+  imageCreatorSubmitting,
+  imageCreatorTitle,
+  imageCreatorCurrentImage,
+  imageCreatorCanUseCurrentImage,
+  imageCreatorSizeOptions,
+  formatImageCreatorHistoryTime,
+  handleImageCreatorUploadSuccess,
+  useHistoryImageAsReference,
+  openImageCreator,
+  useCurrentImageAsReference,
+  clearImageCreatorReference,
+} = useImageCreatorForm({
+  imageCreatorItem,
+  imageCreatorType,
+  imageDefaultModel,
+  imageCreatorVisible,
+  imageCreatorHistory,
+  imageCreatorSelectedHistoryId,
+  imageCreatorPreviewUrl,
+  loadImageCreatorHistory,
+  selectHistoryImageAsReference,
+  getImageUrl,
+  notifySuccess: (message) => ElMessage.success(message),
+  notifyError: (message) => ElMessage.error(message),
+  notifyWarning: (message) => ElMessage.warning(message),
+});
 
 const hasScript = computed(() => {
   const currentEp = currentEpisode.value;
@@ -2107,47 +2145,6 @@ const generateCharacterImage = async (
   }
 };
 
-const toggleSelectAllCharacters = () => {
-  if (selectAllCharacters.value) {
-    selectedCharacterIds.value =
-      currentEpisode.value?.characters?.map((char) => char.id) || [];
-  } else {
-    selectedCharacterIds.value = [];
-  }
-};
-
-const toggleSelectAllScenes = () => {
-  if (selectAllScenes.value) {
-    selectedSceneIds.value =
-      currentEpisode.value?.scenes?.map((scene) => scene.id) || [];
-  } else {
-    selectedSceneIds.value = [];
-  }
-};
-
-const batchGenerateCharacterImages = async () => {
-  if (selectedCharacterIds.value.length === 0) {
-    ElMessage.warning("请先选择要生成的角色");
-    return;
-  }
-
-  batchGeneratingCharacters.value = true;
-  try {
-    // 使用批量生成API
-    await characterLibraryAPI.batchGenerateCharacterImages(
-      selectedCharacterIds.value.map((id) => id.toString()),
-    );
-    await authStore.refreshMe();
-
-    ElMessage.success($t("workflow.batchTaskSubmitted"));
-    await loadDramaData();
-  } catch (error: any) {
-    ElMessage.error(error.message || $t("workflow.batchGenerateFailed"));
-  } finally {
-    batchGeneratingCharacters.value = false;
-  }
-};
-
 const generateSceneImage = async (
   sceneId: string,
   options?: {
@@ -2201,191 +2198,53 @@ const generateSceneImage = async (
   }
 };
 
-const batchGenerateSceneImages = async () => {
-  if (selectedSceneIds.value.length === 0) {
-    ElMessage.warning("请先选择要生成的场景");
-    return;
-  }
-
-  batchGeneratingScenes.value = true;
-  try {
-    const promises = selectedSceneIds.value.map((sceneId) =>
-      generateSceneImage(sceneId.toString()),
-    );
-    const results = await Promise.allSettled(promises);
-
-    const successCount = results.filter((r) => r.status === "fulfilled").length;
-    const failCount = results.filter((r) => r.status === "rejected").length;
-
-    if (failCount === 0) {
-      ElMessage.success(
-        $t("workflow.batchCompleteSuccess", { count: successCount }),
-      );
-    } else {
-      ElMessage.warning(
-        $t("workflow.batchCompletePartial", {
-          success: successCount,
-          fail: failCount,
-        }),
-      );
-    }
-  } catch (error: any) {
-    ElMessage.error(error.message || $t("workflow.batchGenerateFailed"));
-  } finally {
-    batchGeneratingScenes.value = false;
-  }
-};
-
-const taskProgress = ref(0);
-const taskMessage = ref("");
-let pollTimer: any = null;
-
-const setActiveStoryboardTaskId = (episodeId: string, taskId: string) => {
-  localStorage.setItem(getStoryboardTaskStorageKey(episodeId), taskId);
-};
-
-const getActiveStoryboardTaskId = (episodeId: string) =>
-  localStorage.getItem(getStoryboardTaskStorageKey(episodeId));
-
-const clearActiveStoryboardTaskId = (episodeId?: string) => {
-  if (!episodeId) return;
-  localStorage.removeItem(getStoryboardTaskStorageKey(episodeId));
-};
-
-const parseTaskResult = (result: any) => {
-  if (!result) return null;
-  if (typeof result === "string") {
-    try {
-      return JSON.parse(result);
-    } catch (error) {
-      console.error("[任务] 解析任务结果失败:", error);
-      return null;
-    }
-  }
-  return result;
-};
-
-const normalizePreviewStoryboards = (storyboards: any[] = []) => {
-  const characterMap = new Map(
-    (currentEpisode.value?.characters || []).map((char) => [Number(char.id), char]),
-  );
-
-  return storyboards.map((storyboard, index) => {
-    const shotNumber =
-      Number(
-        storyboard.storyboard_number ??
-          storyboard.shot_number ??
-          storyboard.shotNumber ??
-          index + 1,
-      ) || index + 1;
-
-    const normalizedCharacters = Array.isArray(storyboard.characters)
-      ? storyboard.characters.map((character: any) => {
-          if (
-            character &&
-            typeof character === "object" &&
-            ("name" in character || "id" in character)
-          ) {
-            return character;
-          }
-          const characterId = Number(character);
-          return characterMap.get(characterId) || character;
-        })
-      : [];
-
-    return {
-      ...storyboard,
-      storyboard_number: shotNumber,
-      shot_number: shotNumber,
-      characters: normalizedCharacters,
-    };
-  });
-};
-
-const applyStoryboardTaskPreview = (task: { result?: any }) => {
-  const parsed = parseTaskResult(task.result);
-  if (!parsed || !Array.isArray(parsed.storyboards) || !currentEpisode.value) {
-    return;
-  }
-  currentEpisode.value.storyboards = normalizePreviewStoryboards(parsed.storyboards);
-};
-
-const findActiveStoryboardTask = async (
-  episodeId: string,
-): Promise<AsyncTask | null> => {
-  const storedTaskId = getActiveStoryboardTaskId(episodeId);
-
-  if (storedTaskId) {
-    try {
-      const storedTask = await taskAPI.getStatus(storedTaskId);
-      if (
-        storedTask.type === "storyboard_generation" &&
-        (storedTask.status === "pending" || storedTask.status === "processing")
-      ) {
-        return storedTask;
-      }
-    } catch (error) {
-      console.warn("[任务] 读取缓存分镜任务失败:", error);
-    }
-    clearActiveStoryboardTaskId(episodeId);
-  }
-
-  const tasks = await taskAPI.listByResource(episodeId);
-  const activeTask = tasks.find(
-    (task) =>
-      task.type === "storyboard_generation" &&
-      (task.status === "pending" || task.status === "processing"),
-  );
-
-  if (activeTask) {
-    setActiveStoryboardTaskId(episodeId, activeTask.id);
-    return activeTask;
-  }
-
-  return null;
-};
-
-const resumeStoryboardTaskIfNeeded = async () => {
-  const episodeId = currentEpisode.value?.id?.toString();
-  if (!episodeId) return;
-  if (generatingShots.value || pollTimer) return;
-
-  try {
-    const activeTask = await findActiveStoryboardTask(episodeId);
-    if (!activeTask) {
-      return;
-    }
-
-    generatingShots.value = true;
-    currentStep.value = 2;
-    taskProgress.value = activeTask.progress || 0;
-    taskMessage.value = activeTask.message || "正在恢复分镜拆分任务...";
-    applyStoryboardTaskPreview(activeTask);
-    await pollTaskStatus(activeTask.id);
-  } catch (error) {
-    console.error("[任务] 恢复分镜任务失败:", error);
-  }
-};
-
-const taskPhaseLabel = computed(() => {
-  if (!generatingShots.value) return "";
-  if (taskProgress.value < 10) return "准备任务";
-  if (taskProgress.value < 55) return "AI 拆分中";
-  if (taskProgress.value < 70) return "合并结果";
-  if (taskProgress.value < 90) return "保存分镜";
-  if (taskProgress.value < 100) return "更新章节";
-  return "已完成";
+const {
+  selectedCharacterIds,
+  selectedSceneIds,
+  selectAllCharacters,
+  selectAllScenes,
+  batchGeneratingCharacters,
+  batchGeneratingScenes,
+  batchCharacterImageTotalCost,
+  batchSceneImageTotalCost,
+  toggleSelectAllCharacters,
+  toggleSelectAllScenes,
+  batchGenerateCharacterImages,
+  batchGenerateSceneImages,
+} = useEpisodeBatchImageGeneration({
+  currentEpisode,
+  imageDefaultCost,
+  refreshCredits: () => authStore.refreshMe(),
+  reloadDramaData: loadDramaData,
+  batchGenerateCharacterImagesRequest: (characterIds) =>
+    characterLibraryAPI.batchGenerateCharacterImages(characterIds),
+  batchGenerateSceneImageRequest: (sceneId) =>
+    generateSceneImage(sceneId.toString()),
+  notifySuccess: (message) => ElMessage.success(message),
+  notifyWarning: (message) => ElMessage.warning(message),
+  notifyError: (message) => ElMessage.error(message),
+  translate: (key, params) => $t(key, params),
 });
 
-const taskPhaseHint = computed(() => {
-  if (!generatingShots.value) return "";
-  if (taskProgress.value < 55) {
-    return "长章节会拆成多段并行生成，已完成的镜头会逐步显示在下方。";
-  }
-  if (taskProgress.value < 90) {
-    return "已生成的镜头会先展示，系统正在继续保存和整理。";
-  }
-  return "正在完成最后的整理工作。";
+const {
+  taskProgress,
+  taskMessage,
+  taskPhaseLabel,
+  taskPhaseHint,
+  resumeStoryboardTaskIfNeeded,
+  startStoryboardTaskTracking,
+} = useStoryboardTaskTracker({
+  episodeId: computed(() => currentEpisode.value?.id?.toString() || null),
+  currentEpisode,
+  generatingShots,
+  currentStep,
+  loadTaskStatus: (taskId) => generationAPI.getTaskStatus(taskId) as Promise<AsyncTask>,
+  listTasksByResource: (resourceId) => taskAPI.listByResource(resourceId),
+  reloadDramaData: loadDramaData,
+  refreshCredits: () => authStore.refreshMe(),
+  notifySuccess: (message) => ElMessage.success(message),
+  notifyError: (message) => ElMessage.error(message),
+  splitSuccessMessage: $t("workflow.splitSuccess"),
 });
 
 const generateShots = async () => {
@@ -2424,85 +2283,15 @@ const generateShots = async () => {
     // 扣分发生在任务创建阶段，这里立即刷新一次用户积分展示
     await authStore.refreshMe();
 
-    setActiveStoryboardTaskId(episodeId, response.task_id);
-    taskMessage.value = response.message || "任务已创建";
-
-    // 开始轮询任务状态
-    await pollTaskStatus(response.task_id);
+    await startStoryboardTaskTracking(
+      response.task_id,
+      response.message || "任务已创建",
+    );
   } catch (error: any) {
     ElMessage.error(error.message || "拆分失败");
     generatingShots.value = false;
   }
 };
-
-const pollTaskStatus = async (taskId: string) => {
-  // 清理可能存在的旧定时器
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-
-  const checkStatus = async () => {
-    try {
-      const task = await generationAPI.getTaskStatus(taskId);
-
-      taskProgress.value = task.progress;
-      taskMessage.value = task.message || `处理中... ${task.progress}%`;
-      applyStoryboardTaskPreview(task);
-
-      if (task.status === "completed") {
-        // 任务完成
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-        generatingShots.value = false;
-        clearActiveStoryboardTaskId(currentEpisode.value?.id?.toString());
-        await authStore.refreshMe();
-        await loadDramaData();
-
-        ElMessage.success($t("workflow.splitSuccess"));
-        return true; // 标记已完成
-      } else if (task.status === "failed") {
-        // 任务失败
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-        generatingShots.value = false;
-        clearActiveStoryboardTaskId(currentEpisode.value?.id?.toString());
-        await authStore.refreshMe();
-        ElMessage.error(task.error || "分镜拆分失败");
-        return true; // 标记已完成
-      }
-      // 否则继续轮询
-      return false;
-    } catch (error: any) {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-      generatingShots.value = false;
-      ElMessage.error("查询任务状态失败: " + error.message);
-      return true; // 出错也标记为结束，避免死循环
-    }
-  };
-
-  // 立即检查一次
-  const finished = await checkStatus();
-
-  // 只有未完成时才启动定时器
-  if (!finished) {
-    pollTimer = setInterval(checkStatus, 2000);
-  }
-};
-
-onUnmounted(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-});
 
 const regenerateShots = async () => {
   await ElMessageBox.confirm($t("workflow.reSplitConfirm"), $t("common.tip"), {
@@ -2580,258 +2369,6 @@ const savePrompt = async () => {
     promptDialogVisible.value = false;
   } catch (error: any) {
     ElMessage.error(error.message || "保存失败");
-  }
-};
-
-const getImageCreatorPrompt = (item: any, type: "character" | "scene") => {
-  if (type === "character") {
-    return item.appearance || item.description || item.name || "";
-  }
-  return item.prompt || item.description || item.location || "";
-};
-
-const formatImageCreatorHistoryTime = (value?: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const isSameImageResource = (
-  left?: { image_url?: string; local_path?: string } | null,
-  right?: { image_url?: string; local_path?: string } | null,
-) => {
-  if (!left || !right) return false;
-  if (left.local_path && right.local_path) {
-    return left.local_path === right.local_path;
-  }
-  if (left.image_url && right.image_url) {
-    return left.image_url === right.image_url;
-  }
-  return false;
-};
-
-const refreshImageCreatorItemFromEpisode = () => {
-  if (!imageCreatorItem.value || !currentEpisode.value) return;
-
-  if (imageCreatorType.value === "character") {
-    const nextItem = currentEpisode.value.characters?.find(
-      (item) => item.id === imageCreatorItem.value.id,
-    );
-    if (nextItem) {
-      imageCreatorItem.value = nextItem;
-    }
-    return;
-  }
-
-  const nextItem = currentEpisode.value.scenes?.find(
-    (item) => item.id?.toString() === imageCreatorItem.value.id?.toString(),
-  );
-  if (nextItem) {
-    imageCreatorItem.value = nextItem;
-  }
-};
-
-const syncImageCreatorSelectionWithCurrentImage = () => {
-  const currentItem = imageCreatorItem.value;
-  if (!currentItem) {
-    imageCreatorSelectedHistoryId.value = null;
-    imageCreatorPreviewUrl.value = "";
-    return;
-  }
-
-  const matchedHistory = imageCreatorHistory.value.find((historyImage) =>
-    isSameImageResource(historyImage, currentItem),
-  );
-
-  imageCreatorSelectedHistoryId.value = matchedHistory?.id
-    ? String(matchedHistory.id)
-    : null;
-  imageCreatorPreviewUrl.value = "";
-};
-
-const loadImageCreatorHistory = async () => {
-  if (!imageCreatorItem.value) return;
-
-  imageCreatorHistoryLoading.value = true;
-  try {
-    const params: Record<string, any> = {
-      drama_id: dramaId,
-      status: "completed",
-      page_size: 50,
-    };
-
-    if (imageCreatorType.value === "character") {
-      params.character_id = String(imageCreatorItem.value.id);
-    } else {
-      params.scene_id = String(imageCreatorItem.value.id);
-    }
-
-    const result = await imageAPI.listImages(params);
-    imageCreatorHistory.value = result.items || [];
-    syncImageCreatorSelectionWithCurrentImage();
-  } catch (error: any) {
-    imageCreatorHistory.value = [];
-    ElMessage.error(error.message || "加载历史图片失败");
-  } finally {
-    imageCreatorHistoryLoading.value = false;
-  }
-};
-
-const selectImageCreatorHistoryImage = (historyImage: ImageGeneration) => {
-  imageCreatorSelectedHistoryId.value = String(historyImage.id);
-  imageCreatorPreviewUrl.value = getImageUrl(historyImage);
-};
-
-const resetImageCreatorPreview = () => {
-  syncImageCreatorSelectionWithCurrentImage();
-};
-
-const useHistoryImageAsReference = (historyImage: ImageGeneration) => {
-  if (!historyImage.local_path) {
-    ElMessage.warning("该历史图片没有本地文件，暂时不能作为图生图参考");
-    return;
-  }
-
-  imageCreatorReferenceUrl.value = getImageUrl(historyImage);
-  imageCreatorReferenceLocalPath.value = historyImage.local_path;
-  imageCreatorMode.value = "image";
-  ElMessage.success("已设为参考图");
-};
-
-const persistImageCreatorCurrentImage = async (
-  nextImage: ImageGeneration | null,
-) => {
-  const payload = {
-    image_url: nextImage?.image_url || "",
-    local_path: nextImage?.local_path || "",
-  };
-
-  if (imageCreatorType.value === "character") {
-    await characterLibraryAPI.updateCharacter(imageCreatorItem.value.id, payload);
-  } else {
-    await dramaAPI.updateScene(imageCreatorItem.value.id.toString(), payload);
-  }
-};
-
-const deleteImageCreatorHistoryImage = async (historyImage: ImageGeneration) => {
-  try {
-    await ElMessageBox.confirm(
-      "删除后该历史结果将不可恢复。是否继续？",
-      "删除历史图片",
-      {
-        type: "warning",
-        confirmButtonText: "删除",
-        cancelButtonText: "取消",
-      },
-    );
-  } catch {
-    return;
-  }
-
-  imageCreatorDeletingId.value = String(historyImage.id);
-  try {
-    await imageAPI.deleteImage(historyImage.id);
-
-    const remainingHistory = imageCreatorHistory.value.filter(
-      (item) => item.id !== historyImage.id,
-    );
-    const deletingCurrentImage =
-      !!imageCreatorItem.value &&
-      isSameImageResource(historyImage, imageCreatorItem.value);
-
-    imageCreatorHistory.value = remainingHistory;
-
-    if (deletingCurrentImage) {
-      await persistImageCreatorCurrentImage(remainingHistory[0] || null);
-      await loadDramaData();
-      refreshImageCreatorItemFromEpisode();
-    }
-
-    if (imageCreatorSelectedHistoryId.value === historyImage.id) {
-      syncImageCreatorSelectionWithCurrentImage();
-    }
-
-    ElMessage.success("历史图片已删除");
-  } catch (error: any) {
-    ElMessage.error(error.message || "删除历史图片失败");
-  } finally {
-    imageCreatorDeletingId.value = null;
-  }
-};
-
-const refreshImageCreatorAfterGeneration = async () => {
-  refreshImageCreatorItemFromEpisode();
-  await loadImageCreatorHistory();
-  if (imageCreatorHistory.value[0]) {
-    selectImageCreatorHistoryImage(imageCreatorHistory.value[0]);
-  }
-};
-
-const isImageCreatorCurrentImage = (historyImage: ImageGeneration) =>
-  isSameImageResource(historyImage, imageCreatorItem.value);
-
-const openImageCreator = (item: any, type: "character" | "scene") => {
-  imageCreatorItem.value = item;
-  imageCreatorType.value = type;
-  imageCreatorPrompt.value = getImageCreatorPrompt(item, type);
-  imageCreatorModel.value = imageDefaultModel.value || "";
-  imageCreatorSize.value = "2560x1440";
-  imageCreatorQuality.value = "standard";
-  imageCreatorStyle.value = "vivid";
-  imageCreatorSteps.value = 30;
-  imageCreatorCfgScale.value = 7.5;
-  imageCreatorSeed.value = undefined;
-  imageCreatorReferenceUrl.value = "";
-  imageCreatorReferenceLocalPath.value = "";
-  imageCreatorPreviewUrl.value = "";
-  imageCreatorSelectedHistoryId.value = null;
-  imageCreatorHistory.value = [];
-  imageCreatorMode.value = "text";
-  imageCreatorVisible.value = true;
-  void loadImageCreatorHistory();
-};
-
-const handleImageCreatorUploadSuccess = (response: any) => {
-  const imageUrl = response.url || response.data?.url;
-  const localPath = response.local_path || response.data?.local_path;
-
-  if (!imageUrl || !localPath) {
-    ElMessage.error("上传失败：未获取到参考图信息");
-    return;
-  }
-
-  imageCreatorReferenceUrl.value = imageUrl;
-  imageCreatorReferenceLocalPath.value = localPath;
-  imageCreatorMode.value = "image";
-  ElMessage.success("参考图上传成功");
-};
-
-const useCurrentImageAsReference = () => {
-  if (!imageCreatorCanUseCurrentImage.value || !imageCreatorItem.value) {
-    ElMessage.warning("当前没有可作为参考图的图片");
-    return;
-  }
-
-  imageCreatorReferenceUrl.value = getImageUrl(imageCreatorItem.value);
-  imageCreatorReferenceLocalPath.value =
-    imageCreatorItem.value.local_path || "";
-  imageCreatorMode.value = "image";
-  ElMessage.success("已将当前图片设为参考图");
-};
-
-const clearImageCreatorReference = () => {
-  imageCreatorReferenceUrl.value = "";
-  imageCreatorReferenceLocalPath.value = "";
-  if (imageCreatorMode.value === "image") {
-    imageCreatorMode.value = "text";
   }
 };
 
@@ -3708,9 +3245,8 @@ onMounted(() => {
 
 .image-creator-dialog {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.72fr);
   gap: 20px;
-  margin-bottom: 20px;
 }
 
 .image-creator-preview-column,
@@ -3743,18 +3279,29 @@ onMounted(() => {
   border-radius: 12px;
   overflow: hidden;
   background: var(--bg-secondary);
+}
+
+.image-creator-main-preview {
   min-height: 220px;
 }
 
-.image-creator-main-preview :deep(.el-image),
-.image-creator-reference-preview :deep(.el-image) {
+.image-creator-main-preview :deep(.el-image) {
   width: 100%;
   min-height: 220px;
   display: block;
 }
 
-.image-creator-placeholder,
-.image-creator-reference-empty {
+.image-creator-reference-preview.compact {
+  min-height: 156px;
+}
+
+.image-creator-reference-preview.compact :deep(.el-image) {
+  width: 100%;
+  height: 156px;
+  display: block;
+}
+
+.image-creator-placeholder {
   min-height: 220px;
   display: flex;
   flex-direction: column;
@@ -3766,18 +3313,32 @@ onMounted(() => {
   text-align: center;
 }
 
+.image-creator-reference-empty {
+  min-height: 156px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .image-creator-form {
   min-width: 0;
 }
 
-.image-creator-upload {
-  width: 100%;
+.image-creator-inline-upload {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .image-creator-reference-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .image-creator-history {

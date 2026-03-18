@@ -2215,6 +2215,16 @@ import type { Asset } from "@/types/asset";
 import type { VideoMerge } from "@/api/videoMerge";
 import VideoTimelineEditor from "@/components/editor/VideoTimelineEditor.vue";
 import GridImageEditor from "@/components/editor/GridImageEditor.vue";
+import {
+  useImageReferenceSelector,
+  type ImageReferenceCandidate,
+} from "@/composables/editor/useImageReferenceSelector";
+import {
+  useVideoReferenceSelection,
+  type VideoReferenceCandidate,
+} from "@/composables/editor/useVideoReferenceSelection";
+import { useVideoPromptEditor } from "@/composables/editor/useVideoPromptEditor";
+import { useStoryboardPromptState } from "@/composables/editor/useStoryboardPromptState";
 import type { Drama, Episode, Storyboard } from "@/types/drama";
 import { AppHeader, ImageCropDialog } from "@/components/common";
 import { getImageUrl, hasImage, getVideoUrl } from "@/utils/image";
@@ -2308,27 +2318,10 @@ const showCropDialog = ref(false);
 const cropImageUrl = ref<string>("");
 const cropImageData = ref<ImageGeneration | null>(null);
 const showImageReferenceSelector = ref(false);
-const selectedImageReferenceKeys = ref<string[]>([]);
-
-const MAX_IMAGE_REFERENCE_COUNT = 4;
-
-interface ImageReferenceCandidate {
-  key: string;
-  id: string;
-  type: "scene" | "character" | "upload";
-  name: string;
-  image_url?: string;
-  local_path?: string;
-}
-const uploadedImageReferenceMap = ref<Record<string, ImageReferenceCandidate[]>>(
-  {},
-);
 
 // 视频生成相关状态
 const videoDuration = ref(5); // 默认5秒，会根据镜头duration自动更新
 const selectedVideoFrameType = ref<FrameType>("first");
-const selectedImagesForVideo = ref<string[]>([]);
-const selectedLastImageForVideo = ref<string | null>(null);
 const generatingVideo = ref(false);
 const generatedVideos = ref<VideoGeneration[]>([]);
 const videoAssets = ref<Asset[]>([]);
@@ -2339,9 +2332,6 @@ const timelineEditorRef = ref<InstanceType<typeof VideoTimelineEditor> | null>(
 const videoReferenceImages = ref<ImageGeneration[]>([]);
 const selectedVideoModel = ref<string>("");
 const selectedReferenceMode = ref<string>(""); // 参考图模式：single, first_last, none
-const editableVideoPrompt = ref<string>("");
-const optimizingVideoPrompt = ref(false);
-const savingVideoPrompt = ref(false);
 const previewImageUrl = ref<string>(""); // 预览大图的URL
 const videoModelCapabilities = ref<VideoModelCapability[]>([]);
 let videoPollingTimer: any = null;
@@ -2352,6 +2342,7 @@ const openPreviewVideo = () => {
     window.open(previewVideo.value.video_url, "_blank");
   }
 };
+
 
 // 视频合成列表
 const videoMerges = ref<VideoMerge[]>([]);
@@ -2366,16 +2357,6 @@ interface VideoModelCapability {
   supportSingleImage: boolean; // 支持单图
   supportTextOnly: boolean; // 支持纯文本
   maxImages: number; // 最多支持几张图片
-}
-
-interface VideoReferenceCandidate {
-  id: string;
-  image_url?: string;
-  local_path?: string;
-  frame_type?: string;
-  status?: string;
-  source_type?: "image" | "character" | "scene";
-  name?: string;
 }
 
 // 模型能力默认配置（作为后备）
@@ -2578,15 +2559,6 @@ const availableReferenceModes = computed(() => {
   return modes;
 });
 
-// 帧提示词存储key生成函数
-const getPromptStorageKey = (
-  storyboardId: string | number | undefined,
-  frameType: FrameType,
-) => {
-  if (!storyboardId) return null;
-  return `frame_prompt_${storyboardId}_${frameType}`;
-};
-
 const isCharacterSelected = (charId: string) => {
   return selectedCharacters.value.includes(charId);
 };
@@ -2619,195 +2591,87 @@ const previousStoryboard = computed(() => {
   return storyboards.value[currentIndex - 1];
 });
 
-// 上一个镜头的尾帧图片列表（支持多个）
-const previousStoryboardLastFrames = ref<any[]>([]);
-
-// 加载上一个镜头的尾帧
-const loadPreviousStoryboardLastFrame = async () => {
-  if (!previousStoryboard.value) {
-    previousStoryboardLastFrames.value = [];
-    return;
-  }
-  try {
+const {
+  selectedImagesForVideo,
+  selectedLastImageForVideo,
+  previousStoryboardLastFrames,
+  allVideoReferenceCandidates,
+  selectedImageObjects,
+  firstFrameSlotImage,
+  lastFrameSlotImage,
+  loadPreviousStoryboardLastFrame,
+  resetSelectedVideoReferences,
+  findReferenceCandidateById,
+  handleImageSelect,
+  removeSelectedImage,
+  selectPreviousLastFrame,
+} = useVideoReferenceSelection({
+  currentStoryboard,
+  previousStoryboard,
+  selectedReferenceMode,
+  currentModelCapability,
+  videoReferenceImages,
+  hasImage,
+  listPreviousLastFrames: async (storyboardId: string) => {
     const result = await imageAPI.listImages({
-      storyboard_id: previousStoryboard.value.id,
+      storyboard_id: storyboardId,
       frame_type: "last",
       page: 1,
       page_size: 10,
     });
-    const images = result.items || [];
-    previousStoryboardLastFrames.value = images.filter(
-      (img: any) => img.status === "completed" && img.image_url,
-    );
-  } catch (error) {
-    console.error("加载上一镜头尾帧失败:", error);
-    previousStoryboardLastFrames.value = [];
-  }
-};
-
-// 选择上一镜头尾帧作为首帧参考
-const selectPreviousLastFrame = (img: any) => {
-  // 检查是否已选中，已选中则取消
-  const currentIndex = selectedImagesForVideo.value.indexOf(img.id);
-  if (currentIndex > -1) {
-    selectedImagesForVideo.value.splice(currentIndex, 1);
-    ElMessage.success("已取消首帧参考");
-    return;
-  }
-
-  // 参考handleImageSelect的逻辑，根据模式处理
-  if (
-    !selectedReferenceMode.value ||
-    selectedReferenceMode.value === "single"
-  ) {
-    // 单图模式或未选模式：直接替换
-    selectedImagesForVideo.value = [img.id];
-  } else if (selectedReferenceMode.value === "first_last") {
-    // 首尾帧模式：作为首帧参考
-    selectedImagesForVideo.value = [img.id];
-  } else {
-    ElMessage.warning("当前模式不支持该操作");
-    return;
-  }
-  ElMessage.success("已添加为首帧参考");
-};
-
-// 监听帧类型切换，从存储中加载或清空
-watch(selectedFrameType, (newType) => {
-  // 切换帧类型时，停止之前的轮询，避免旧结果覆盖新帧类型
-  stopPolling();
-
-  if (!currentStoryboard.value) {
-    currentFramePrompt.value = "";
-    generatedImages.value = [];
-    return;
-  }
-
-  // 设置切换标志，防止watch(currentFramePrompt)错误保存
-  isSwitchingFrameType.value = true;
-
-  // 优先从 sessionStorage 中加载该帧类型的提示词（确保数据准确）
-  const storageKey = `frame_prompt_${currentStoryboard.value.id}_${newType}`;
-  const stored = sessionStorage.getItem(storageKey);
-
-  if (stored) {
-    currentFramePrompt.value = stored;
-    framePrompts.value[newType] = stored;
-  } else {
-    // 如果 sessionStorage 中没有，再尝试从 framePrompts 对象中读取
-    currentFramePrompt.value = framePrompts.value[newType] || "";
-  }
-
-  // 重新加载该帧类型的图片
-  loadStoryboardImages(currentStoryboard.value.id, newType);
-
-  // 重置切换标志
-  setTimeout(() => {
-    isSwitchingFrameType.value = false;
-  }, 0);
+    return result.items || [];
+  },
+  notifyWarning: (message) => ElMessage.warning(message),
+  notifySuccess: (message) => ElMessage.success(message),
 });
 
-// 监听当前分镜切换，重置提示词
-watch(currentStoryboard, async (newStoryboard) => {
-  if (!newStoryboard) {
-    currentFramePrompt.value = "";
-    generatedImages.value = [];
-    generatedVideos.value = [];
-    videoReferenceImages.value = [];
-    previousStoryboardLastFrames.value = [];
-    return;
-  }
-
-  // 设置切换标志
-  isSwitchingFrameType.value = true;
-
-  // 清空 framePrompts 对象，避免显示上一个镜头的提示词
-  framePrompts.value = {
-    key: "",
-    first: "",
-    last: "",
-    panel: "",
-  };
-
-  // 加载当前帧类型的提示词
-  const storageKey = getPromptStorageKey(
-    newStoryboard.id,
-    selectedFrameType.value,
-  );
-  if (storageKey) {
-    const stored = sessionStorage.getItem(storageKey);
-    currentFramePrompt.value = stored || "";
-    // 同时更新 framePrompts 对象
-    if (stored) {
-      framePrompts.value[selectedFrameType.value] = stored;
-    }
-  } else {
-    currentFramePrompt.value = "";
-  }
-
-  // 重置切换标志
-  setTimeout(() => {
-    isSwitchingFrameType.value = false;
-  }, 0);
-
-  // 加载该分镜的图片列表（根据当前选择的帧类型）
-  await loadStoryboardImages(newStoryboard.id, selectedFrameType.value);
-
-  // 加载所有已生成的图片（用于宫格编辑器）
-  await loadAllGeneratedImages();
-
-  // 加载视频参考图片（所有帧类型）
-  await loadVideoReferenceImages(newStoryboard.id);
-
-  // 加载该分镜的视频列表
-  await loadStoryboardVideos(newStoryboard.id);
-
-  // 加载上一镜头的尾帧
-  await loadPreviousStoryboardLastFrame();
+const {
+  editableVideoPrompt,
+  optimizingVideoPrompt,
+  savingVideoPrompt,
+  getDefaultVideoPrompt,
+  resetVideoPromptEditor,
+  saveVideoPrompt,
+  optimizeVideoPromptWithAI,
+} = useVideoPromptEditor({
+  currentStoryboard,
+  storyboards,
+  textDefaultModel,
+  updateStoryboard: (storyboardId, payload) =>
+    dramaAPI.updateStoryboard(storyboardId, payload),
+  optimizeVideoPrompt: (storyboardId, payload) =>
+    dramaAPI.optimizeVideoPrompt(storyboardId, payload),
+  refreshCredits: () => authStore.refreshMe(),
+  notifySuccess: (message) => ElMessage.success(message),
+  notifyWarning: (message) => ElMessage.warning(message),
+  notifyError: (message) => ElMessage.error(message),
 });
 
-// 监听提示词变化，自动保存到sessionStorage
-watch(currentFramePrompt, (newPrompt) => {
-  // 如果正在切换帧类型或分镜，不要保存（避免错误保存到新帧类型）
-  if (isSwitchingFrameType.value) return;
-  if (!currentStoryboard.value) return;
-
-  const storageKey = getPromptStorageKey(
-    currentStoryboard.value.id,
-    selectedFrameType.value,
-  );
-  if (storageKey) {
-    if (newPrompt) {
-      sessionStorage.setItem(storageKey, newPrompt);
-    } else {
-      sessionStorage.removeItem(storageKey);
-    }
-  }
-});
-
-// 监听视频模型切换，清空已选图片和参考图模式
-watch(selectedVideoModel, () => {
-  selectedImagesForVideo.value = [];
-  selectedLastImageForVideo.value = null;
-  selectedReferenceMode.value = "";
-});
-
-// 监听镜头切换，自动更新视频时长
-watch(currentStoryboard, (newStoryboard) => {
-  if (newStoryboard?.duration) {
-    // 如果镜头有duration字段，使用镜头的时长
-    videoDuration.value = Math.round(newStoryboard.duration);
-  } else {
-    // 否则使用默认值5秒
-    videoDuration.value = 5;
-  }
-  editableVideoPrompt.value = getDefaultVideoPrompt(newStoryboard);
-});
-
-// 监听参考图模式切换，清空已选图片
-watch(selectedReferenceMode, () => {
-  selectedImagesForVideo.value = [];
-  selectedLastImageForVideo.value = null;
+const { getPromptStorageKey } = useStoryboardPromptState({
+  currentStoryboard,
+  selectedFrameType,
+  currentFramePrompt,
+  framePrompts,
+  generatedImages,
+  generatedVideos,
+  videoReferenceImages,
+  previousStoryboardLastFrames,
+  isSwitchingFrameType,
+  selectedVideoModel,
+  selectedReferenceMode,
+  selectedImagesForVideo,
+  selectedLastImageForVideo,
+  videoDuration,
+  editableVideoPrompt,
+  stopPolling,
+  loadStoryboardImages: async (storyboardId, frameType = selectedFrameType.value) => {
+    await loadStoryboardImages(storyboardId, frameType);
+  },
+  loadAllGeneratedImages,
+  loadVideoReferenceImages,
+  loadStoryboardVideos,
+  loadPreviousStoryboardLastFrame,
+  getDefaultVideoPrompt,
 });
 
 const toCharacterId = (value: any): string | null => {
@@ -2862,107 +2726,36 @@ const currentStoryboardCharacters = computed(() => {
   return normalized;
 });
 
-const sceneReferenceCandidate = computed<ImageReferenceCandidate | null>(() => {
-  const bg = currentStoryboard.value?.background;
-  if (!bg || !hasImage(bg)) return null;
-  const sceneId = String(
-    bg.id || currentStoryboard.value?.scene_id || currentStoryboard.value?.id || "",
-  );
-  return {
-    key: `scene-${sceneId}`,
-    id: sceneId,
-    type: "scene",
-    name: `${bg.location || "场景"}${bg.time ? ` · ${bg.time}` : ""}`,
-    image_url: bg.image_url,
-    local_path: bg.local_path,
-  };
+const {
+  maxImageReferenceCount: MAX_IMAGE_REFERENCE_COUNT,
+  selectedImageReferenceKeys,
+  imageReferenceCandidates,
+  selectedImageReferenceItems,
+  emptyImageReferenceSlotCount,
+  sceneReferenceCandidate,
+  characterReferenceCandidates,
+  uploadedReferenceCandidates,
+  getImageReferenceTypeLabel,
+  toggleImageReference: toggleImageReferenceSelection,
+  removeImageReference,
+  clearImageReferences,
+  appendUploadedReference,
+  removeUploadedImageReference,
+} = useImageReferenceSelector({
+  currentStoryboard,
+  currentStoryboardCharacters,
+  hasImage,
 });
 
-const characterReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
-  return currentStoryboardCharacters.value
-    .filter((char: any) => hasImage(char))
-    .map((char: any) => ({
-      key: `char-${char.id}`,
-      id: String(char.id),
-      type: "character" as const,
-      name: char.name || `角色${char.id}`,
-      image_url: char.image_url,
-      local_path: char.local_path,
-    }));
-});
-
-const uploadedReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
-  const storyboardId = String(currentStoryboard.value?.id || "");
-  if (!storyboardId) return [];
-  return uploadedImageReferenceMap.value[storyboardId] || [];
-});
-
-const imageReferenceCandidates = computed<ImageReferenceCandidate[]>(() => {
-  const result: ImageReferenceCandidate[] = [];
-  if (sceneReferenceCandidate.value) {
-    result.push(sceneReferenceCandidate.value);
+const toggleImageReference = (key: string) => {
+  const result = toggleImageReferenceSelection(key);
+  if (!result.changed && result.reason === "limit") {
+    ElMessage.warning(`最多选择${MAX_IMAGE_REFERENCE_COUNT}张参考图`);
   }
-  result.push(...characterReferenceCandidates.value);
-  result.push(...uploadedReferenceCandidates.value);
-  return result;
-});
-
-const imageReferenceCandidateMap = computed(() => {
-  return new Map(imageReferenceCandidates.value.map((item) => [item.key, item]));
-});
-
-const selectedImageReferenceItems = computed<ImageReferenceCandidate[]>(() => {
-  return selectedImageReferenceKeys.value
-    .map((key) => imageReferenceCandidateMap.value.get(key))
-    .filter((item): item is ImageReferenceCandidate => !!item);
-});
-
-const emptyImageReferenceSlotCount = computed(() => {
-  return Math.max(
-    0,
-    MAX_IMAGE_REFERENCE_COUNT - selectedImageReferenceItems.value.length,
-  );
-});
-
-const selectDefaultImageReferences = () => {
-  selectedImageReferenceKeys.value = imageReferenceCandidates.value
-    .slice(0, MAX_IMAGE_REFERENCE_COUNT)
-    .map((item) => item.key);
 };
 
 const openImageReferenceSelector = () => {
   showImageReferenceSelector.value = true;
-};
-
-const toggleImageReference = (key: string) => {
-  const currentIndex = selectedImageReferenceKeys.value.indexOf(key);
-  if (currentIndex > -1) {
-    selectedImageReferenceKeys.value.splice(currentIndex, 1);
-    return;
-  }
-
-  if (selectedImageReferenceKeys.value.length >= MAX_IMAGE_REFERENCE_COUNT) {
-    ElMessage.warning(`最多选择${MAX_IMAGE_REFERENCE_COUNT}张参考图`);
-    return;
-  }
-  selectedImageReferenceKeys.value.push(key);
-};
-
-const removeImageReference = (key: string) => {
-  const index = selectedImageReferenceKeys.value.indexOf(key);
-  if (index > -1) {
-    selectedImageReferenceKeys.value.splice(index, 1);
-  }
-};
-
-const clearImageReferences = () => {
-  selectedImageReferenceKeys.value = [];
-};
-
-const getImageReferenceTypeLabel = (type: ImageReferenceCandidate["type"]) => {
-  if (type === "scene") return "场景";
-  if (type === "character") return "人物";
-  return "上传";
 };
 
 const pickImageFile = (): Promise<File | null> => {
@@ -2998,16 +2791,6 @@ const uploadImageFileToServer = async (file: File): Promise<string> => {
   return imageUrl;
 };
 
-const removeUploadedImageReference = (key: string) => {
-  const storyboardId = String(currentStoryboard.value?.id || "");
-  if (!storyboardId) return;
-  const current = uploadedImageReferenceMap.value[storyboardId] || [];
-  uploadedImageReferenceMap.value[storyboardId] = current.filter(
-    (item) => item.key !== key,
-  );
-  removeImageReference(key);
-};
-
 const uploadReferenceImage = async () => {
   if (!currentStoryboard.value) {
     ElMessage.warning("请先选择镜头");
@@ -3029,7 +2812,6 @@ const uploadReferenceImage = async () => {
     const key = `upload-${storyboardId}-${now}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
-    const uploadedList = uploadedImageReferenceMap.value[storyboardId] || [];
     const candidate: ImageReferenceCandidate = {
       key,
       id: String(now),
@@ -3038,14 +2820,7 @@ const uploadReferenceImage = async () => {
       image_url: imageUrl,
       local_path: imageUrl,
     };
-    uploadedImageReferenceMap.value[storyboardId] = [candidate, ...uploadedList];
-
-    if (
-      String(currentStoryboard.value?.id || "") === storyboardId &&
-      selectedImageReferenceKeys.value.length < MAX_IMAGE_REFERENCE_COUNT
-    ) {
-      selectedImageReferenceKeys.value.push(key);
-    }
+    appendUploadedReference(storyboardId, candidate);
 
     showImageReferenceSelector.value = true;
     ElMessage.success("参考图上传成功");
@@ -3053,60 +2828,6 @@ const uploadReferenceImage = async () => {
     console.error("上传参考图失败:", error);
     ElMessage.error(error.message || "上传失败");
   }
-};
-
-// 监听镜头切换，默认选择当前镜头可用的人物/场景参考图（最多4张）
-watch(
-  () => currentStoryboard.value?.id,
-  (newStoryboardId, oldStoryboardId) => {
-    if (!newStoryboardId) {
-      selectedImageReferenceKeys.value = [];
-      return;
-    }
-    if (newStoryboardId !== oldStoryboardId) {
-      selectDefaultImageReferences();
-    }
-  },
-  { immediate: true },
-);
-
-// 候选参考图变化时，剔除失效项并补齐默认选中（用于首次导入角色/场景后）
-watch(
-  imageReferenceCandidates,
-  (candidates) => {
-    const validKeys = new Set(candidates.map((item) => item.key));
-    selectedImageReferenceKeys.value = selectedImageReferenceKeys.value.filter(
-      (key) => validKeys.has(key),
-    );
-    if (selectedImageReferenceKeys.value.length === 0 && candidates.length > 0) {
-      selectDefaultImageReferences();
-    }
-  },
-  { immediate: true },
-);
-
-const allVideoReferenceCandidates = computed<VideoReferenceCandidate[]>(() => {
-  const imageRefs = videoReferenceImages.value
-    .filter((img) => img.status === "completed" && hasImage(img))
-    .map((img) => ({
-      id: img.id,
-      image_url: img.image_url,
-      local_path: img.local_path,
-      frame_type: img.frame_type,
-      status: img.status,
-      source_type: "image" as const,
-    }));
-
-  return imageRefs;
-});
-
-const findReferenceCandidateById = (
-  id: string,
-): VideoReferenceCandidate | any | undefined => {
-  return (
-    allVideoReferenceCandidates.value.find((img) => img.id === id) ||
-    previousStoryboardLastFrames.value.find((img) => img.id === id)
-  );
 };
 
 // 可选择的角色列表
@@ -3318,10 +3039,10 @@ const getFrameTypeLabel = (frameType: string): string => {
 };
 
 // 加载分镜的图片列表
-const loadStoryboardImages = async (
+async function loadStoryboardImages(
   storyboardId: string | number,
   frameType?: string,
-) => {
+) {
   loadingImages.value = true;
   try {
     const params: any = {
@@ -3404,13 +3125,13 @@ const startPolling = () => {
 };
 
 // 停止轮询
-const stopPolling = () => {
+function stopPolling() {
   if (pollingTimer) {
     clearInterval(pollingTimer);
     pollingTimer = null;
   }
   pollingFrameType = null;
-};
+}
 
 // 生成图片
 const generateFrameImage = async () => {
@@ -3598,61 +3319,6 @@ const getStoryboardThumbnail = (storyboard: any) => {
   return null;
 };
 
-// 处理图片选择（根据模型能力）
-const handleImageSelect = (imageId: string) => {
-  if (!selectedReferenceMode.value) {
-    ElMessage.warning("请先选择参考图模式");
-    return;
-  }
-
-  if (!currentModelCapability.value) {
-    ElMessage.warning("请先选择视频生成模型");
-    return;
-  }
-
-  const currentIndex = selectedImagesForVideo.value.indexOf(imageId);
-
-  // 已选中，则取消选择
-  if (currentIndex > -1) {
-    selectedImagesForVideo.value.splice(currentIndex, 1);
-    return;
-  }
-
-  // 获取当前点击的图片对象
-  const clickedImage = findReferenceCandidateById(imageId);
-  if (!clickedImage) return;
-
-  // 根据选择的参考图模式处理
-  switch (selectedReferenceMode.value) {
-    case "single":
-      // 单图模式：只能选1张，直接替换
-      selectedImagesForVideo.value = [imageId];
-      break;
-
-    case "first_last":
-      // 首尾帧模式：根据图片类型分别处理
-      const frameType = clickedImage.frame_type;
-
-      if (
-        frameType === "first" ||
-        frameType === "panel" ||
-        frameType === "key"
-      ) {
-        // 首帧：直接替换
-        selectedImagesForVideo.value = [imageId];
-      } else if (frameType === "last") {
-        // 尾帧：设置到单独的变量
-        selectedLastImageForVideo.value = imageId;
-      } else {
-        ElMessage.warning("首尾帧模式下，请选择首帧或尾帧类型的图片");
-      }
-      break;
-
-    default:
-      ElMessage.warning("未知的参考图模式");
-  }
-};
-
 // 预览图片（使用已导入的 getImageUrl 工具函数来获取正确的图片URL）
 const previewImage = (url: string) => {
   // 使用Element Plus的图片预览
@@ -3696,126 +3362,6 @@ const downloadImageFile = async (img: ImageGeneration) => {
     console.warn("download image failed, fallback to direct link:", error);
     fallbackDownload();
     ElMessage.success("图片下载已开始");
-  }
-};
-
-// 获取已选图片对象列表
-const selectedImageObjects = computed(() => {
-  return selectedImagesForVideo.value
-    .map((id) => findReferenceCandidateById(id))
-    .filter((img) => img && hasImage(img));
-});
-
-// 首尾帧模式：获取首帧图片
-const firstFrameSlotImage = computed(() => {
-  if (selectedImagesForVideo.value.length === 0) return null;
-  const firstImageId = selectedImagesForVideo.value[0];
-  return findReferenceCandidateById(firstImageId) || null;
-});
-
-// 首尾帧模式：获取尾帧图片
-const lastFrameSlotImage = computed(() => {
-  if (!selectedLastImageForVideo.value) return null;
-  return findReferenceCandidateById(selectedLastImageForVideo.value) || null;
-});
-
-// 移除已选择的图片
-const removeSelectedImage = (imageId: string) => {
-  // 检查是否是尾帧
-  if (selectedLastImageForVideo.value === imageId) {
-    selectedLastImageForVideo.value = null;
-    return;
-  }
-
-  // 检查是否是首帧或其他图片
-  const index = selectedImagesForVideo.value.indexOf(imageId);
-  if (index > -1) {
-    selectedImagesForVideo.value.splice(index, 1);
-  }
-};
-
-const getDefaultVideoPrompt = (storyboard: any): string => {
-  if (!storyboard) return "";
-  return (
-    storyboard.video_prompt || storyboard.action || storyboard.description || ""
-  ).trim();
-};
-
-const resetVideoPromptEditor = () => {
-  editableVideoPrompt.value = getDefaultVideoPrompt(currentStoryboard.value);
-};
-
-const saveVideoPrompt = async () => {
-  if (!currentStoryboard.value) return;
-  const prompt = (editableVideoPrompt.value || "").trim();
-  if (prompt.length < 5) {
-    ElMessage.warning("提示词至少需要5个字符");
-    return;
-  }
-
-  savingVideoPrompt.value = true;
-  try {
-    await dramaAPI.updateStoryboard(currentStoryboard.value.id.toString(), {
-      video_prompt: prompt,
-    });
-    currentStoryboard.value.video_prompt = prompt;
-    ElMessage.success("视频提示词已保存");
-  } catch (error: any) {
-    ElMessage.error(error.message || "保存提示词失败");
-  } finally {
-    savingVideoPrompt.value = false;
-  }
-};
-
-const optimizeVideoPromptWithAI = async () => {
-  if (!currentStoryboard.value) return;
-
-  // 绑定发起请求时的镜头，避免异步返回后写到已切换的其他镜头
-  const targetStoryboardId = String(currentStoryboard.value.id);
-  const requestPrompt = editableVideoPrompt.value || "";
-
-  optimizingVideoPrompt.value = true;
-  try {
-    const result = await dramaAPI.optimizeVideoPrompt(
-      targetStoryboardId,
-      {
-        prompt: requestPrompt,
-        model: textDefaultModel.value || undefined,
-      },
-    );
-    const optimized = (result.prompt || "").trim();
-    if (!optimized) {
-      ElMessage.warning("未返回可用的优化提示词");
-      return;
-    }
-
-    // 始终写回目标镜头，防止覆盖当前已切换镜头
-    const targetStoryboard = storyboards.value.find(
-      (s) => String(s.id) === targetStoryboardId,
-    );
-    if (targetStoryboard) {
-      targetStoryboard.video_prompt = optimized;
-    }
-
-    // 只有仍停留在目标镜头时才更新当前编辑框
-    if (
-      currentStoryboard.value &&
-      String(currentStoryboard.value.id) === targetStoryboardId
-    ) {
-      editableVideoPrompt.value = optimized;
-    }
-
-    ElMessage.success(
-      currentStoryboard.value &&
-        String(currentStoryboard.value.id) !== targetStoryboardId
-        ? "提示词优化完成，已更新到原镜头"
-        : "提示词优化完成",
-    );
-    await authStore.refreshMe();
-  } catch (error: any) {
-    ElMessage.error(error.message || "提示词优化失败");
-  } finally {
-    optimizingVideoPrompt.value = false;
   }
 };
 
@@ -3941,7 +3487,7 @@ const generateVideo = async () => {
 };
 
 // 加载分镜的视频参考图片（所有帧类型）
-const loadVideoReferenceImages = async (storyboardId: string) => {
+async function loadVideoReferenceImages(storyboardId: string) {
   try {
     const result = await imageAPI.listImages({
       storyboard_id: storyboardId,
@@ -3955,7 +3501,7 @@ const loadVideoReferenceImages = async (storyboardId: string) => {
 };
 
 // 加载分镜的视频列表
-const loadStoryboardVideos = async (storyboardId: string) => {
+async function loadStoryboardVideos(storyboardId: string) {
   loadingVideos.value = true;
   try {
     const result = await videoAPI.listVideos({
@@ -3977,7 +3523,7 @@ const loadStoryboardVideos = async (storyboardId: string) => {
   } finally {
     loadingVideos.value = false;
   }
-};
+}
 
 // 启动视频状态轮询
 const startVideoPolling = () => {
@@ -4169,7 +3715,7 @@ const removeCharacterFromShot = async (charId: string) => {
       currentStoryboard.value.characters.splice(existIndex, 0, removedEntry);
     }
   }
-};
+}
 
 const loadData = async () => {
   try {
@@ -4314,7 +3860,7 @@ const targetStoryboardId = String(currentStoryboard.value.id);
       ElMessage.error(error.message || "上传失败");
     }
   })();
-};
+}
 
 // 删除图片
 const handleDeleteImage = async (img: ImageGeneration) => {
@@ -4344,7 +3890,7 @@ const handleDeleteImage = async (img: ImageGeneration) => {
 };
 
 // 加载所有已生成的图片（用于宫格编辑器）
-const loadAllGeneratedImages = async () => {
+async function loadAllGeneratedImages() {
   if (!currentStoryboard.value) return;
 
   try {
@@ -4357,7 +3903,7 @@ const loadAllGeneratedImages = async () => {
   } catch (error: any) {
     console.error("加载所有图片失败:", error);
   }
-};
+}
 
 // 处理宫格图片创建成功
 const handleGridImageSuccess = async () => {
