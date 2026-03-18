@@ -1,6 +1,10 @@
 package routes
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	handlers "github.com/drama-generator/backend/api/handlers"
 	middlewares2 "github.com/drama-generator/backend/api/middlewares"
 	"github.com/drama-generator/backend/pkg/config"
@@ -257,9 +261,34 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			return
 		}
 
+		if staticPath, ok := resolveBuiltStaticFile(path); ok {
+			c.File(staticPath)
+			return
+		}
+
 		// SPA fallback - 返回index.html
 		c.File("./web/dist/index.html")
 	})
 
 	return r
+}
+
+func resolveBuiltStaticFile(requestPath string) (string, bool) {
+	trimmed := strings.TrimPrefix(requestPath, "/")
+	if trimmed == "" {
+		return "", false
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	if cleaned == "." || cleaned == "" || strings.HasPrefix(cleaned, "..") {
+		return "", false
+	}
+
+	fullPath := filepath.Join(".", "web", "dist", cleaned)
+	info, err := os.Stat(fullPath)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+
+	return fullPath, true
 }
