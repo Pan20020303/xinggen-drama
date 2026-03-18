@@ -19,6 +19,7 @@ type appDependencies struct {
 	adminAuditService       *services.AdminAuditService
 	adminUserService        *services.AdminUserService
 	adminBillingService     *services.AdminBillingService
+	billingService          *services.BillingService
 	transferService         *services.ResourceTransferService
 	dramaService            *services.DramaService
 	imageGenerationService  *services.ImageGenerationService
@@ -34,6 +35,7 @@ type appDependencies struct {
 	adminUserHandler        *handlers.AdminUserHandler
 	adminBillingHandler     *handlers.AdminBillingHandler
 	billingPricingHandler   *handlers.BillingPricingHandler
+	billingTransactionsHandler *handlers.BillingTransactionsHandler
 	adminAIConfigHandler    *handlers.AdminAIConfigHandler
 	dramaHandler            *handlers.DramaHandler
 	scriptGenHandler        *handlers.ScriptGenerationHandler
@@ -67,6 +69,7 @@ func buildAppDependencies(cfg *config.Config, db *gorm.DB, log *logger.Logger, l
 	adminAuditService := services.NewAdminAuditService(db)
 	adminUserService := services.NewAdminUserService(db, log, adminAuditService)
 	adminBillingService := services.NewAdminBillingService(db, log, adminAuditService)
+	billingService := services.NewBillingService(db, cfg, log)
 	dramaService := services.NewDramaService(db, cfg, log)
 	characterLibraryService := services.NewCharacterLibraryService(db, log, cfg)
 	imageGenService := services.NewImageGenerationService(db, cfg, transferService, localStoragePtr, log)
@@ -93,6 +96,7 @@ func buildAppDependencies(cfg *config.Config, db *gorm.DB, log *logger.Logger, l
 		adminAuditService:       adminAuditService,
 		adminUserService:        adminUserService,
 		adminBillingService:     adminBillingService,
+		billingService:          billingService,
 		transferService:         transferService,
 		dramaService:            dramaService,
 		imageGenerationService:  imageGenService,
@@ -108,6 +112,7 @@ func buildAppDependencies(cfg *config.Config, db *gorm.DB, log *logger.Logger, l
 		adminUserHandler:        handlers.NewAdminUserHandler(adminUserService, log),
 		adminBillingHandler:     handlers.NewAdminBillingHandler(adminBillingService, log),
 		billingPricingHandler:   handlers.NewBillingPricingHandler(aiService, log),
+		billingTransactionsHandler: handlers.NewBillingTransactionsHandler(billingService, log),
 		adminAIConfigHandler:    handlers.NewAdminAIConfigHandler(aiService, log),
 		dramaHandler:            handlers.NewDramaHandler(db, dramaService, videoMergeService, log),
 		scriptGenHandler:        handlers.NewScriptGenerationHandler(scriptGenerationService, taskService, log),

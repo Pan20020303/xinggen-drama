@@ -17,7 +17,7 @@ func (r *GormUserRepository) FindByEmail(email string) (*models.User, error) {
 	var user models.User
 	if err := r.db.
 		Select(
-			"id, email, password_hash, "+
+			"id, email, avatar_url, password_hash, "+
 				"COALESCE(role, ?) AS role, "+
 				"COALESCE(status, ?) AS status, "+
 				"COALESCE(credits, 0) AS credits",
@@ -34,7 +34,7 @@ func (r *GormUserRepository) FindByID(id uint) (*models.User, error) {
 	var user models.User
 	if err := r.db.
 		Select(
-			"id, email, password_hash, "+
+			"id, email, avatar_url, password_hash, "+
 				"COALESCE(role, ?) AS role, "+
 				"COALESCE(status, ?) AS status, "+
 				"COALESCE(credits, 0) AS credits",
@@ -52,6 +52,10 @@ func (r *GormUserRepository) Create(user *models.User) error {
 
 func (r *GormUserRepository) UpdatePassword(userID uint, hash string) error {
 	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", hash).Error
+}
+
+func (r *GormUserRepository) UpdateAvatar(userID uint, avatarURL string) error {
+	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("avatar_url", avatarURL).Error
 }
 
 func (r *GormUserRepository) CreateWithInitialCredits(user *models.User, initialCredits int) error {

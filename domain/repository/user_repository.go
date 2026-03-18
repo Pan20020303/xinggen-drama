@@ -7,5 +7,6 @@ type UserRepository interface {
 	FindByID(id uint) (*models.User, error)
 	Create(user *models.User) error
 	UpdatePassword(userID uint, hash string) error
+	UpdateAvatar(userID uint, avatarURL string) error
 	CreateWithInitialCredits(user *models.User, initialCredits int) error
 }

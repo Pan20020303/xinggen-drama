@@ -222,6 +222,18 @@ func (s *AuthService) ChangePassword(userID uint, req *dto.ChangePasswordRequest
 	return s.repo.UpdatePassword(userID, string(hash))
 }
 
+func (s *AuthService) UpdateProfile(userID uint, req *dto.UpdateProfileRequest) (*models.User, error) {
+	if req == nil {
+		return s.GetUserByID(userID)
+	}
+
+	if err := s.repo.UpdateAvatar(userID, req.AvatarURL); err != nil {
+		return nil, err
+	}
+
+	return s.GetUserByID(userID)
+}
+
 func (s *AuthService) ParseToken(token string) (*TokenClaims, error) {
 	parsed, err := jwt.ParseWithClaims(token, &TokenClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

@@ -21,6 +21,7 @@ const (
 type User struct {
 	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
 	Email        string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"email"`
+	AvatarURL    string     `gorm:"type:varchar(255)" json:"avatar_url,omitempty"`
 	PasswordHash string     `gorm:"type:varchar(255);not null" json:"-"`
 	Role         UserRole   `gorm:"type:varchar(20);not null;default:'user'" json:"role"`
 	Status       UserStatus `gorm:"type:varchar(20);not null;default:'active'" json:"status"`

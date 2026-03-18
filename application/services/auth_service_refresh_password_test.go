@@ -101,3 +101,19 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 		t.Fatalf("expected wrong old password to fail")
 	}
 }
+
+func TestUpdateProfile_AvatarURL(t *testing.T) {
+	svc, db := newTestAuthService(t)
+	user := seedAuthUser(t, db, "avatar@example.com", models.RoleUser, models.UserStatusActive)
+
+	updated, err := svc.UpdateProfile(user.ID, &dto.UpdateProfileRequest{
+		AvatarURL: "/static/characters/avatar-test.png",
+	})
+	if err != nil {
+		t.Fatalf("expected update profile success, got: %v", err)
+	}
+
+	if updated.AvatarURL != "/static/characters/avatar-test.png" {
+		t.Fatalf("expected avatar url to be updated, got %q", updated.AvatarURL)
+	}
+}

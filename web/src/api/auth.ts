@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest } from '@/types/auth'
+import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from '@/types/auth'
 
 export const authAPI = {
   login(data: LoginRequest) {
@@ -16,6 +16,10 @@ export const authAPI = {
 
   changePassword(data: ChangePasswordRequest) {
     return request.put<{ updated: boolean }>('/auth/password', data)
+  },
+
+  updateProfile(data: UpdateProfileRequest) {
+    return request.put<AuthUser>('/auth/profile', data)
   },
 
   me() {

@@ -1,6 +1,7 @@
 export interface AuthUser {
   id: number
   email: string
+  avatar_url?: string
   role: string
   credits: number
   created_at?: string
@@ -20,6 +21,10 @@ export interface RegisterRequest {
 export interface ChangePasswordRequest {
   old_password: string
   new_password: string
+}
+
+export interface UpdateProfileRequest {
+  avatar_url?: string
 }
 
 export interface AuthResponse {

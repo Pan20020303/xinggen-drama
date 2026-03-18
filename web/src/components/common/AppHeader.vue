@@ -25,20 +25,20 @@
             <!-- Theme Toggle | 主题切换 -->
             <ThemeToggle v-if="showTheme" />
 
-            <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goCharacterLibrary">
-              <el-icon><Collection /></el-icon>
-              <span class="btn-text">角色库</span>
-            </el-button>
-
-            <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="goAccountCenter">
+            <el-button v-if="showNavButtons && isAuthenticated" class="header-btn" @click="openCreditsDialog">
               <el-icon><Coin /></el-icon>
               <span class="btn-text">积分 {{ authStore.user?.credits ?? 0 }}</span>
             </el-button>
 
             <el-dropdown v-if="showNavButtons && isAuthenticated" trigger="click">
-              <el-button class="header-btn">
-                <el-icon><UserFilled /></el-icon>
-                <span class="btn-text user-email">{{ authStore.user?.email }}</span>
+              <el-button class="header-btn avatar-trigger">
+                <el-avatar
+                  :size="34"
+                  :src="avatarSrc"
+                  class="header-avatar"
+                >
+                  <el-icon><UserFilled /></el-icon>
+                </el-avatar>
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -58,17 +58,20 @@
         </div>
       </div>
     </header>
-    
+
+    <CreditDetailsDialog v-model="creditsDialogVisible" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Collection, Coin, UserFilled } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { Coin, UserFilled } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from './ThemeToggle.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import CreditDetailsDialog from './CreditDetailsDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { fixImageUrl } from '@/utils/image'
 
 /**
  * AppHeader - Global application header component
@@ -111,13 +114,18 @@ const route = useRoute()
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const showNavButtons = computed(() => route.path !== '/login' && route.path !== '/register')
-
-const goCharacterLibrary = () => {
-  router.push('/character-library')
-}
+const creditsDialogVisible = ref(false)
+const avatarSrc = computed(() => {
+  const raw = authStore.user?.avatar_url
+  return raw ? fixImageUrl(raw) : ''
+})
 
 const goAccountCenter = () => {
   router.push('/settings/account')
+}
+
+const openCreditsDialog = () => {
+  creditsDialogVisible.value = true
 }
 
 const goLogin = () => {
@@ -208,11 +216,14 @@ const handleLogout = async () => {
   margin-left: 4px;
 }
 
-.user-email {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.avatar-trigger {
+  padding: 4px;
+  border-radius: 999px;
+}
+
+.header-avatar {
+  background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+  color: #fff;
 }
 
 /* Dark mode adjustments | 深色模式适配 */

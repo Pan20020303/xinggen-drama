@@ -125,6 +125,29 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	response.SuccessWithMessage(c, "密码修改成功", gin.H{"updated": true})
 }
 
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
+
+	var req dto.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	user, err := h.authService.UpdateProfile(userID, &req)
+	if err != nil {
+		h.log.Errorw("update profile failed", "error", err, "user_id", userID)
+		response.InternalError(c, "更新个人资料失败")
+		return
+	}
+
+	response.SuccessWithMessage(c, "个人资料更新成功", user)
+}
+
 // Me returns the current authenticated user.
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, err := tenant.GetUserID(c)

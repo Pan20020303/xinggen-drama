@@ -32,3 +32,33 @@ export interface PricingResponse {
   user_configs: AIServiceConfigPricingView[]
   platform_configs: AIServiceConfigPricingView[]
 }
+
+export interface CreditTransaction {
+  id: number
+  user_id: number
+  amount: number
+  type: string
+  reference_id?: string
+  service_type?: string
+  model?: string
+  description?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  created_at?: string
+}
+
+export interface BillingTransactionQuery {
+  page?: number
+  page_size?: number
+}
+
+export interface PaginationResult<T> {
+  items: T[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}

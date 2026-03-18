@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { authAPI } from '@/api/auth'
-import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest } from '@/types/auth'
+import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from '@/types/auth'
 
 const TOKEN_KEY = 'token'
 const USER_KEY = 'user'
@@ -83,6 +83,13 @@ export const useAuthStore = defineStore('auth', {
 
     async changePassword(payload: ChangePasswordRequest) {
       return authAPI.changePassword(payload)
+    },
+
+    async updateProfile(payload: UpdateProfileRequest) {
+      const user = await authAPI.updateProfile(payload)
+      this.user = user
+      localStorage.setItem(USER_KEY, JSON.stringify(user))
+      return user
     }
   }
 })

@@ -59,7 +59,9 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 			secured.GET("/auth/me", deps.authHandler.Me)
 			secured.POST("/auth/refresh", deps.authHandler.RefreshToken)
 			secured.PUT("/auth/password", deps.authHandler.ChangePassword)
+			secured.PUT("/auth/profile", deps.authHandler.UpdateProfile)
 			secured.GET("/billing/pricing", deps.billingPricingHandler.GetPricing)
+			secured.GET("/billing/transactions", deps.billingTransactionsHandler.ListTransactions)
 		}
 
 		adminSecured := api.Group("/admin")

@@ -241,6 +241,30 @@ func (s *BillingService) GetCosts() (framePrompt int, imageGen int) {
 	return s.framePromptCredits, s.imageGenerateCredits
 }
 
+func (s *BillingService) ListTransactions(userID uint, page, pageSize int) ([]models.CreditTransaction, int64, error) {
+	page, pageSize = normalizePagination(page, pageSize)
+
+	query := s.db.Model(&models.CreditTransaction{}).Where("user_id = ?", userID)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var items []models.CreditTransaction
+	if err := s.db.
+		Model(&models.CreditTransaction{}).
+		Where("user_id = ?", userID).
+		Order("id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return items, total, nil
+}
+
 func BillingDetail(resource string, id interface{}) string {
 	return fmt.Sprintf("%s:%v", resource, id)
 }
