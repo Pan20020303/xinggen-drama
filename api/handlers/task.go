@@ -13,9 +13,9 @@ type TaskHandler struct {
 	log         *logger.Logger
 }
 
-func NewTaskHandler(db *gorm.DB, log *logger.Logger) *TaskHandler {
+func NewTaskHandler(taskService *services.TaskService, log *logger.Logger) *TaskHandler {
 	return &TaskHandler{
-		taskService: services.NewTaskService(db, log),
+		taskService: taskService,
 		log:         log,
 	}
 }

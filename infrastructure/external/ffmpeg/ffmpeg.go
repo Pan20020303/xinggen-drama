@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/drama-generator/backend/pkg/httpclient"
 	"github.com/drama-generator/backend/pkg/logger"
 )
 
 type FFmpeg struct {
 	log     *logger.Logger
 	tempDir string
+	client  *http.Client
 }
 
 func NewFFmpeg(log *logger.Logger) *FFmpeg {
@@ -25,6 +28,7 @@ func NewFFmpeg(log *logger.Logger) *FFmpeg {
 	return &FFmpeg{
 		log:     log,
 		tempDir: tempDir,
+		client:  httpclient.New(2 * time.Minute),
 	}
 }
 
@@ -137,7 +141,7 @@ func (f *FFmpeg) downloadVideo(url, destPath string) (string, error) {
 	// 远程 URL，需要下载
 	f.log.Infow("Downloading video", "url", url, "dest", destPath)
 
-	resp, err := http.Get(url)
+	resp, err := f.client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to download: %w", err)
 	}
@@ -173,7 +177,7 @@ func (f *FFmpeg) trimVideo(inputPath, outputPath string, startTime, endTime floa
 	if (startTime == 0 && endTime == 0) || endTime <= startTime {
 		f.log.Infow("No valid trim range, re-encoding entire video")
 
-		cmd := exec.Command("ffmpeg",
+		cmd := exec.CommandContext(context.Background(), "ffmpeg",
 			"-i", inputPath,
 			"-c:v", "libx264",
 			"-preset", "fast",
@@ -202,7 +206,7 @@ func (f *FFmpeg) trimVideo(inputPath, outputPath string, startTime, endTime floa
 	var cmd *exec.Cmd
 	if endTime > 0 {
 		// 有明确的结束时间
-		cmd = exec.Command("ffmpeg",
+		cmd = exec.CommandContext(context.Background(), "ffmpeg",
 			"-i", inputPath,
 			"-ss", fmt.Sprintf("%.2f", startTime),
 			"-to", fmt.Sprintf("%.2f", endTime),
@@ -217,7 +221,7 @@ func (f *FFmpeg) trimVideo(inputPath, outputPath string, startTime, endTime floa
 		)
 	} else {
 		// 只有开始时间，裁剪到视频末尾
-		cmd = exec.Command("ffmpeg",
+		cmd = exec.CommandContext(context.Background(), "ffmpeg",
 			"-i", inputPath,
 			"-ss", fmt.Sprintf("%.2f", startTime),
 			"-c:v", "libx264",
@@ -291,7 +295,7 @@ func (f *FFmpeg) concatenateVideos(inputPaths []string, outputPath string) error
 	// -safe 0: 允许不安全的文件路径
 	// -i: 输入文件列表
 	// -c copy: 直接复制流，不重新编码（速度快）
-	cmd := exec.Command("ffmpeg",
+	cmd := exec.CommandContext(context.Background(), "ffmpeg",
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFile,
@@ -616,7 +620,7 @@ func (f *FFmpeg) mergeWithXfade(inputPaths []string, clips []VideoClip, outputPa
 
 	f.log.Infow("Running FFmpeg with transitions", "filter", fullFilter, "has_any_audio", hasAnyAudio)
 
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.CommandContext(context.Background(), "ffmpeg", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		f.log.Errorw("FFmpeg xfade failed", "error", err, "output", string(output))
@@ -691,7 +695,7 @@ func (f *FFmpeg) mapTransitionType(transType string) string {
 }
 
 func (f *FFmpeg) hasAudioStream(videoPath string) bool {
-	cmd := exec.Command("ffprobe",
+	cmd := exec.CommandContext(context.Background(), "ffprobe",
 		"-v", "error",
 		"-select_streams", "a:0",
 		"-show_entries", "stream=codec_type",
@@ -709,7 +713,7 @@ func (f *FFmpeg) hasAudioStream(videoPath string) bool {
 }
 
 func (f *FFmpeg) getVideoResolution(videoPath string) (int, int) {
-	cmd := exec.Command("ffprobe",
+	cmd := exec.CommandContext(context.Background(), "ffprobe",
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-show_entries", "stream=width,height",
@@ -743,7 +747,7 @@ func (f *FFmpeg) getVideoResolution(videoPath string) (int, int) {
 
 // GetVideoDuration 获取视频时长（秒）
 func (f *FFmpeg) GetVideoDuration(videoPath string) (float64, error) {
-	cmd := exec.Command("ffprobe",
+	cmd := exec.CommandContext(context.Background(), "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
@@ -772,7 +776,7 @@ func (f *FFmpeg) GetVideoDuration(videoPath string) (float64, error) {
 }
 
 func (f *FFmpeg) copyFile(src, dst string) error {
-	cmd := exec.Command("cp", src, dst)
+	cmd := exec.CommandContext(context.Background(), "cp", src, dst)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		f.log.Errorw("File copy failed", "error", err, "output", string(output))
@@ -830,7 +834,7 @@ func (f *FFmpeg) ExtractAudio(videoURL, outputPath string) (string, error) {
 	// -ar: 音频采样率
 	// -ac: 音频声道数
 	// -ab: 音频比特率
-	cmd := exec.Command("ffmpeg",
+	cmd := exec.CommandContext(context.Background(), "ffmpeg",
 		"-i", localVideoPath,
 		"-vn",
 		"-acodec", "aac",
@@ -864,7 +868,7 @@ func (f *FFmpeg) generateSilence(outputPath string, duration float64) (string, e
 	// 使用FFmpeg生成静音
 	// -f lavfi: 使用lavfi（libavfilter）输入
 	// -i anullsrc: 生成静音音频源
-	cmd := exec.Command("ffmpeg",
+	cmd := exec.CommandContext(context.Background(), "ffmpeg",
 		"-f", "lavfi",
 		"-i", fmt.Sprintf("anullsrc=channel_layout=stereo:sample_rate=44100"),
 		"-t", fmt.Sprintf("%.2f", duration),

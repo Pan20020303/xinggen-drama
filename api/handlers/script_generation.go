@@ -7,12 +7,10 @@ import (
 	"strings"
 
 	"github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type ScriptGenerationHandler struct {
@@ -21,10 +19,10 @@ type ScriptGenerationHandler struct {
 	log           *logger.Logger
 }
 
-func NewScriptGenerationHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *ScriptGenerationHandler {
+func NewScriptGenerationHandler(scriptService *services.ScriptGenerationService, taskService *services.TaskService, log *logger.Logger) *ScriptGenerationHandler {
 	return &ScriptGenerationHandler{
-		scriptService: services.NewScriptGenerationService(db, cfg, log),
-		taskService:   services.NewTaskService(db, log),
+		scriptService: scriptService,
+		taskService:   taskService,
 		log:           log,
 	}
 }

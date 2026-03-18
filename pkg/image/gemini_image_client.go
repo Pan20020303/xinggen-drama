@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/drama-generator/backend/pkg/httpclient"
 	"github.com/drama-generator/backend/pkg/usage"
 )
 
@@ -62,7 +63,7 @@ type GeminiImageResponse struct {
 
 // downloadImageToBase64 下载图片 URL 并转换为 base64
 func downloadImageToBase64(imageURL string) (string, string, error) {
-	resp, err := http.Get(imageURL)
+	resp, err := httpclient.Default().Get(imageURL)
 	if err != nil {
 		return "", "", fmt.Errorf("download image: %w", err)
 	}

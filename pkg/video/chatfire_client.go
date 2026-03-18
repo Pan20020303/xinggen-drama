@@ -179,9 +179,6 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 		// 处理不同的图片模式
 		// 1. 多图模式
 		if len(options.ReferenceImageURLs) > 0 {
-			// seedance-1-5-pro 的多图能力不走 reference_image（该角色会触发 r2v task_type）
-			// 直接传 image_url 列表以保持在该模型支持的任务类型范围内。
-			useReferenceRole := !isSeedance15ProModel(modelLower)
 			for _, refURL := range options.ReferenceImageURLs {
 				item := struct {
 					Type     string                 `json:"type"`
@@ -193,9 +190,7 @@ func (c *ChatfireClient) GenerateVideo(imageURL, prompt string, opts ...VideoOpt
 					ImageURL: map[string]interface{}{
 						"url": refURL,
 					},
-				}
-				if useReferenceRole {
-					item.Role = "reference_image"
+					Role: "reference_image",
 				}
 				reqBody.Content = append(reqBody.Content, struct {
 					Type     string                 `json:"type"`

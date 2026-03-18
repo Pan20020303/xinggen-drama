@@ -54,12 +54,13 @@ func newAdminAIConfigTestEnv(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	log := logger.NewLogger(true)
 	repo := persistence.NewGormUserRepository(db)
 	authSvc := services.NewAuthService(repo, cfg, log)
+	aiService := services.NewAIService(db, log)
 	adminToken, err := authSvc.GenerateAdminToken(models.User{ID: 1, Email: "admin@example.com", Role: models.RolePlatformAdmin})
 	if err != nil {
 		t.Fatalf("failed to generate admin token: %v", err)
 	}
 
-	h := NewAdminAIConfigHandler(db, cfg, log)
+	h := NewAdminAIConfigHandler(aiService, log)
 
 	r := gin.New()
 	api := r.Group("/api/v1")

@@ -22,6 +22,7 @@ type PropService struct {
 	log                    *logger.Logger
 	config                 *config.Config
 	promptI18n             *PromptI18n
+	runner                 *TaskRunner
 }
 
 func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService, imageGenerationService *ImageGenerationService, log *logger.Logger, cfg *config.Config) *PropService {
@@ -34,6 +35,7 @@ func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService,
 		log:                    log,
 		config:                 cfg,
 		promptI18n:             NewPromptI18n(cfg),
+		runner:                 NewTaskRunner(log, 4),
 	}
 }
 
@@ -77,7 +79,9 @@ func (s *PropService) ExtractPropsFromScript(userID uint, episodeID uint) (strin
 		return task.ID, nil
 	}
 
-	go s.processPropExtraction(userID, task.ID, episode)
+	s.runner.Submit("prop.extract_from_script", func() {
+		s.processPropExtraction(userID, task.ID, episode)
+	})
 
 	return task.ID, nil
 }
@@ -172,7 +176,9 @@ func (s *PropService) GeneratePropImage(userID uint, propID uint) (string, error
 		return task.ID, nil
 	}
 
-	go s.processPropImageGeneration(task.ID, prop)
+	s.runner.Submit("prop.generate_image", func() {
+		s.processPropImageGeneration(task.ID, prop)
+	})
 	return task.ID, nil
 }
 

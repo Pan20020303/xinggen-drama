@@ -5,7 +5,6 @@ import (
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type SceneHandler struct {
@@ -13,9 +12,9 @@ type SceneHandler struct {
 	log          *logger.Logger
 }
 
-func NewSceneHandler(db *gorm.DB, log *logger.Logger, imageGenService *services2.ImageGenerationService) *SceneHandler {
+func NewSceneHandler(sceneService *services2.StoryboardCompositionService, log *logger.Logger) *SceneHandler {
 	return &SceneHandler{
-		sceneService: services2.NewStoryboardCompositionService(db, log, imageGenService),
+		sceneService: sceneService,
 		log:          log,
 	}
 }

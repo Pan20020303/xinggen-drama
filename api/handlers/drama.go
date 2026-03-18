@@ -5,7 +5,6 @@ import (
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
@@ -20,11 +19,11 @@ type DramaHandler struct {
 	log               *logger.Logger
 }
 
-func NewDramaHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger, transferService *services.ResourceTransferService) *DramaHandler {
+func NewDramaHandler(db *gorm.DB, dramaService *services.DramaService, videoMergeService *services.VideoMergeService, log *logger.Logger) *DramaHandler {
 	return &DramaHandler{
 		db:                db,
-		dramaService:      services.NewDramaService(db, cfg, log),
-		videoMergeService: services.NewVideoMergeService(db, transferService, cfg.Storage.LocalPath, cfg.Storage.BaseURL, log),
+		dramaService:      dramaService,
+		videoMergeService: videoMergeService,
 		log:               log,
 	}
 }

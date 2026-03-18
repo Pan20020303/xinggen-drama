@@ -24,10 +24,9 @@ type AdminRechargeRequest struct {
 	Note   string `json:"note"`
 }
 
-func NewAdminBillingHandler(db *gorm.DB, log *logger.Logger) *AdminBillingHandler {
-	auditSvc := services.NewAdminAuditService(db)
+func NewAdminBillingHandler(billingService *services.AdminBillingService, log *logger.Logger) *AdminBillingHandler {
 	return &AdminBillingHandler{
-		billingService: services.NewAdminBillingService(db, log, auditSvc),
+		billingService: billingService,
 		log:            log,
 	}
 }
@@ -127,8 +126,8 @@ func (h *AdminBillingHandler) GetTokenStats(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"items":    items,
-		"summary":  summary,
+		"items":   items,
+		"summary": summary,
 		"filters": gin.H{
 			"service_type": serviceType,
 			"start_date":   c.Query("start_date"),

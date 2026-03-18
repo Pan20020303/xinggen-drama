@@ -27,6 +27,7 @@ type VideoGenerationService struct {
 	billingService  *BillingService
 	ffmpeg          *ffmpeg.FFmpeg
 	promptI18n      *PromptI18n
+	runner          *TaskRunner
 }
 
 func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
@@ -39,9 +40,12 @@ func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService 
 		log:             log,
 		ffmpeg:          ffmpeg.NewFFmpeg(log),
 		promptI18n:      promptI18n,
+		runner:          NewTaskRunner(log, 6),
 	}
 
-	go service.RecoverPendingTasks()
+	service.runner.Submit("video.recover_pending_tasks", func() {
+		service.RecoverPendingTasks()
+	})
 
 	return service
 }
@@ -202,7 +206,9 @@ func (s *VideoGenerationService) GenerateVideo(userID uint, request *GenerateVid
 	// Start background goroutine to process video generation asynchronously
 	// This allows the API to return immediately while video generation happens in background
 	// CRITICAL: The goroutine will handle all video generation logic including API calls and polling
-	go s.ProcessVideoGeneration(videoGen.ID)
+	s.runner.Submit("video.process_generation", func() {
+		s.ProcessVideoGeneration(videoGen.ID)
+	})
 
 	return videoGen, nil
 }
@@ -384,7 +390,9 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 		// Start background goroutine to poll task status
 		// This allows the API to return immediately while video generation continues asynchronously
 		// The goroutine will poll until completion, failure, or timeout (max 300 attempts * 10s = 50 minutes)
-		go s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model, recordedUsage)
+		s.runner.Submit("video.poll_task_status", func() {
+			s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model, recordedUsage)
+		})
 		return
 	}
 
@@ -713,7 +721,10 @@ func (s *VideoGenerationService) RecoverPendingTasks() {
 
 		// Start goroutine to poll task status for each pending video
 		// Each goroutine will poll independently until completion or timeout
-		go s.pollTaskStatus(videoGen.ID, *videoGen.TaskID, videoGen.Provider, videoGen.Model, usage.TokenUsage{})
+		videoGenCopy := videoGen
+		s.runner.Submit("video.recover_poll_task_status", func() {
+			s.pollTaskStatus(videoGenCopy.ID, *videoGenCopy.TaskID, videoGenCopy.Provider, videoGenCopy.Model, usage.TokenUsage{})
+		})
 	}
 }
 

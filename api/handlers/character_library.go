@@ -5,13 +5,10 @@ import (
 	"strconv"
 
 	services2 "github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/infrastructure/storage"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type CharacterLibraryHandler struct {
@@ -20,10 +17,10 @@ type CharacterLibraryHandler struct {
 	log            *logger.Logger
 }
 
-func NewCharacterLibraryHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger, transferService *services2.ResourceTransferService, localStorage *storage.LocalStorage) *CharacterLibraryHandler {
+func NewCharacterLibraryHandler(libraryService *services2.CharacterLibraryService, imageService *services2.ImageGenerationService, log *logger.Logger) *CharacterLibraryHandler {
 	return &CharacterLibraryHandler{
-		libraryService: services2.NewCharacterLibraryService(db, log, cfg),
-		imageService:   services2.NewImageGenerationService(db, cfg, transferService, localStorage, log),
+		libraryService: libraryService,
+		imageService:   imageService,
 		log:            log,
 	}
 }

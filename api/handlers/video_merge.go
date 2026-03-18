@@ -7,7 +7,6 @@ import (
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type VideoMergeHandler struct {
@@ -15,9 +14,9 @@ type VideoMergeHandler struct {
 	log          *logger.Logger
 }
 
-func NewVideoMergeHandler(db *gorm.DB, transferService *services2.ResourceTransferService, storagePath, baseURL string, log *logger.Logger) *VideoMergeHandler {
+func NewVideoMergeHandler(mergeService *services2.VideoMergeService, log *logger.Logger) *VideoMergeHandler {
 	return &VideoMergeHandler{
-		mergeService: services2.NewVideoMergeService(db, transferService, storagePath, baseURL, log),
+		mergeService: mergeService,
 		log:          log,
 	}
 }

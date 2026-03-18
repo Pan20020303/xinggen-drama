@@ -30,6 +30,7 @@ type ImageGenerationService struct {
 	config          *config.Config
 	promptI18n      *PromptI18n
 	taskService     *TaskService
+	runner          *TaskRunner
 }
 
 // truncateImageURL 截断图片 URL，避免 base64 格式的 URL 占满日志
@@ -61,6 +62,7 @@ func NewImageGenerationService(db *gorm.DB, cfg *config.Config, transferService 
 		promptI18n:      NewPromptI18n(cfg),
 		log:             log,
 		taskService:     NewTaskService(db, log),
+		runner:          NewTaskRunner(log, 6),
 	}
 }
 
@@ -168,7 +170,9 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 		return nil, fmt.Errorf("failed to create record: %w", err)
 	}
 
-	go s.ProcessImageGeneration(imageGen.ID)
+	s.runner.Submit("image.process_generation", func() {
+		s.ProcessImageGeneration(imageGen.ID)
+	})
 
 	return imageGen, nil
 }
@@ -324,7 +328,9 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 			"status":  models.ImageStatusProcessing,
 			"task_id": result.TaskID,
 		})
-		go s.pollTaskStatus(imageGenID, client, result.TaskID)
+		s.runner.Submit("image.poll_task_status", func() {
+			s.pollTaskStatus(imageGenID, client, result.TaskID)
+		})
 		return
 	}
 
@@ -872,7 +878,9 @@ func (s *ImageGenerationService) ExtractBackgroundsForEpisode(userID uint, episo
 	}
 
 	// 异步处理场景提取
-	go s.processBackgroundExtraction(userID, task.ID, episodeID, model, style)
+	s.runner.Submit("image.extract_backgrounds", func() {
+		s.processBackgroundExtraction(userID, task.ID, episodeID, model, style)
+	})
 
 	s.log.Infow("Background extraction task created", "task_id", task.ID, "episode_id", episodeID)
 	return task.ID, nil

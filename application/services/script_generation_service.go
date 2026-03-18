@@ -20,6 +20,7 @@ type ScriptGenerationService struct {
 	config      *config.Config
 	promptI18n  *PromptI18n
 	taskService *TaskService
+	runner      *TaskRunner
 }
 
 func NewScriptGenerationService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *ScriptGenerationService {
@@ -31,6 +32,7 @@ func NewScriptGenerationService(db *gorm.DB, cfg *config.Config, log *logger.Log
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
 		taskService: NewTaskService(db, log),
+		runner:      NewTaskRunner(log, 4),
 	}
 }
 
@@ -61,7 +63,9 @@ func (s *ScriptGenerationService) GenerateCharacters(userID uint, req *GenerateC
 	}
 
 	// 异步处理角色生成
-	go s.processCharacterGeneration(userID, task.ID, req)
+	s.runner.Submit("script.generate_characters", func() {
+		s.processCharacterGeneration(userID, task.ID, req)
+	})
 
 	s.log.Infow("Character generation task created", "task_id", task.ID, "drama_id", req.DramaID)
 	return task.ID, nil

@@ -1,11 +1,8 @@
 package routes
 
 import (
-	handlers2 "github.com/drama-generator/backend/api/handlers"
+	handlers "github.com/drama-generator/backend/api/handlers"
 	middlewares2 "github.com/drama-generator/backend/api/middlewares"
-	services2 "github.com/drama-generator/backend/application/services"
-	persistence2 "github.com/drama-generator/backend/infrastructure/persistence"
-	storage2 "github.com/drama-generator/backend/infrastructure/storage"
 	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -30,39 +27,10 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		})
 	})
 
-	aiService := services2.NewAIService(db, log)
-	localStoragePtr := localStorage.(*storage2.LocalStorage)
-	transferService := services2.NewResourceTransferService(db, log)
-	promptI18n := services2.NewPromptI18n(cfg)
-	userRepo := persistence2.NewGormUserRepository(db)
-	authService := services2.NewAuthService(userRepo, cfg, log)
-	authHandler := handlers2.NewAuthHandler(authService, log)
-	adminAuthHandler := handlers2.NewAdminAuthHandler(authService, log)
-	adminUserHandler := handlers2.NewAdminUserHandler(db, log)
-	adminBillingHandler := handlers2.NewAdminBillingHandler(db, log)
-	billingPricingHandler := handlers2.NewBillingPricingHandler(db, log)
-	adminAIConfigHandler := handlers2.NewAdminAIConfigHandler(db, cfg, log)
-	dramaHandler := handlers2.NewDramaHandler(db, cfg, log, nil)
-	scriptGenHandler := handlers2.NewScriptGenerationHandler(db, cfg, log)
-	imageGenService := services2.NewImageGenerationService(db, cfg, transferService, localStoragePtr, log)
-	imageGenHandler := handlers2.NewImageGenerationHandler(db, cfg, log, transferService, localStoragePtr)
-	videoGenHandler := handlers2.NewVideoGenerationHandler(db, cfg, transferService, localStoragePtr, aiService, log, promptI18n)
-	videoMergeHandler := handlers2.NewVideoMergeHandler(db, nil, cfg.Storage.LocalPath, cfg.Storage.BaseURL, log)
-	assetHandler := handlers2.NewAssetHandler(db, cfg, log)
-	characterLibraryService := services2.NewCharacterLibraryService(db, log, cfg)
-	characterLibraryHandler := handlers2.NewCharacterLibraryHandler(db, cfg, log, transferService, localStoragePtr)
-	uploadHandler, err := handlers2.NewUploadHandler(cfg, log, characterLibraryService)
+	deps, err := buildAppDependencies(cfg, db, log, localStorage)
 	if err != nil {
-		log.Fatalw("Failed to create upload handler", "error", err)
+		log.Fatalw("Failed to build app dependencies", "error", err)
 	}
-	storyboardHandler := handlers2.NewStoryboardHandler(db, cfg, log)
-	sceneHandler := handlers2.NewSceneHandler(db, log, imageGenService)
-	taskHandler := handlers2.NewTaskHandler(db, log)
-	framePromptService := services2.NewFramePromptService(db, cfg, log)
-	framePromptHandler := handlers2.NewFramePromptHandler(framePromptService, log)
-	audioExtractionHandler := handlers2.NewAudioExtractionHandler(log, cfg.Storage.LocalPath)
-	settingsHandler := handlers2.NewSettingsHandler(cfg, log)
-	propHandler := handlers2.NewPropHandler(db, cfg, log, aiService, imageGenService)
 
 	api := r.Group("/api/v1")
 	{
@@ -71,206 +39,206 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		auth := api.Group("/auth")
 		{
 			loginRateLimit := middlewares2.LoginRateLimitMiddleware()
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", loginRateLimit, authHandler.Login)
+			auth.POST("/register", deps.authHandler.Register)
+			auth.POST("/login", loginRateLimit, deps.authHandler.Login)
 		}
 
 		adminAuth := api.Group("/admin/auth")
 		{
 			loginRateLimit := middlewares2.LoginRateLimitMiddleware()
-			adminAuth.POST("/login", loginRateLimit, adminAuthHandler.Login)
+			adminAuth.POST("/login", loginRateLimit, deps.adminAuthHandler.Login)
 		}
 
 		secured := api.Group("")
-		secured.Use(middlewares2.AuthMiddleware(authService))
+		secured.Use(middlewares2.AuthMiddleware(deps.authService))
 		{
-			secured.GET("/auth/me", authHandler.Me)
-			secured.POST("/auth/refresh", authHandler.RefreshToken)
-			secured.PUT("/auth/password", authHandler.ChangePassword)
-			secured.GET("/billing/pricing", billingPricingHandler.GetPricing)
+			secured.GET("/auth/me", deps.authHandler.Me)
+			secured.POST("/auth/refresh", deps.authHandler.RefreshToken)
+			secured.PUT("/auth/password", deps.authHandler.ChangePassword)
+			secured.GET("/billing/pricing", deps.billingPricingHandler.GetPricing)
 		}
 
 		adminSecured := api.Group("/admin")
-		adminSecured.Use(middlewares2.AdminAuthMiddleware(authService))
+		adminSecured.Use(middlewares2.AdminAuthMiddleware(deps.authService))
 		{
 			adminUsers := adminSecured.Group("/users")
 			{
-				adminUsers.GET("", adminUserHandler.ListUsers)
-				adminUsers.PATCH("/:id/status", adminUserHandler.UpdateUserStatus)
-				adminUsers.PATCH("/:id/role", adminUserHandler.UpdateUserRole)
+				adminUsers.GET("", deps.adminUserHandler.ListUsers)
+				adminUsers.PATCH("/:id/status", deps.adminUserHandler.UpdateUserStatus)
+				adminUsers.PATCH("/:id/role", deps.adminUserHandler.UpdateUserRole)
 			}
 
 			adminBilling := adminSecured.Group("/billing")
 			{
-				adminBilling.POST("/recharge", adminBillingHandler.Recharge)
-				adminBilling.GET("/transactions", adminBillingHandler.ListTransactions)
-				adminBilling.GET("/token-stats", adminBillingHandler.GetTokenStats)
+				adminBilling.POST("/recharge", deps.adminBillingHandler.Recharge)
+				adminBilling.GET("/transactions", deps.adminBillingHandler.ListTransactions)
+				adminBilling.GET("/token-stats", deps.adminBillingHandler.GetTokenStats)
 			}
 
 			adminAI := adminSecured.Group("/ai-configs")
 			{
-				adminAI.GET("", adminAIConfigHandler.ListConfigs)
-				adminAI.POST("", adminAIConfigHandler.CreateConfig)
-				adminAI.PUT("/:id", adminAIConfigHandler.UpdateConfig)
-				adminAI.DELETE("/:id", adminAIConfigHandler.DeleteConfig)
-				adminAI.POST("/test", adminAIConfigHandler.TestConnection)
+				adminAI.GET("", deps.adminAIConfigHandler.ListConfigs)
+				adminAI.POST("", deps.adminAIConfigHandler.CreateConfig)
+				adminAI.PUT("/:id", deps.adminAIConfigHandler.UpdateConfig)
+				adminAI.DELETE("/:id", deps.adminAIConfigHandler.DeleteConfig)
+				adminAI.POST("/test", deps.adminAIConfigHandler.TestConnection)
 			}
 		}
 
 		dramas := secured.Group("/dramas")
 		{
-			dramas.GET("", dramaHandler.ListDramas)
-			dramas.POST("", dramaHandler.CreateDrama)
-			dramas.GET("/stats", dramaHandler.GetDramaStats) // 统计接口放在/:id之前
-			dramas.GET("/:id", dramaHandler.GetDrama)
-			dramas.PUT("/:id", dramaHandler.UpdateDrama)
-			dramas.DELETE("/:id", dramaHandler.DeleteDrama)
+			dramas.GET("", deps.dramaHandler.ListDramas)
+			dramas.POST("", deps.dramaHandler.CreateDrama)
+			dramas.GET("/stats", deps.dramaHandler.GetDramaStats) // 统计接口放在/:id之前
+			dramas.GET("/:id", deps.dramaHandler.GetDrama)
+			dramas.PUT("/:id", deps.dramaHandler.UpdateDrama)
+			dramas.DELETE("/:id", deps.dramaHandler.DeleteDrama)
 
-			dramas.PUT("/:id/outline", dramaHandler.SaveOutline)
-			dramas.GET("/:id/characters", dramaHandler.GetCharacters)
-			dramas.PUT("/:id/characters", dramaHandler.SaveCharacters)
-			dramas.PUT("/:id/episodes", dramaHandler.SaveEpisodes)
-			dramas.PUT("/:id/progress", dramaHandler.SaveProgress)
-			dramas.GET("/:id/props", propHandler.ListProps) // Added prop list route
+			dramas.PUT("/:id/outline", deps.dramaHandler.SaveOutline)
+			dramas.GET("/:id/characters", deps.dramaHandler.GetCharacters)
+			dramas.PUT("/:id/characters", deps.dramaHandler.SaveCharacters)
+			dramas.PUT("/:id/episodes", deps.dramaHandler.SaveEpisodes)
+			dramas.PUT("/:id/progress", deps.dramaHandler.SaveProgress)
+			dramas.GET("/:id/props", deps.propHandler.ListProps) // Added prop list route
 		}
 
 		generation := secured.Group("/generation")
 		{
-			generation.POST("/characters", scriptGenHandler.GenerateCharacters)
-			generation.POST("/script/polish", scriptGenHandler.PolishScriptText)
+			generation.POST("/characters", deps.scriptGenHandler.GenerateCharacters)
+			generation.POST("/script/polish", deps.scriptGenHandler.PolishScriptText)
 		}
 
 		// 角色库路由
 		characterLibrary := secured.Group("/character-library")
 		{
-			characterLibrary.GET("", characterLibraryHandler.ListLibraryItems)
-			characterLibrary.POST("", characterLibraryHandler.CreateLibraryItem)
-			characterLibrary.GET("/:id", characterLibraryHandler.GetLibraryItem)
-			characterLibrary.DELETE("/:id", characterLibraryHandler.DeleteLibraryItem)
+			characterLibrary.GET("", deps.characterLibraryHandler.ListLibraryItems)
+			characterLibrary.POST("", deps.characterLibraryHandler.CreateLibraryItem)
+			characterLibrary.GET("/:id", deps.characterLibraryHandler.GetLibraryItem)
+			characterLibrary.DELETE("/:id", deps.characterLibraryHandler.DeleteLibraryItem)
 		}
 
 		// 角色图片相关路由
 		characters := secured.Group("/characters")
 		{
-			characters.PUT("/:id", characterLibraryHandler.UpdateCharacter)
-			characters.DELETE("/:id", characterLibraryHandler.DeleteCharacter)
-			characters.POST("/batch-generate-images", characterLibraryHandler.BatchGenerateCharacterImages)
-			characters.POST("/:id/generate-image", characterLibraryHandler.GenerateCharacterImage)
-			characters.POST("/:id/upload-image", uploadHandler.UploadCharacterImage)
-			characters.PUT("/:id/image", characterLibraryHandler.UploadCharacterImage)
-			characters.PUT("/:id/image-from-library", characterLibraryHandler.ApplyLibraryItemToCharacter)
-			characters.POST("/:id/add-to-library", characterLibraryHandler.AddCharacterToLibrary)
+			characters.PUT("/:id", deps.characterLibraryHandler.UpdateCharacter)
+			characters.DELETE("/:id", deps.characterLibraryHandler.DeleteCharacter)
+			characters.POST("/batch-generate-images", deps.characterLibraryHandler.BatchGenerateCharacterImages)
+			characters.POST("/:id/generate-image", deps.characterLibraryHandler.GenerateCharacterImage)
+			characters.POST("/:id/upload-image", deps.uploadHandler.UploadCharacterImage)
+			characters.PUT("/:id/image", deps.characterLibraryHandler.UploadCharacterImage)
+			characters.PUT("/:id/image-from-library", deps.characterLibraryHandler.ApplyLibraryItemToCharacter)
+			characters.POST("/:id/add-to-library", deps.characterLibraryHandler.AddCharacterToLibrary)
 		}
 
 		props := secured.Group("/props")
 		{
-			props.POST("", propHandler.CreateProp)
-			props.PUT("/:id", propHandler.UpdateProp)
-			props.DELETE("/:id", propHandler.DeleteProp)
-			props.POST("/:id/generate", propHandler.GenerateImage)
+			props.POST("", deps.propHandler.CreateProp)
+			props.PUT("/:id", deps.propHandler.UpdateProp)
+			props.DELETE("/:id", deps.propHandler.DeleteProp)
+			props.POST("/:id/generate", deps.propHandler.GenerateImage)
 		}
 
 		// 文件上传路由
 		upload := secured.Group("/upload")
 		{
-			upload.POST("/image", uploadHandler.UploadImage)
+			upload.POST("/image", deps.uploadHandler.UploadImage)
 		}
 
 		// 分镜头路由
 		episodes := secured.Group("/episodes")
 		{
 			// 分镜头
-			episodes.POST("/:episode_id/storyboards", storyboardHandler.GenerateStoryboard)
-			episodes.POST("/:episode_id/polish-script", scriptGenHandler.PolishEpisodeScript)
-			episodes.POST("/:episode_id/props/extract", propHandler.ExtractProps)
-			episodes.POST("/:episode_id/characters/extract", characterLibraryHandler.ExtractCharacters)
-			episodes.GET("/:episode_id/storyboards", sceneHandler.GetStoryboardsForEpisode)
-			episodes.POST("/:episode_id/finalize", dramaHandler.FinalizeEpisode)
-			episodes.GET("/:episode_id/download", dramaHandler.DownloadEpisodeVideo)
+			episodes.POST("/:episode_id/storyboards", deps.storyboardHandler.GenerateStoryboard)
+			episodes.POST("/:episode_id/polish-script", deps.scriptGenHandler.PolishEpisodeScript)
+			episodes.POST("/:episode_id/props/extract", deps.propHandler.ExtractProps)
+			episodes.POST("/:episode_id/characters/extract", deps.characterLibraryHandler.ExtractCharacters)
+			episodes.GET("/:episode_id/storyboards", deps.sceneHandler.GetStoryboardsForEpisode)
+			episodes.POST("/:episode_id/finalize", deps.dramaHandler.FinalizeEpisode)
+			episodes.GET("/:episode_id/download", deps.dramaHandler.DownloadEpisodeVideo)
 		}
 
 		// 任务路由
 		tasks := secured.Group("/tasks")
 		{
-			tasks.GET("/:task_id", taskHandler.GetTaskStatus)
-			tasks.GET("", taskHandler.GetResourceTasks)
+			tasks.GET("/:task_id", deps.taskHandler.GetTaskStatus)
+			tasks.GET("", deps.taskHandler.GetResourceTasks)
 		}
 
 		// 场景路由
 		scenes := secured.Group("/scenes")
 		{
-			scenes.PUT("/:scene_id", sceneHandler.UpdateScene)
-			scenes.PUT("/:scene_id/prompt", sceneHandler.UpdateScenePrompt)
-			scenes.DELETE("/:scene_id", sceneHandler.DeleteScene)
+			scenes.PUT("/:scene_id", deps.sceneHandler.UpdateScene)
+			scenes.PUT("/:scene_id/prompt", deps.sceneHandler.UpdateScenePrompt)
+			scenes.DELETE("/:scene_id", deps.sceneHandler.DeleteScene)
 
-			scenes.POST("/generate-image", sceneHandler.GenerateSceneImage)
-			scenes.POST("", sceneHandler.CreateScene)
+			scenes.POST("/generate-image", deps.sceneHandler.GenerateSceneImage)
+			scenes.POST("", deps.sceneHandler.CreateScene)
 		}
 
 		images := secured.Group("/images")
 		{
-			images.GET("", imageGenHandler.ListImageGenerations)
-			images.POST("", imageGenHandler.GenerateImage)
-			images.GET("/:id", imageGenHandler.GetImageGeneration)
-			images.DELETE("/:id", imageGenHandler.DeleteImageGeneration)
-			images.POST("/scene/:scene_id", imageGenHandler.GenerateImagesForScene)
-			images.POST("/upload", imageGenHandler.UploadImage)
-			images.GET("/episode/:episode_id/backgrounds", imageGenHandler.GetBackgroundsForEpisode)
-			images.POST("/episode/:episode_id/backgrounds/extract", imageGenHandler.ExtractBackgroundsForEpisode)
-			images.POST("/episode/:episode_id/batch", imageGenHandler.BatchGenerateForEpisode)
+			images.GET("", deps.imageGenHandler.ListImageGenerations)
+			images.POST("", deps.imageGenHandler.GenerateImage)
+			images.GET("/:id", deps.imageGenHandler.GetImageGeneration)
+			images.DELETE("/:id", deps.imageGenHandler.DeleteImageGeneration)
+			images.POST("/scene/:scene_id", deps.imageGenHandler.GenerateImagesForScene)
+			images.POST("/upload", deps.imageGenHandler.UploadImage)
+			images.GET("/episode/:episode_id/backgrounds", deps.imageGenHandler.GetBackgroundsForEpisode)
+			images.POST("/episode/:episode_id/backgrounds/extract", deps.imageGenHandler.ExtractBackgroundsForEpisode)
+			images.POST("/episode/:episode_id/batch", deps.imageGenHandler.BatchGenerateForEpisode)
 		}
 
 		videos := secured.Group("/videos")
 		{
-			videos.GET("", videoGenHandler.ListVideoGenerations)
-			videos.POST("", videoGenHandler.GenerateVideo)
-			videos.GET("/:id", videoGenHandler.GetVideoGeneration)
-			videos.DELETE("/:id", videoGenHandler.DeleteVideoGeneration)
-			videos.POST("/image/:image_gen_id", videoGenHandler.GenerateVideoFromImage)
-			videos.POST("/episode/:episode_id/batch", videoGenHandler.BatchGenerateForEpisode)
+			videos.GET("", deps.videoGenHandler.ListVideoGenerations)
+			videos.POST("", deps.videoGenHandler.GenerateVideo)
+			videos.GET("/:id", deps.videoGenHandler.GetVideoGeneration)
+			videos.DELETE("/:id", deps.videoGenHandler.DeleteVideoGeneration)
+			videos.POST("/image/:image_gen_id", deps.videoGenHandler.GenerateVideoFromImage)
+			videos.POST("/episode/:episode_id/batch", deps.videoGenHandler.BatchGenerateForEpisode)
 		}
 
 		videoMerges := secured.Group("/video-merges")
 		{
-			videoMerges.GET("", videoMergeHandler.ListMerges)
-			videoMerges.POST("", videoMergeHandler.MergeVideos)
-			videoMerges.GET("/:merge_id", videoMergeHandler.GetMerge)
-			videoMerges.DELETE("/:merge_id", videoMergeHandler.DeleteMerge)
+			videoMerges.GET("", deps.videoMergeHandler.ListMerges)
+			videoMerges.POST("", deps.videoMergeHandler.MergeVideos)
+			videoMerges.GET("/:merge_id", deps.videoMergeHandler.GetMerge)
+			videoMerges.DELETE("/:merge_id", deps.videoMergeHandler.DeleteMerge)
 		}
 
 		assets := secured.Group("/assets")
 		{
-			assets.GET("", assetHandler.ListAssets)
-			assets.POST("", assetHandler.CreateAsset)
-			assets.GET("/:id", assetHandler.GetAsset)
-			assets.PUT("/:id", assetHandler.UpdateAsset)
-			assets.DELETE("/:id", assetHandler.DeleteAsset)
-			assets.POST("/import/image/:image_gen_id", assetHandler.ImportFromImageGen)
-			assets.POST("/import/video/:video_gen_id", assetHandler.ImportFromVideoGen)
+			assets.GET("", deps.assetHandler.ListAssets)
+			assets.POST("", deps.assetHandler.CreateAsset)
+			assets.GET("/:id", deps.assetHandler.GetAsset)
+			assets.PUT("/:id", deps.assetHandler.UpdateAsset)
+			assets.DELETE("/:id", deps.assetHandler.DeleteAsset)
+			assets.POST("/import/image/:image_gen_id", deps.assetHandler.ImportFromImageGen)
+			assets.POST("/import/video/:video_gen_id", deps.assetHandler.ImportFromVideoGen)
 		}
 
 		storyboards := secured.Group("/storyboards")
 		{
-			storyboards.GET("/episode/:episode_id/generate", storyboardHandler.GenerateStoryboard)
-			storyboards.POST("", storyboardHandler.CreateStoryboard)
-			storyboards.PUT("/:id", storyboardHandler.UpdateStoryboard)
-			storyboards.DELETE("/:id", storyboardHandler.DeleteStoryboard)
-			storyboards.POST("/:id/props", propHandler.AssociateProps)
-			storyboards.POST("/:id/frame-prompt", framePromptHandler.GenerateFramePrompt)
-			storyboards.GET("/:id/frame-prompts", handlers2.GetStoryboardFramePrompts(db, log))
-			storyboards.POST("/:id/optimize-video-prompt", storyboardHandler.OptimizeVideoPrompt)
+			storyboards.GET("/episode/:episode_id/generate", deps.storyboardHandler.GenerateStoryboard)
+			storyboards.POST("", deps.storyboardHandler.CreateStoryboard)
+			storyboards.PUT("/:id", deps.storyboardHandler.UpdateStoryboard)
+			storyboards.DELETE("/:id", deps.storyboardHandler.DeleteStoryboard)
+			storyboards.POST("/:id/props", deps.propHandler.AssociateProps)
+			storyboards.POST("/:id/frame-prompt", deps.framePromptHandler.GenerateFramePrompt)
+			storyboards.GET("/:id/frame-prompts", handlers.GetStoryboardFramePrompts(db, log))
+			storyboards.POST("/:id/optimize-video-prompt", deps.storyboardHandler.OptimizeVideoPrompt)
 		}
 
 		audio := secured.Group("/audio")
 		{
-			audio.POST("/extract", audioExtractionHandler.ExtractAudio)
-			audio.POST("/extract/batch", audioExtractionHandler.BatchExtractAudio)
+			audio.POST("/extract", deps.audioExtractionHandler.ExtractAudio)
+			audio.POST("/extract/batch", deps.audioExtractionHandler.BatchExtractAudio)
 		}
 
 		settings := secured.Group("/settings")
 		{
-			settings.GET("/language", settingsHandler.GetLanguage)
-			settings.PUT("/language", settingsHandler.UpdateLanguage)
+			settings.GET("/language", deps.settingsHandler.GetLanguage)
+			settings.PUT("/language", deps.settingsHandler.UpdateLanguage)
 		}
 	}
 

@@ -56,13 +56,16 @@ func newAdminHandlerTestEnv(t *testing.T) *adminHandlerTestEnv {
 	log := logger.NewLogger(true)
 	repo := persistence.NewGormUserRepository(db)
 	authSvc := services.NewAuthService(repo, cfg, log)
+	auditSvc := services.NewAdminAuditService(db)
+	userSvc := services.NewAdminUserService(db, log, auditSvc)
+	billingSvc := services.NewAdminBillingService(db, log, auditSvc)
 
 	admin := seedAdminHandlerUser(t, db, "admin@example.com", models.RolePlatformAdmin, models.UserStatusActive, 0)
 	target := seedAdminHandlerUser(t, db, "target@example.com", models.RoleUser, models.UserStatusActive, 10)
 
 	authHandler := NewAdminAuthHandler(authSvc, log)
-	userHandler := NewAdminUserHandler(db, log)
-	billingHandler := NewAdminBillingHandler(db, log)
+	userHandler := NewAdminUserHandler(userSvc, log)
+	billingHandler := NewAdminBillingHandler(billingSvc, log)
 
 	r := gin.New()
 	api := r.Group("/api/v1")

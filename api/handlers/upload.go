@@ -2,7 +2,6 @@ package handlers
 
 import (
 	services2 "github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
@@ -15,17 +14,12 @@ type UploadHandler struct {
 	log                     *logger.Logger
 }
 
-func NewUploadHandler(cfg *config.Config, log *logger.Logger, characterLibraryService *services2.CharacterLibraryService) (*UploadHandler, error) {
-	uploadService, err := services2.NewUploadService(cfg, log)
-	if err != nil {
-		return nil, err
-	}
-
+func NewUploadHandler(uploadService *services2.UploadService, characterLibraryService *services2.CharacterLibraryService, log *logger.Logger) *UploadHandler {
 	return &UploadHandler{
 		uploadService:           uploadService,
 		characterLibraryService: characterLibraryService,
 		log:                     log,
-	}, nil
+	}
 }
 
 // UploadImage 上传图片

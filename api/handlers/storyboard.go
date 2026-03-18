@@ -5,12 +5,10 @@ import (
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type StoryboardHandler struct {
@@ -19,10 +17,10 @@ type StoryboardHandler struct {
 	log               *logger.Logger
 }
 
-func NewStoryboardHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *StoryboardHandler {
+func NewStoryboardHandler(storyboardService *services.StoryboardService, taskService *services.TaskService, log *logger.Logger) *StoryboardHandler {
 	return &StoryboardHandler{
-		storyboardService: services.NewStoryboardService(db, cfg, log),
-		taskService:       services.NewTaskService(db, log),
+		storyboardService: storyboardService,
+		taskService:       taskService,
 		log:               log,
 	}
 }

@@ -14,9 +14,9 @@ type AudioExtractionHandler struct {
 	dataDir string
 }
 
-func NewAudioExtractionHandler(log *logger.Logger, dataDir string) *AudioExtractionHandler {
+func NewAudioExtractionHandler(service *services.AudioExtractionService, log *logger.Logger, dataDir string) *AudioExtractionHandler {
 	return &AudioExtractionHandler{
-		service: services.NewAudioExtractionService(log),
+		service: service,
 		log:     log,
 		dataDir: dataDir,
 	}

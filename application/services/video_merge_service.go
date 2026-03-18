@@ -24,6 +24,7 @@ type VideoMergeService struct {
 	storagePath     string
 	baseURL         string
 	log             *logger.Logger
+	runner          *TaskRunner
 }
 
 func NewVideoMergeService(db *gorm.DB, transferService *ResourceTransferService, storagePath, baseURL string, log *logger.Logger) *VideoMergeService {
@@ -35,6 +36,7 @@ func NewVideoMergeService(db *gorm.DB, transferService *ResourceTransferService,
 		storagePath:     storagePath,
 		baseURL:         baseURL,
 		log:             log,
+		runner:          NewTaskRunner(log, 4),
 	}
 }
 
@@ -93,7 +95,9 @@ func (s *VideoMergeService) MergeVideos(req *MergeVideoRequest) (*models.VideoMe
 		return nil, fmt.Errorf("failed to create merge record: %w", err)
 	}
 
-	go s.processMergeVideo(videoMerge.ID)
+	s.runner.Submit("video_merge.process", func() {
+		s.processMergeVideo(videoMerge.ID)
+	})
 
 	return videoMerge, nil
 }
@@ -132,7 +136,9 @@ func (s *VideoMergeService) processMergeVideo(mergeID uint) {
 			"status":  models.VideoMergeStatusProcessing,
 			"task_id": result.TaskID,
 		})
-		go s.pollMergeStatus(mergeID, client, result.TaskID)
+		s.runner.Submit("video_merge.poll_status", func() {
+			s.pollMergeStatus(mergeID, client, result.TaskID)
+		})
 		return
 	}
 

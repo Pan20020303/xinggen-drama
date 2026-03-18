@@ -6,7 +6,6 @@ import (
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type BillingPricingHandler struct {
@@ -14,9 +13,9 @@ type BillingPricingHandler struct {
 	log       *logger.Logger
 }
 
-func NewBillingPricingHandler(db *gorm.DB, log *logger.Logger) *BillingPricingHandler {
+func NewBillingPricingHandler(aiService *services.AIService, log *logger.Logger) *BillingPricingHandler {
 	return &BillingPricingHandler{
-		aiService: services.NewAIService(db, log),
+		aiService: aiService,
 		log:       log,
 	}
 }
@@ -29,8 +28,8 @@ type ServicePricing struct {
 }
 
 type PricingResponse struct {
-	Defaults       []ServicePricing              `json:"defaults"`
-	UserConfigs    []services.AIServiceConfigView `json:"user_configs"`
+	Defaults        []ServicePricing               `json:"defaults"`
+	UserConfigs     []services.AIServiceConfigView `json:"user_configs"`
 	PlatformConfigs []services.AIServiceConfigView `json:"platform_configs"`
 }
 

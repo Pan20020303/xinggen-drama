@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/drama-generator/backend/pkg/httpclient"
 )
 
 // ImageToBase64 将图片转换为 base64 编码
@@ -41,7 +43,7 @@ func ImageToBase64(imagePath string) (string, error) {
 
 // downloadImageFromURL 从 URL 下载图片数据
 func downloadImageFromURL(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	resp, err := httpclient.Default().Get(url)
 	if err != nil {
 		return nil, err
 	}

@@ -26,10 +26,9 @@ type AdminUpdateRoleRequest struct {
 	Role models.UserRole `json:"role" binding:"required"`
 }
 
-func NewAdminUserHandler(db *gorm.DB, log *logger.Logger) *AdminUserHandler {
-	auditSvc := services.NewAdminAuditService(db)
+func NewAdminUserHandler(userService *services.AdminUserService, log *logger.Logger) *AdminUserHandler {
 	return &AdminUserHandler{
-		userService: services.NewAdminUserService(db, log, auditSvc),
+		userService: userService,
 		log:         log,
 	}
 }

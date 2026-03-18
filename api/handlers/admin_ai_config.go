@@ -4,11 +4,9 @@ import (
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type AdminAIConfigHandler struct {
@@ -16,10 +14,9 @@ type AdminAIConfigHandler struct {
 	log       *logger.Logger
 }
 
-func NewAdminAIConfigHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger) *AdminAIConfigHandler {
-	_ = cfg
+func NewAdminAIConfigHandler(aiService *services.AIService, log *logger.Logger) *AdminAIConfigHandler {
 	return &AdminAIConfigHandler{
-		aiService: services.NewAIService(db, log),
+		aiService: aiService,
 		log:       log,
 	}
 }

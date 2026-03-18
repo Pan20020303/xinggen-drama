@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	models "github.com/drama-generator/backend/domain/models"
@@ -24,6 +23,7 @@ type StoryboardService struct {
 	log         *logger.Logger
 	config      *config.Config
 	promptI18n  *PromptI18n
+	runner      *TaskRunner
 }
 
 func NewStoryboardService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *StoryboardService {
@@ -35,6 +35,7 @@ func NewStoryboardService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *
 		log:         log,
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
+		runner:      NewTaskRunner(log, 4),
 	}
 }
 
@@ -218,12 +219,22 @@ func (s *StoryboardService) splitScriptIntoSegments(scriptContent string) []stri
 	normalized := strings.ReplaceAll(scriptContent, "\r\n", "\n")
 	rawParagraphs := strings.Split(normalized, "\n\n")
 	paragraphs := make([]string, 0, len(rawParagraphs))
+	nonEmptyParagraphCount := 0
 	for _, paragraph := range rawParagraphs {
 		paragraph = strings.TrimSpace(paragraph)
 		if paragraph == "" {
 			continue
 		}
-		paragraphs = append(paragraphs, splitOversizedStoryboardParagraph(paragraph, storyboardSegmentTargetRunes)...)
+		nonEmptyParagraphCount++
+
+		maxRunes := storyboardSegmentTargetRunes
+		// 单段长文本缺少自然段边界时，提前按最小有效段长切开，
+		// 避免整章被当成一个 segment 导致并发与预览能力失效。
+		if nonEmptyParagraphCount == 1 && utf8.RuneCountInString(paragraph) > storyboardSegmentMinRunes {
+			maxRunes = storyboardSegmentMinRunes
+		}
+
+		paragraphs = append(paragraphs, splitOversizedStoryboardParagraph(paragraph, maxRunes)...)
 	}
 
 	if len(paragraphs) == 0 {
@@ -232,6 +243,10 @@ func (s *StoryboardService) splitScriptIntoSegments(scriptContent string) []stri
 			return nil
 		}
 		return splitOversizedStoryboardParagraph(trimmed, storyboardSegmentMaxRunes)
+	}
+
+	if nonEmptyParagraphCount == 1 && len(paragraphs) > 1 {
+		return paragraphs
 	}
 
 	segments := make([]string, 0)
@@ -459,17 +474,22 @@ func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, t
 		s.log.Warnw("Failed to update concurrent storyboard status", "error", err, "task_id", taskID)
 	}
 
-	sem := make(chan struct{}, concurrency)
 	resultsCh := make(chan storyboardSegmentResult, totalSegments)
-	var wg sync.WaitGroup
+	segmentRunner := NewTaskRunner(s.log, concurrency)
 
 	for idx, segment := range segments {
-		wg.Add(1)
-		sem <- struct{}{}
+		index := idx
+		segmentText := segment
 
-		go func(index int, segmentText string) {
-			defer wg.Done()
-			defer func() { <-sem }()
+		segmentRunner.Submit("storyboard.generate_segment", func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					resultsCh <- storyboardSegmentResult{
+						Index: index,
+						Err:   fmt.Errorf("storyboard segment panicked: %v", recovered),
+					}
+				}
+			}()
 
 			client, err := s.aiService.GetAIClientForModelWithUser("text", actualModel, userID)
 			if err != nil {
@@ -514,20 +534,16 @@ func (s *StoryboardService) executeStoryboardSegmentsConcurrently(userID uint, t
 				Index:       index,
 				Storyboards: parsed.Storyboards,
 			}
-		}(idx, segment)
+		})
 	}
-
-	go func() {
-		wg.Wait()
-		close(resultsCh)
-	}()
 
 	results := make([]storyboardSegmentResult, totalSegments)
 	completed := 0
 	publishedCompleted := 0
 	var firstErr error
 
-	for result := range resultsCh {
+	for received := 0; received < totalSegments; received++ {
+		result := <-resultsCh
 		if result.Err != nil && firstErr == nil {
 			firstErr = result.Err
 		}
@@ -723,7 +739,9 @@ func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, mo
 		"scenes", sceneList)
 
 	// 启动后台goroutine处理AI调用和后续逻辑
-	go s.processStoryboardGeneration(userID, task.ID, episodeID, model, scriptContent, characterList, sceneList)
+	s.runner.Submit("storyboard.generate", func() {
+		s.processStoryboardGeneration(userID, task.ID, episodeID, model, scriptContent, characterList, sceneList)
+	})
 
 	// 立即返回任务ID
 	return task.ID, nil

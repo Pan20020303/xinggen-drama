@@ -22,6 +22,7 @@ type FramePromptService struct {
 	config      *config.Config
 	promptI18n  *PromptI18n
 	taskService *TaskService
+	runner      *TaskRunner
 }
 
 // NewFramePromptService 创建帧提示词服务
@@ -34,6 +35,7 @@ func NewFramePromptService(db *gorm.DB, cfg *config.Config, log *logger.Logger) 
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
 		taskService: NewTaskService(db, log),
+		runner:      NewTaskRunner(log, 4),
 	}
 }
 
@@ -115,7 +117,9 @@ func (s *FramePromptService) GenerateFramePrompt(userID uint, req GenerateFrameP
 	}
 
 	// 异步处理帧提示词生成
-	go s.processFramePromptGeneration(userID, task.ID, req, model)
+	s.runner.Submit("frame_prompt.generate", func() {
+		s.processFramePromptGeneration(userID, task.ID, req, model)
+	})
 
 	s.log.Infow("Frame prompt generation task created", "task_id", task.ID, "storyboard_id", req.StoryboardID, "frame_type", req.FrameType)
 	return task.ID, nil

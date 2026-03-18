@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/drama-generator/backend/pkg/httpclient"
 	"github.com/drama-generator/backend/pkg/usage"
 )
 
@@ -124,7 +125,7 @@ func (c *OpenAISoraClient) GenerateVideo(imageURL, prompt string, opts ...VideoO
 
 		} else {
 			// Case B: Handle Standard HTTP/HTTPS URL
-			resp, err := http.Get(imageURL)
+			resp, err := httpclient.Default().Get(imageURL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to download reference image: %w", err)
 			}

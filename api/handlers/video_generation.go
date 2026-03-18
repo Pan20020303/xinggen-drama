@@ -5,13 +5,10 @@ import (
 	"strconv"
 
 	"github.com/drama-generator/backend/application/services"
-	"github.com/drama-generator/backend/infrastructure/storage"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type VideoGenerationHandler struct {
@@ -19,9 +16,9 @@ type VideoGenerationHandler struct {
 	log          *logger.Logger
 }
 
-func NewVideoGenerationHandler(db *gorm.DB, cfg *config.Config, transferService *services.ResourceTransferService, localStorage *storage.LocalStorage, aiService *services.AIService, log *logger.Logger, promptI18n *services.PromptI18n) *VideoGenerationHandler {
+func NewVideoGenerationHandler(videoService *services.VideoGenerationService, log *logger.Logger) *VideoGenerationHandler {
 	return &VideoGenerationHandler{
-		videoService: services.NewVideoGenerationService(db, cfg, transferService, localStorage, aiService, log, promptI18n),
+		videoService: videoService,
 		log:          log,
 	}
 }

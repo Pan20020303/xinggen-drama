@@ -22,6 +22,7 @@ type CharacterLibraryService struct {
 	billing     *BillingService
 	taskService *TaskService
 	promptI18n  *PromptI18n
+	runner      *TaskRunner
 }
 
 func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Config) *CharacterLibraryService {
@@ -33,6 +34,7 @@ func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Con
 		billing:     NewBillingService(db, cfg, log),
 		taskService: NewTaskService(db, log),
 		promptI18n:  NewPromptI18n(cfg),
+		runner:      NewTaskRunner(log, 4),
 	}
 }
 
@@ -332,7 +334,9 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 	}
 
 	// 异步处理：在后台监听图片生成完成，然后更新角色image_url
-	go s.waitAndUpdateCharacterImage(character.ID, imageGen.ID)
+	s.runner.Submit("character.wait_and_update_image", func() {
+		s.waitAndUpdateCharacterImage(character.ID, imageGen.ID)
+	})
 
 	// 立即返回ImageGeneration对象，让前端可以轮询状态
 	s.log.Infow("Character image generation started", "character_id", characterID, "image_gen_id", imageGen.ID)
@@ -466,7 +470,8 @@ func (s *CharacterLibraryService) BatchGenerateCharacterImages(userID uint, char
 	// 使用 goroutine 并发生成所有角色图片
 	for _, characterID := range characterIDs {
 		// 为每个角色启动单独的 goroutine
-		go func(charID string) {
+		charID := characterID
+		s.runner.Submit("character.batch_generate_image", func() {
 			imageGen, err := s.GenerateCharacterImage(userID, charID, imageService, modelName, "", nil, "", "", nil, nil, nil) // 批量生成暂不支持自定义参数，使用默认值
 			if err != nil {
 				s.log.Errorw("Failed to generate character image in batch",
@@ -478,7 +483,7 @@ func (s *CharacterLibraryService) BatchGenerateCharacterImages(userID uint, char
 			s.log.Infow("Character image generated in batch",
 				"character_id", charID,
 				"image_gen_id", imageGen.ID)
-		}(characterID)
+		})
 	}
 
 	s.log.Infow("Batch character image generation tasks submitted",
@@ -505,7 +510,9 @@ func (s *CharacterLibraryService) ExtractCharactersFromScript(userID uint, episo
 		return task.ID, nil
 	}
 
-	go s.processCharacterExtraction(userID, task.ID, episode)
+	s.runner.Submit("character.extract_from_script", func() {
+		s.processCharacterExtraction(userID, task.ID, episode)
+	})
 
 	return task.ID, nil
 }

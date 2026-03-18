@@ -6,12 +6,10 @@ import (
 
 	"github.com/drama-generator/backend/application/services"
 	"github.com/drama-generator/backend/domain/models"
-	"github.com/drama-generator/backend/pkg/config"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
 	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type PropHandler struct {
@@ -19,9 +17,9 @@ type PropHandler struct {
 	log         *logger.Logger
 }
 
-func NewPropHandler(db *gorm.DB, cfg *config.Config, log *logger.Logger, aiService *services.AIService, imageGenerationService *services.ImageGenerationService) *PropHandler {
+func NewPropHandler(propService *services.PropService, log *logger.Logger) *PropHandler {
 	return &PropHandler{
-		propService: services.NewPropService(db, aiService, services.NewTaskService(db, log), imageGenerationService, log, cfg),
+		propService: propService,
 		log:         log,
 	}
 }
