@@ -228,6 +228,7 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 	}
 
 	frameType := c.Query("frame_type")
+	imageType := c.Query("image_type")
 	status := c.Query("status")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -246,7 +247,7 @@ func (h *ImageGenerationHandler) ListImageGenerations(c *gin.Context) {
 		dramaIDUint = &didUint
 	}
 
-	images, total, err := h.imageService.ListImageGenerations(userID, dramaIDUint, sceneID, characterID, storyboardID, frameType, status, page, pageSize)
+	images, total, err := h.imageService.ListImageGenerations(userID, dramaIDUint, sceneID, characterID, storyboardID, frameType, imageType, status, page, pageSize)
 
 	if err != nil {
 		h.log.Errorw("Failed to list images", "error", err)

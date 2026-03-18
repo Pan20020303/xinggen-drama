@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -73,7 +74,7 @@ func (s *ImageGenerationService) GetDB() *gorm.DB {
 
 type GenerateImageRequest struct {
 	StoryboardID    *uint    `json:"storyboard_id"`
-	DramaID         string   `json:"drama_id" binding:"required"`
+	DramaID         string   `json:"drama_id"`
 	SceneID         *uint    `json:"scene_id"`
 	CharacterID     *uint    `json:"character_id"`
 	PropID          *uint    `json:"prop_id"`
@@ -96,9 +97,13 @@ type GenerateImageRequest struct {
 }
 
 func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateImageRequest) (*models.ImageGeneration, error) {
+	normalizeDimensionsForModel(request)
+
 	var drama models.Drama
-	if err := s.db.Where("id = ? AND user_id = ?", request.DramaID, userID).First(&drama).Error; err != nil {
-		return nil, fmt.Errorf("drama not found")
+	if request.DramaID != "" {
+		if err := s.db.Where("id = ? AND user_id = ?", request.DramaID, userID).First(&drama).Error; err != nil {
+			return nil, fmt.Errorf("drama not found")
+		}
 	}
 	// 注意：SceneID可能指向Scene或Storyboard表，调用方已经做过权限验证，这里不再重复验证
 
@@ -106,7 +111,11 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	if err != nil {
 		return nil, err
 	}
-	billingRefID, err := s.billingService.ReserveAI(userID, "image", actualModel, cfg.CreditCost, "image_generation:"+request.DramaID)
+	billingDetail := "image_generation:toolbox"
+	if request.DramaID != "" {
+		billingDetail = "image_generation:" + request.DramaID
+	}
+	billingRefID, err := s.billingService.ReserveAI(userID, "image", actualModel, cfg.CreditCost, billingDetail)
 	if err != nil {
 		return nil, err
 	}
@@ -123,9 +132,12 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	}
 
 	// 转换DramaID
-	dramaIDParsed, err := strconv.ParseUint(request.DramaID, 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid drama ID")
+	var dramaIDParsed uint64
+	if request.DramaID != "" {
+		dramaIDParsed, err = strconv.ParseUint(request.DramaID, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid drama ID")
+		}
 	}
 
 	// 设置默认图片类型
@@ -177,6 +189,72 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	return imageGen, nil
 }
 
+func normalizeDimensionsForModel(request *GenerateImageRequest) {
+	if request == nil {
+		return
+	}
+
+	minPixels := minimumPixelsForImageModel(request.Model)
+	if minPixels == 0 {
+		return
+	}
+
+	width, height, ok := resolveRequestDimensions(request)
+	if !ok || width <= 0 || height <= 0 {
+		return
+	}
+
+	if width*height >= minPixels {
+		request.Size = fmt.Sprintf("%dx%d", width, height)
+		request.Width = &width
+		request.Height = &height
+		return
+	}
+
+	scale := math.Sqrt(float64(minPixels) / float64(width*height))
+	nextWidth := int(math.Ceil(float64(width) * scale))
+	nextHeight := int(math.Ceil(float64(height) * scale))
+
+	request.Size = fmt.Sprintf("%dx%d", nextWidth, nextHeight)
+	request.Width = &nextWidth
+	request.Height = &nextHeight
+}
+
+func minimumPixelsForImageModel(model string) int {
+	normalized := strings.ToLower(model)
+	if strings.Contains(normalized, "seedream-4-5") || strings.Contains(normalized, "seedream-4.5") {
+		return 3686400
+	}
+	return 0
+}
+
+func resolveRequestDimensions(request *GenerateImageRequest) (int, int, bool) {
+	if request.Width != nil && request.Height != nil && *request.Width > 0 && *request.Height > 0 {
+		return *request.Width, *request.Height, true
+	}
+
+	if request.Size == "" {
+		return 0, 0, false
+	}
+
+	parts := strings.Split(request.Size, "x")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, false
+	}
+
+	return width, height, true
+}
+
 func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 	var imageGen models.ImageGeneration
 	imageRatio := "16:9"
@@ -187,8 +265,10 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 
 	// 获取drama的style信息
 	var drama models.Drama
-	if err := s.db.First(&drama, imageGen.DramaID).Error; err != nil {
-		s.log.Warnw("Failed to load drama for style", "error", err, "drama_id", imageGen.DramaID)
+	if imageGen.DramaID != 0 {
+		if err := s.db.First(&drama, imageGen.DramaID).Error; err != nil {
+			s.log.Warnw("Failed to load drama for style", "error", err, "drama_id", imageGen.DramaID)
+		}
 	}
 
 	s.db.Model(&imageGen).Update("status", models.ImageStatusProcessing)
@@ -629,7 +709,7 @@ func (s *ImageGenerationService) GetImageGeneration(userID uint, imageGenID uint
 	return &imageGen, nil
 }
 
-func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint, sceneID *uint, characterID *uint, storyboardID *uint, frameType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
+func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint, sceneID *uint, characterID *uint, storyboardID *uint, frameType string, imageType string, status string, page, pageSize int) ([]models.ImageGeneration, int64, error) {
 	query := s.db.Model(&models.ImageGeneration{}).Where("user_id = ?", userID)
 
 	if dramaID != nil {
@@ -650,6 +730,10 @@ func (s *ImageGenerationService) ListImageGenerations(userID uint, dramaID *uint
 
 	if frameType != "" {
 		query = query.Where("frame_type = ?", frameType)
+	}
+
+	if imageType != "" {
+		query = query.Where("image_type = ?", imageType)
 	}
 
 	if status != "" {

@@ -4,7 +4,7 @@ export interface ImageGeneration {
   id: EntityId
   storyboard_id?: EntityId
   scene_id?: EntityId
-  drama_id: EntityId
+  drama_id?: EntityId
   character_id?: EntityId
   image_type?: string
   frame_type?: string
@@ -26,6 +26,7 @@ export interface ImageGeneration {
   error_msg?: string
   width?: number
   height?: number
+  reference_images?: string[]
   created_at: string
   updated_at: string
   completed_at?: string
@@ -38,7 +39,7 @@ export type ImageProvider = 'openai' | 'dalle' | 'midjourney' | 'stable_diffusio
 export interface GenerateImageRequest {
   scene_id?: EntityId
   storyboard_id?: EntityId
-  drama_id: EntityId
+  drama_id?: EntityId
   image_type?: string
   frame_type?: string
   prompt: string
@@ -74,6 +75,7 @@ export interface ImageGenerationListParams {
   scene_id?: EntityId
   character_id?: EntityId
   storyboard_id?: EntityId
+  image_type?: string
   frame_type?: string
   status?: ImageStatus
   page?: number

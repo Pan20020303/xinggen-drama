@@ -11,12 +11,12 @@
       </AppHeader>
 
       <div class="toolbox-grid">
-        <el-card class="tool-card" shadow="hover">
+        <el-card class="tool-card" shadow="hover" @click="goTextToImage">
           <template #header>
-            <div class="card-title">提示词助手</div>
+            <div class="card-title">文生图</div>
           </template>
-          <p>后续可接入提示词优化、风格转换和模板管理。</p>
-          <el-button disabled>即将开放</el-button>
+          <p>支持文生图与参考生图，生成后可直接归档到素材库做统一资产管理。</p>
+          <el-button type="primary">进入工具</el-button>
         </el-card>
 
         <el-card class="tool-card" shadow="hover">
@@ -40,7 +40,14 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { AppHeader } from '@/components/common'
+
+const router = useRouter()
+
+const goTextToImage = () => {
+  router.push('/tools/text-to-image')
+}
 </script>
 
 <style scoped>
@@ -52,6 +59,7 @@ import { AppHeader } from '@/components/common'
 
 .tool-card {
   min-height: 220px;
+  cursor: pointer;
 }
 
 .card-title {

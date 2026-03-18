@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -67,7 +68,7 @@ type ListAssetsRequest struct {
 	PageSize     int               `json:"page_size"`
 }
 
-func (s *AssetService) CreateAsset(req *CreateAssetRequest) (*models.Asset, error) {
+func (s *AssetService) CreateAsset(userID uint, req *CreateAssetRequest) (*models.Asset, error) {
 	var dramaID *uint
 	if req.DramaID != nil && *req.DramaID != "" {
 		id, err := strconv.ParseUint(*req.DramaID, 10, 32)
@@ -85,6 +86,7 @@ func (s *AssetService) CreateAsset(req *CreateAssetRequest) (*models.Asset, erro
 	}
 
 	asset := &models.Asset{
+		UserID:       userID,
 		DramaID:      dramaID,
 		Name:         req.Name,
 		Description:  req.Description,
@@ -110,9 +112,9 @@ func (s *AssetService) CreateAsset(req *CreateAssetRequest) (*models.Asset, erro
 	return asset, nil
 }
 
-func (s *AssetService) UpdateAsset(assetID uint, req *UpdateAssetRequest) (*models.Asset, error) {
+func (s *AssetService) UpdateAsset(userID uint, assetID uint, req *UpdateAssetRequest) (*models.Asset, error) {
 	var asset models.Asset
-	if err := s.db.Where("id = ?", assetID).First(&asset).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", assetID, userID).First(&asset).Error; err != nil {
 		return nil, fmt.Errorf("asset not found")
 	}
 
@@ -146,9 +148,9 @@ func (s *AssetService) UpdateAsset(assetID uint, req *UpdateAssetRequest) (*mode
 	return &asset, nil
 }
 
-func (s *AssetService) GetAsset(assetID uint) (*models.Asset, error) {
+func (s *AssetService) GetAsset(userID uint, assetID uint) (*models.Asset, error) {
 	var asset models.Asset
-	if err := s.db.Where("id = ? ", assetID).First(&asset).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", assetID, userID).First(&asset).Error; err != nil {
 		return nil, err
 	}
 
@@ -157,8 +159,8 @@ func (s *AssetService) GetAsset(assetID uint) (*models.Asset, error) {
 	return &asset, nil
 }
 
-func (s *AssetService) ListAssets(req *ListAssetsRequest) ([]models.Asset, int64, error) {
-	query := s.db.Model(&models.Asset{})
+func (s *AssetService) ListAssets(userID uint, req *ListAssetsRequest) ([]models.Asset, int64, error) {
+	query := s.db.Model(&models.Asset{}).Where("user_id = ?", userID)
 
 	if req.DramaID != nil {
 		var dramaID uint64
@@ -206,8 +208,8 @@ func (s *AssetService) ListAssets(req *ListAssetsRequest) ([]models.Asset, int64
 	return assets, total, nil
 }
 
-func (s *AssetService) DeleteAsset(assetID uint) error {
-	result := s.db.Where("id = ?", assetID).Delete(&models.Asset{})
+func (s *AssetService) DeleteAsset(userID uint, assetID uint) error {
+	result := s.db.Where("id = ? AND user_id = ?", assetID, userID).Delete(&models.Asset{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -217,9 +219,16 @@ func (s *AssetService) DeleteAsset(assetID uint) error {
 	return nil
 }
 
-func (s *AssetService) ImportFromImageGen(imageGenID uint) (*models.Asset, error) {
+func (s *AssetService) ImportFromImageGen(userID uint, imageGenID uint) (*models.Asset, error) {
+	var existing models.Asset
+	if err := s.db.Where("user_id = ? AND image_gen_id = ?", userID, imageGenID).First(&existing).Error; err == nil {
+		return &existing, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to query existing asset: %w", err)
+	}
+
 	var imageGen models.ImageGeneration
-	if err := s.db.Where("id = ? ", imageGenID).First(&imageGen).Error; err != nil {
+	if err := s.db.Where("id = ? AND user_id = ?", imageGenID, userID).First(&imageGen).Error; err != nil {
 		return nil, fmt.Errorf("image generation not found")
 	}
 
@@ -227,12 +236,18 @@ func (s *AssetService) ImportFromImageGen(imageGenID uint) (*models.Asset, error
 		return nil, fmt.Errorf("image is not ready")
 	}
 
-	dramaID := imageGen.DramaID
+	var dramaID *uint
+	if imageGen.DramaID != 0 {
+		dramaID = &imageGen.DramaID
+	}
+	category := "图片素材"
 	asset := &models.Asset{
+		UserID:     userID,
 		Name:       fmt.Sprintf("Image_%d", imageGen.ID),
 		Type:       models.AssetTypeImage,
 		URL:        *imageGen.ImageURL,
-		DramaID:    &dramaID,
+		DramaID:    dramaID,
+		Category:   &category,
 		ImageGenID: &imageGenID,
 		Width:      imageGen.Width,
 		Height:     imageGen.Height,
@@ -245,9 +260,16 @@ func (s *AssetService) ImportFromImageGen(imageGenID uint) (*models.Asset, error
 	return asset, nil
 }
 
-func (s *AssetService) ImportFromVideoGen(videoGenID uint) (*models.Asset, error) {
+func (s *AssetService) ImportFromVideoGen(userID uint, videoGenID uint) (*models.Asset, error) {
+	var existing models.Asset
+	if err := s.db.Where("user_id = ? AND video_gen_id = ?", userID, videoGenID).First(&existing).Error; err == nil {
+		return &existing, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to query existing asset: %w", err)
+	}
+
 	var videoGen models.VideoGeneration
-	if err := s.db.Preload("Storyboard.Episode").Where("id = ? ", videoGenID).First(&videoGen).Error; err != nil {
+	if err := s.db.Preload("Storyboard.Episode").Where("id = ? AND user_id = ?", videoGenID, userID).First(&videoGen).Error; err != nil {
 		return nil, fmt.Errorf("video generation not found")
 	}
 
@@ -255,7 +277,11 @@ func (s *AssetService) ImportFromVideoGen(videoGenID uint) (*models.Asset, error
 		return nil, fmt.Errorf("video is not ready")
 	}
 
-	dramaID := videoGen.DramaID
+	var dramaID *uint
+	if videoGen.DramaID != 0 {
+		dramaID = &videoGen.DramaID
+	}
+	category := "视频素材"
 
 	var episodeID *uint
 	var storyboardNum *int
@@ -265,15 +291,17 @@ func (s *AssetService) ImportFromVideoGen(videoGenID uint) (*models.Asset, error
 	}
 
 	asset := &models.Asset{
+		UserID:        userID,
 		Name:          fmt.Sprintf("Video_%d", videoGen.ID),
 		Type:          models.AssetTypeVideo,
 		URL:           *videoGen.VideoURL,
 		LocalPath:     videoGen.LocalPath, // 同步 local_path 到 assets 表
-		DramaID:       &dramaID,
+		DramaID:       dramaID,
 		EpisodeID:     episodeID,
 		StoryboardID:  videoGen.StoryboardID,
 		StoryboardNum: storyboardNum,
 		VideoGenID:    &videoGenID,
+		Category:      &category,
 		Duration:      videoGen.Duration,
 		Width:         videoGen.Width,
 		Height:        videoGen.Height,

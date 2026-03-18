@@ -121,8 +121,9 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/character-library',
-    name: 'CharacterLibraryCenter',
+    path: '/asset-library',
+    alias: ['/character-library'],
+    name: 'AssetLibraryCenter',
     component: () => import('../views/workflow/CharacterLibraryCenter.vue'),
     meta: { requiresAuth: true }
   },
@@ -142,6 +143,12 @@ const routes: RouteRecordRaw[] = [
     path: '/tools',
     name: 'ToolboxCenter',
     component: () => import('../views/tools/ToolboxCenter.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/tools/text-to-image',
+    name: 'ToolTextToImage',
+    component: () => import('../views/tools/ToolTextToImage.vue'),
     meta: { requiresAuth: true }
   }
 ]

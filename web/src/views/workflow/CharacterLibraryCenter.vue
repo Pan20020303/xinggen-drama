@@ -4,44 +4,63 @@
       <AppHeader :fixed="false">
         <template #left>
           <div class="page-title">
-            <h1>角色库</h1>
-            <span class="subtitle">管理可复用的角色形象素材</span>
+            <h1>素材库</h1>
+            <span class="subtitle">统一管理工具和项目生成的图片、视频素材</span>
           </div>
-        </template>
-        <template #right>
-          <el-button type="primary" @click="openCreateDialog">新增角色素材</el-button>
         </template>
       </AppHeader>
 
-      <div class="filters">
-        <el-input v-model="query.keyword" placeholder="按名称搜索" clearable @change="loadItems" />
-        <el-input v-model="query.category" placeholder="分类（可选）" clearable @change="loadItems" />
+      <div class="asset-toolbar">
+        <el-tabs v-model="activeTab" class="asset-tabs" @tab-change="handleTabChange">
+          <el-tab-pane label="图片素材" name="image" />
+          <el-tab-pane label="视频素材" name="video" />
+          <el-tab-pane label="音频素材" name="audio" />
+        </el-tabs>
+        <div class="asset-search">
+          <el-input v-model="query.keyword" placeholder="按名称搜索素材" clearable @change="loadItems" />
+        </div>
       </div>
 
-      <div class="table-wrapper" v-loading="loading">
-        <el-table :data="items" stripe>
-          <el-table-column label="预览" width="90">
-            <template #default="{ row }">
-              <el-image
-                :src="row.image_url"
-                style="width: 56px; height: 56px; border-radius: 8px"
-                fit="cover"
-                :preview-src-list="[row.image_url]"
-                preview-teleported
-              />
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="name" label="名称" min-width="180" />
-          <el-table-column prop="category" label="分类" min-width="120" />
-          <el-table-column prop="source_type" label="来源" min-width="100" />
-          <el-table-column prop="updated_at" label="更新时间" min-width="180" />
-          <el-table-column label="操作" width="120" fixed="right">
-            <template #default="{ row }">
-              <el-button type="danger" link @click="deleteItem(row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+      <div v-loading="loading" class="asset-grid">
+        <el-empty v-if="!loading && items.length === 0" description="暂无素材" />
+        <article v-for="item in items" v-else :key="item.id" class="asset-card">
+          <div class="asset-preview" @click="openAsset(item.url)">
+            <el-image
+              v-if="item.type === 'image'"
+              :src="item.url"
+              fit="cover"
+              class="asset-image"
+              :preview-src-list="[item.url]"
+              preview-teleported
+            />
+            <video v-else-if="item.type === 'video'" :src="item.url" class="asset-video" controls preload="metadata" />
+            <div v-else class="asset-audio-placeholder">音频素材</div>
+          </div>
+          <div class="asset-body">
+            <div class="asset-top">
+              <h3>{{ item.name }}</h3>
+              <div class="asset-top-actions">
+                <el-tag size="small" :type="assetTagMap[item.type]">
+                  {{ assetTypeLabelMap[item.type] }}
+                </el-tag>
+                <el-button text class="favorite-btn" @click="toggleFavorite(item)">
+                  <el-icon :class="{ 'is-favorite': item.is_favorite }">
+                    <StarFilled v-if="item.is_favorite" />
+                    <Star v-else />
+                  </el-icon>
+                </el-button>
+              </div>
+            </div>
+            <div class="asset-meta">
+              <span v-if="item.category">{{ item.category }}</span>
+              <span>{{ formatTime(item.created_at) }}</span>
+            </div>
+            <div class="asset-actions">
+              <el-button size="small" @click="openAsset(item.url)">查看</el-button>
+              <el-button size="small" type="danger" plain @click="deleteItem(item.id)">删除</el-button>
+            </div>
+          </div>
+        </article>
       </div>
 
       <div class="pagination">
@@ -49,124 +68,78 @@
           v-model:current-page="query.page"
           v-model:page-size="query.page_size"
           :total="total"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="[12, 24, 48]"
           layout="total, sizes, prev, pager, next"
           @current-change="loadItems"
           @size-change="loadItems"
         />
       </div>
     </div>
-
-    <el-dialog v-model="createDialogVisible" title="新增角色素材" width="520px">
-      <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="createForm.name" placeholder="例如：女主角（现代装）" />
-        </el-form-item>
-        <el-form-item label="图片 URL" prop="image_url">
-          <el-input v-model="createForm.image_url" placeholder="请输入可访问图片地址" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model="createForm.category" placeholder="可选，如：主角 / 配角" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="createForm.description" type="textarea" :rows="3" />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="createItem">创建</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { Star, StarFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { AppHeader } from '@/components/common'
-import { characterLibraryAPI, type CharacterLibraryItem } from '@/api/character-library'
+import { assetAPI } from '@/api/asset'
+import type { Asset, AssetType } from '@/types/asset'
 
 const loading = ref(false)
-const items = ref<CharacterLibraryItem[]>([])
+const items = ref<Asset[]>([])
 const total = ref(0)
+const activeTab = ref<AssetType>('image')
+
+const assetTypeLabelMap: Record<AssetType, string> = {
+  image: '图片',
+  video: '视频',
+  audio: '音频'
+}
+
+const assetTagMap: Record<AssetType, 'info' | 'success' | 'warning'> = {
+  image: 'info',
+  video: 'success',
+  audio: 'warning'
+}
 
 const query = reactive({
   page: 1,
-  page_size: 10,
-  category: '',
+  page_size: 12,
   keyword: ''
 })
 
 const loadItems = async () => {
   loading.value = true
   try {
-    const res = await characterLibraryAPI.list({
+    const res = await assetAPI.listAssets({
       page: query.page,
       page_size: query.page_size,
-      category: query.category || undefined,
-      keyword: query.keyword || undefined
+      type: activeTab.value,
+      search: query.keyword || undefined
     })
     items.value = res.items || []
     total.value = res.pagination?.total || 0
   } catch (error: any) {
-    ElMessage.error(error?.message || '加载角色库失败')
+    ElMessage.error(error?.message || '加载素材库失败')
   } finally {
     loading.value = false
   }
 }
 
-const createDialogVisible = ref(false)
-const creating = ref(false)
-const createFormRef = ref<FormInstance>()
-const createForm = reactive({
-  name: '',
-  image_url: '',
-  category: '',
-  description: ''
-})
-
-const createRules: FormRules = {
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  image_url: [{ required: true, message: '请输入图片地址', trigger: 'blur' }]
+const handleTabChange = () => {
+  query.page = 1
+  loadItems()
 }
 
-const openCreateDialog = () => {
-  createDialogVisible.value = true
-  createForm.name = ''
-  createForm.image_url = ''
-  createForm.category = ''
-  createForm.description = ''
-}
-
-const createItem = async () => {
-  if (!createFormRef.value) return
-  const valid = await createFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  creating.value = true
-  try {
-    await characterLibraryAPI.create({
-      name: createForm.name,
-      image_url: createForm.image_url,
-      category: createForm.category || undefined,
-      description: createForm.description || undefined,
-      source_type: 'upload'
-    })
-    ElMessage.success('创建成功')
-    createDialogVisible.value = false
-    await loadItems()
-  } catch (error: any) {
-    ElMessage.error(error?.message || '创建失败')
-  } finally {
-    creating.value = false
-  }
+const openAsset = (url: string) => {
+  window.open(url, '_blank')
 }
 
 const deleteItem = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确认删除该角色素材吗？', '提示', { type: 'warning' })
-    await characterLibraryAPI.delete(id)
+    await ElMessageBox.confirm('确认删除该素材吗？', '提示', { type: 'warning' })
+    await assetAPI.deleteAsset(id)
     ElMessage.success('删除成功')
     await loadItems()
   } catch (error: any) {
@@ -174,6 +147,30 @@ const deleteItem = async (id: string) => {
       ElMessage.error(error?.message || '删除失败')
     }
   }
+}
+
+const toggleFavorite = async (item: Asset) => {
+  try {
+    const next = !item.is_favorite
+    await assetAPI.updateAsset(item.id, { is_favorite: next })
+    item.is_favorite = next
+    ElMessage.success(next ? '已加入收藏' : '已取消收藏')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '更新收藏失败')
+  }
+}
+
+const formatTime = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 onMounted(loadItems)
@@ -206,15 +203,106 @@ onMounted(loadItems)
   color: var(--text-muted);
 }
 
-.filters {
+.asset-toolbar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(240px, 360px) minmax(280px, 420px);
+  justify-content: space-between;
   gap: 12px;
   padding: 12px;
 }
 
-.table-wrapper {
+.asset-tabs {
   padding: 0 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  background: var(--bg-card);
+}
+
+.asset-search {
+  display: flex;
+  align-items: center;
+}
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  padding: 0 12px 12px;
+}
+
+.asset-card {
+  overflow: hidden;
+  border: 1px solid var(--border-primary);
+  border-radius: 18px;
+  background: var(--bg-card);
+}
+
+.asset-preview {
+  aspect-ratio: 1 / 1;
+  background: var(--bg-muted);
+  cursor: pointer;
+}
+
+.asset-image,
+.asset-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.asset-audio-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.asset-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.asset-top,
+.asset-meta,
+.asset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.asset-top h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.asset-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.favorite-btn {
+  padding: 0;
+}
+
+.favorite-btn :deep(.el-icon) {
+  font-size: 18px;
+}
+
+.favorite-btn :deep(.el-icon.is-favorite) {
+  color: #f59e0b;
+}
+
+.asset-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .pagination {
@@ -224,7 +312,7 @@ onMounted(loadItems)
 }
 
 @media (max-width: 768px) {
-  .filters {
+  .asset-toolbar {
     grid-template-columns: 1fr;
   }
 }

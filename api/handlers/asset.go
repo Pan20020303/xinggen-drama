@@ -8,6 +8,7 @@ import (
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/pkg/logger"
 	"github.com/drama-generator/backend/pkg/response"
+	"github.com/drama-generator/backend/pkg/tenant"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,6 +25,11 @@ func NewAssetHandler(assetService *services.AssetService, log *logger.Logger) *A
 }
 
 func (h *AssetHandler) CreateAsset(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var req services.CreateAssetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -31,7 +37,7 @@ func (h *AssetHandler) CreateAsset(c *gin.Context) {
 		return
 	}
 
-	asset, err := h.assetService.CreateAsset(&req)
+	asset, err := h.assetService.CreateAsset(userID, &req)
 	if err != nil {
 		h.log.Errorw("Failed to create asset", "error", err)
 		response.InternalError(c, err.Error())
@@ -42,6 +48,11 @@ func (h *AssetHandler) CreateAsset(c *gin.Context) {
 }
 
 func (h *AssetHandler) UpdateAsset(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	assetID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -55,7 +66,7 @@ func (h *AssetHandler) UpdateAsset(c *gin.Context) {
 		return
 	}
 
-	asset, err := h.assetService.UpdateAsset(uint(assetID), &req)
+	asset, err := h.assetService.UpdateAsset(userID, uint(assetID), &req)
 	if err != nil {
 		h.log.Errorw("Failed to update asset", "error", err)
 		response.InternalError(c, err.Error())
@@ -66,6 +77,11 @@ func (h *AssetHandler) UpdateAsset(c *gin.Context) {
 }
 
 func (h *AssetHandler) GetAsset(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	assetID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -73,7 +89,7 @@ func (h *AssetHandler) GetAsset(c *gin.Context) {
 		return
 	}
 
-	asset, err := h.assetService.GetAsset(uint(assetID))
+	asset, err := h.assetService.GetAsset(userID, uint(assetID))
 	if err != nil {
 		response.NotFound(c, "素材不存在")
 		return
@@ -83,6 +99,11 @@ func (h *AssetHandler) GetAsset(c *gin.Context) {
 }
 
 func (h *AssetHandler) ListAssets(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	var dramaID *string
 	if dramaIDStr := c.Query("drama_id"); dramaIDStr != "" {
@@ -154,7 +175,7 @@ func (h *AssetHandler) ListAssets(c *gin.Context) {
 		PageSize:     pageSize,
 	}
 
-	assets, total, err := h.assetService.ListAssets(req)
+	assets, total, err := h.assetService.ListAssets(userID, req)
 	if err != nil {
 		h.log.Errorw("Failed to list assets", "error", err)
 		response.InternalError(c, err.Error())
@@ -165,6 +186,11 @@ func (h *AssetHandler) ListAssets(c *gin.Context) {
 }
 
 func (h *AssetHandler) DeleteAsset(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	assetID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -172,7 +198,7 @@ func (h *AssetHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 
-	if err := h.assetService.DeleteAsset(uint(assetID)); err != nil {
+	if err := h.assetService.DeleteAsset(userID, uint(assetID)); err != nil {
 		h.log.Errorw("Failed to delete asset", "error", err)
 		response.InternalError(c, err.Error())
 		return
@@ -182,6 +208,11 @@ func (h *AssetHandler) DeleteAsset(c *gin.Context) {
 }
 
 func (h *AssetHandler) ImportFromImageGen(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	imageGenID, err := strconv.ParseUint(c.Param("image_gen_id"), 10, 32)
 	if err != nil {
@@ -189,7 +220,7 @@ func (h *AssetHandler) ImportFromImageGen(c *gin.Context) {
 		return
 	}
 
-	asset, err := h.assetService.ImportFromImageGen(uint(imageGenID))
+	asset, err := h.assetService.ImportFromImageGen(userID, uint(imageGenID))
 	if err != nil {
 		h.log.Errorw("Failed to import from image gen", "error", err)
 		response.InternalError(c, err.Error())
@@ -200,6 +231,11 @@ func (h *AssetHandler) ImportFromImageGen(c *gin.Context) {
 }
 
 func (h *AssetHandler) ImportFromVideoGen(c *gin.Context) {
+	userID, err := tenant.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c, "用户未登录")
+		return
+	}
 
 	videoGenID, err := strconv.ParseUint(c.Param("video_gen_id"), 10, 32)
 	if err != nil {
@@ -207,7 +243,7 @@ func (h *AssetHandler) ImportFromVideoGen(c *gin.Context) {
 		return
 	}
 
-	asset, err := h.assetService.ImportFromVideoGen(uint(videoGenID))
+	asset, err := h.assetService.ImportFromVideoGen(userID, uint(videoGenID))
 	if err != nil {
 		h.log.Errorw("Failed to import from video gen", "error", err)
 		response.InternalError(c, err.Error())

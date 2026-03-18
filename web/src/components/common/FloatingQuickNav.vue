@@ -20,7 +20,7 @@
 import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { useRoute, useRouter } from 'vue-router'
-import { Box, Collection, Coin, Document, Files, FolderOpened, Picture, Reading, Tools, User } from '@element-plus/icons-vue'
+import { Box, Coin, Document, Files, FolderOpened, Picture, Reading, Tools, User } from '@element-plus/icons-vue'
 
 interface QuickNavItem {
   key: string
@@ -113,10 +113,10 @@ const items = computed<QuickNavItem[]>(() => {
     },
     {
       key: 'library',
-      label: '角色库',
-      target: '/character-library',
-      icon: Collection,
-      active: route.path.startsWith('/character-library')
+      label: '素材库',
+      target: '/asset-library',
+      icon: Files,
+      active: route.path.startsWith('/asset-library') || route.path.startsWith('/character-library')
     },
     {
       key: 'credits',

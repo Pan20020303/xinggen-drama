@@ -71,7 +71,7 @@ func TestListImageGenerations_FiltersByCharacterID(t *testing.T) {
 		}
 	}
 
-	result, total, err := svc.ListImageGenerations(userID, &dramaID, nil, &characterID, nil, "", string(completed), 1, 20)
+	result, total, err := svc.ListImageGenerations(userID, &dramaID, nil, &characterID, nil, "", "", string(completed), 1, 20)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -84,4 +84,97 @@ func TestListImageGenerations_FiltersByCharacterID(t *testing.T) {
 	if result[0].CharacterID == nil || *result[0].CharacterID != characterID {
 		t.Fatalf("expected character_id=%d, got %#v", characterID, result[0].CharacterID)
 	}
+}
+
+func TestListImageGenerations_FiltersByImageType(t *testing.T) {
+	db := newImageGenerationServiceTestDB(t)
+	svc := &ImageGenerationService{db: db}
+
+	userID := uint(11)
+	dramaID := uint(20)
+
+	items := []models.ImageGeneration{
+		{
+			UserID:    userID,
+			DramaID:   dramaID,
+			ImageType: "toolbox",
+			Provider:  "openai",
+			Prompt:    "toolbox image",
+			Model:     "seedream",
+			Size:      "1024x1024",
+			Quality:   "standard",
+			Status:    models.ImageStatusCompleted,
+		},
+		{
+			UserID:    userID,
+			DramaID:   dramaID,
+			ImageType: string(models.ImageTypeStoryboard),
+			Provider:  "openai",
+			Prompt:    "storyboard image",
+			Model:     "seedream",
+			Size:      "1024x1024",
+			Quality:   "standard",
+			Status:    models.ImageStatusCompleted,
+		},
+	}
+
+	for _, item := range items {
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatalf("failed to seed image generation: %v", err)
+		}
+	}
+
+	result, total, err := svc.ListImageGenerations(userID, nil, nil, nil, nil, "", "toolbox", string(models.ImageStatusCompleted), 1, 20)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total=1, got %d", total)
+	}
+	if len(result) != 1 || result[0].ImageType != "toolbox" {
+		t.Fatalf("expected only toolbox image, got %#v", result)
+	}
+}
+
+func TestNormalizeDimensionsForModel_ExpandsSeedream45TooSmallRequest(t *testing.T) {
+	req := &GenerateImageRequest{
+		Model:  "doubao-seedream-4-5-251128",
+		Size:   "1920x1080",
+		Width:  intPtr(1920),
+		Height: intPtr(1080),
+	}
+
+	normalizeDimensionsForModel(req)
+
+	if req.Width == nil || req.Height == nil {
+		t.Fatalf("expected normalized dimensions to be set")
+	}
+	if *req.Width != 2560 || *req.Height != 1440 {
+		t.Fatalf("expected 2560x1440, got %dx%d", *req.Width, *req.Height)
+	}
+	if req.Size != "2560x1440" {
+		t.Fatalf("expected size 2560x1440, got %s", req.Size)
+	}
+}
+
+func TestNormalizeDimensionsForModel_LeavesLargeEnoughRequestUnchanged(t *testing.T) {
+	req := &GenerateImageRequest{
+		Model:  "doubao-seedream-4-5-251128",
+		Size:   "2560x1440",
+		Width:  intPtr(2560),
+		Height: intPtr(1440),
+	}
+
+	normalizeDimensionsForModel(req)
+
+	if *req.Width != 2560 || *req.Height != 1440 {
+		t.Fatalf("expected dimensions unchanged, got %dx%d", *req.Width, *req.Height)
+	}
+	if req.Size != "2560x1440" {
+		t.Fatalf("expected size unchanged, got %s", req.Size)
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
 }
