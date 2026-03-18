@@ -58,7 +58,7 @@ func (s *DramaService) CreateDrama(userID uint, req *CreateDramaRequest) (*model
 		UserID: userID,
 		Title:  req.Title,
 		Status: "draft",
-		Style:  "ghibli", // 默认风格
+		Style:  "custom",
 	}
 
 	if req.Description != "" {

@@ -585,7 +585,7 @@ func (p *PromptI18n) FormatUserPrompt(key string, args ...interface{}) string {
 
 // GetStylePrompt 获取风格提示词
 func (p *PromptI18n) GetStylePrompt(style string) string {
-	if style == "" {
+	if style == "" || style == "custom" {
 		return ""
 	}
 

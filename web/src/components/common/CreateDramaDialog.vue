@@ -47,6 +47,7 @@
           size="large"
           style="width: 100%"
         >
+          <el-option :label="$t('drama.styles.custom')" value="custom" />
           <el-option :label="$t('drama.styles.ghibli')" value="ghibli" />
           <el-option :label="$t('drama.styles.guoman')" value="guoman" />
           <el-option :label="$t('drama.styles.wasteland')" value="wasteland" />
@@ -120,7 +121,7 @@ watch(visible, (val) => {
 const form = reactive<CreateDramaRequest>({
   title: "",
   description: "",
-  style: "ghibli",
+  style: "custom",
 });
 
 // Validation rules / 验证规则
@@ -141,6 +142,7 @@ const rules: FormRules = {
 const handleClosed = () => {
   form.title = "";
   form.description = "";
+  form.style = "custom";
   formRef.value?.resetFields();
 };
 

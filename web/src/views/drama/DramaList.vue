@@ -126,6 +126,7 @@
               size="large"
               style="width: 100%"
             >
+              <el-option :label="$t('drama.styles.custom')" value="custom" />
               <el-option :label="$t('drama.styles.ghibli')" value="ghibli" />
               <el-option :label="$t('drama.styles.guoman')" value="guoman" />
               <el-option
@@ -336,7 +337,7 @@ const editForm = ref({
   id: "",
   title: "",
   description: "",
-  style: "ghibli",
+  style: "custom",
 });
 
 // Open edit dialog / 打开编辑对话框
@@ -349,7 +350,7 @@ const editDrama = async (id: string) => {
       id: drama.id,
       title: drama.title,
       description: drama.description || "",
-      style: drama.style || "ghibli",
+      style: drama.style || "custom",
     };
   } catch (error: any) {
     ElMessage.error(error.message || "加载失败");
