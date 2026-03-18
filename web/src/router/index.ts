@@ -131,6 +131,18 @@ const routes: RouteRecordRaw[] = [
     name: 'AccountCenter',
     component: () => import('../views/settings/AccountCenter.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/billing/purchase',
+    name: 'CreditPurchase',
+    component: () => import('../views/billing/CreditPurchase.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/tools',
+    name: 'ToolboxCenter',
+    component: () => import('../views/tools/ToolboxCenter.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 
