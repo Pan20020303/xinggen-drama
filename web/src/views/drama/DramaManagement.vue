@@ -4,7 +4,7 @@
       <!-- Page Header / 页面头部 -->
       <AppHeader :fixed="false" :show-logo="false">
         <template #left>
-          <el-button text @click="$router.back()" class="back-btn">
+          <el-button text @click="goDramaList" class="back-btn">
             <el-icon><ArrowLeft /></el-icon>
             <span>{{ $t("common.back") }}</span>
           </el-button>
@@ -144,63 +144,62 @@
               </el-button>
             </el-empty>
 
-            <el-table
-              v-else
-              :data="sortedEpisodes"
-              border
-              stripe
-              style="margin-top: 16px"
-            >
-              <el-table-column
-                type="index"
-                :label="$t('storyboard.table.number')"
-                width="80"
-              />
-              <el-table-column
-                prop="title"
-                :label="$t('drama.management.episodeList')"
-                min-width="200"
-              />
-              <el-table-column :label="$t('common.status')" width="120">
-                <template #default="{ row }">
-                  <el-tag :type="getEpisodeStatusType(row)">{{
-                    getEpisodeStatusText(row)
-                  }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="Shots" width="100">
-                <template #default="{ row }">
-                  {{ row.shots?.length || 0 }}
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('common.createdAt')" width="180">
-                <template #default="{ row }">
-                  {{ formatDate(row.created_at) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="$t('storyboard.table.operations')"
-                width="220"
-                fixed="right"
+            <div v-else class="episode-folder-grid">
+              <article
+                v-for="episode in sortedEpisodes"
+                :key="episode.id || episode.episode_number"
+                class="episode-folder-card"
+                @click="enterEpisodeWorkflow(episode)"
               >
-                <template #default="{ row }">
+                <div class="episode-folder-cover">
+                  <div class="episode-folder-tab" />
+                  <div class="episode-folder-icon">
+                    <el-icon><Document /></el-icon>
+                  </div>
+                  <el-tag
+                    size="small"
+                    class="episode-folder-status"
+                    :type="getEpisodeStatusType(episode)"
+                  >
+                    {{ getEpisodeStatusText(episode) }}
+                  </el-tag>
+                </div>
+
+                <div class="episode-folder-content">
+                  <p class="episode-folder-index">
+                    第{{ episode.episode_number }}章
+                  </p>
+                  <h3>
+                    {{ episode.title || `第${episode.episode_number}章` }}
+                  </h3>
+                  <div class="episode-folder-stats">
+                    <span>镜头 {{ episode.shots?.length || 0 }}</span>
+                    <span>
+                      {{ $t("common.createdAt") }}：{{ formatDate(episode.created_at) }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="episode-folder-actions" @click.stop>
                   <el-button
                     size="small"
                     type="primary"
-                    @click="enterEpisodeWorkflow(row)"
+                    plain
+                    @click="enterEpisodeWorkflow(episode)"
                   >
                     {{ $t("drama.management.goToEdit") }}
                   </el-button>
                   <el-button
                     size="small"
                     type="danger"
-                    @click="deleteEpisode(row)"
+                    plain
+                    @click="deleteEpisode(episode)"
                   >
                     {{ $t("common.delete") }}
                   </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+                </div>
+              </article>
+            </div>
           </el-tab-pane>
 
           <!-- 角色管理 -->
@@ -1762,15 +1761,31 @@ const handleExtractProps = async () => {
   }
 };
 
+const syncActiveTabFromRoute = () => {
+  const queryTab = typeof route.query.tab === "string" ? route.query.tab : "";
+  if (queryTab) {
+    activeTab.value = queryTab;
+    return;
+  }
+  activeTab.value = "overview";
+};
+
+const goDramaList = () => {
+  router.push("/");
+};
+
 onMounted(() => {
   loadDramaData();
   loadScenes();
-
-  // 如果有query参数指定tab，切换到对应tab
-  if (route.query.tab) {
-    activeTab.value = route.query.tab as string;
-  }
+  syncActiveTabFromRoute();
 });
+
+watch(
+  () => route.query.tab,
+  () => {
+    syncActiveTabFromRoute();
+  },
+);
 
 watch(activeTab, (tab) => {
   if (tab === "assets") {
@@ -1841,6 +1856,14 @@ watch(activeTab, (tab) => {
   box-shadow: var(--shadow-card);
 }
 
+.management-tabs :deep(.el-tabs__header) {
+  display: none;
+}
+
+.management-tabs :deep(.el-tabs__content) {
+  overflow: visible;
+}
+
 @media (min-width: 768px) {
   .tabs-wrapper {
     padding: var(--space-4);
@@ -1871,6 +1894,119 @@ watch(activeTab, (tab) => {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+}
+
+/* ========================================
+   Episode Folder Cards / 章节文件夹卡片
+   ======================================== */
+.episode-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin-top: 16px;
+}
+
+.episode-folder-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-primary);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition:
+    transform var(--transition-normal),
+    box-shadow var(--transition-normal),
+    border-color var(--transition-normal);
+}
+
+.episode-folder-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border-primary));
+  box-shadow: var(--shadow-card-hover);
+}
+
+.episode-folder-cover {
+  position: relative;
+  min-height: 138px;
+  padding: 22px 22px 18px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.22), transparent 38%),
+    radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.18), transparent 32%),
+    linear-gradient(180deg, #eef5ff 0%, #e5eefc 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 88%, white);
+}
+
+.episode-folder-tab {
+  position: absolute;
+  top: 0;
+  left: 22px;
+  width: 92px;
+  height: 18px;
+  border-radius: 0 0 14px 14px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.2);
+}
+
+.episode-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--accent);
+  font-size: 28px;
+  box-shadow: 0 10px 30px rgba(148, 163, 184, 0.2);
+}
+
+.episode-folder-status {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+}
+
+.episode-folder-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px 14px;
+}
+
+.episode-folder-index {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.episode-folder-content h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.episode-folder-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.episode-folder-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 22px 20px;
+}
+
+.episode-folder-actions .el-button {
+  flex: 1;
 }
 
 /* ========================================
@@ -2014,6 +2150,24 @@ watch(activeTab, (tab) => {
    ======================================== */
 .dark .tabs-wrapper {
   background: var(--bg-card);
+}
+
+.dark .episode-folder-card {
+  background: var(--bg-card);
+  border-color: var(--border-primary);
+}
+
+.dark .episode-folder-cover {
+  background:
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.26), transparent 38%),
+    radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.94) 0%, rgba(17, 24, 39, 0.98) 100%);
+  border-bottom-color: var(--border-primary);
+}
+
+.dark .episode-folder-tab,
+.dark .episode-folder-icon {
+  background: rgba(15, 23, 42, 0.72);
 }
 
 .dark :deep(.el-card) {
