@@ -1,7 +1,9 @@
 package services
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/drama-generator/backend/domain/models"
 	"github.com/drama-generator/backend/infrastructure/database"
@@ -140,8 +142,8 @@ func TestNormalizeDimensionsForModel_ExpandsSeedream45TooSmallRequest(t *testing
 	req := &GenerateImageRequest{
 		Model:  "doubao-seedream-4-5-251128",
 		Size:   "1920x1080",
-		Width:  intPtr(1920),
-		Height: intPtr(1080),
+		Width:  imageIntPtr(1920),
+		Height: imageIntPtr(1080),
 	}
 
 	normalizeDimensionsForModel(req)
@@ -161,8 +163,8 @@ func TestNormalizeDimensionsForModel_LeavesLargeEnoughRequestUnchanged(t *testin
 	req := &GenerateImageRequest{
 		Model:  "doubao-seedream-4-5-251128",
 		Size:   "2560x1440",
-		Width:  intPtr(2560),
-		Height: intPtr(1440),
+		Width:  imageIntPtr(2560),
+		Height: imageIntPtr(1440),
 	}
 
 	normalizeDimensionsForModel(req)
@@ -202,10 +204,48 @@ func TestParseOptionalDramaID_InvalidValueReturnsError(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int {
+func TestDispatchImageGeneration_PublishesMQJob(t *testing.T) {
+	dispatcher := &capturingDispatcher{}
+	svc := &ImageGenerationService{dispatcher: dispatcher}
+
+	if err := svc.dispatchImageGeneration(42); err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+
+	if dispatcher.job.Type != JobTypeImageGeneration {
+		t.Fatalf("expected job type %s, got %s", JobTypeImageGeneration, dispatcher.job.Type)
+	}
+
+	var payload ImageGenerationJobPayload
+	if err := json.Unmarshal(dispatcher.job.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload error: %v", err)
+	}
+	if payload.ImageGenerationID != 42 {
+		t.Fatalf("expected image generation id 42, got %d", payload.ImageGenerationID)
+	}
+}
+
+func imageIntPtr(v int) *int {
 	return &v
 }
 
 func uintPtr(v uint) *uint {
 	return &v
+}
+
+type capturingDispatcher struct {
+	job        AsyncJob
+	delayedJob AsyncJob
+	delay      time.Duration
+}
+
+func (d *capturingDispatcher) Dispatch(job AsyncJob) error {
+	d.job = job
+	return nil
+}
+
+func (d *capturingDispatcher) DispatchDelayed(job AsyncJob, delay time.Duration) error {
+	d.delayedJob = job
+	d.delay = delay
+	return nil
 }

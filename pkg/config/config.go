@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -14,6 +15,7 @@ type Config struct {
 	AI       AIConfig       `mapstructure:"ai"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Billing  BillingConfig  `mapstructure:"billing"`
+	MQ       MQConfig       `mapstructure:"mq"`
 }
 
 type AppConfig struct {
@@ -63,8 +65,17 @@ type AuthConfig struct {
 }
 
 type BillingConfig struct {
-	FramePromptCredits    int `mapstructure:"frame_prompt_credits"`
+	FramePromptCredits     int `mapstructure:"frame_prompt_credits"`
 	ImageGenerationCredits int `mapstructure:"image_generation_credits"`
+}
+
+type MQConfig struct {
+	Enabled             bool   `mapstructure:"enabled"`
+	URL                 string `mapstructure:"url"`
+	QueuePrefix         string `mapstructure:"queue_prefix"`
+	ConsumerEnabled     bool   `mapstructure:"consumer_enabled"`
+	ConsumerConcurrency int    `mapstructure:"consumer_concurrency"`
+	PrefetchCount       int    `mapstructure:"prefetch_count"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -73,6 +84,7 @@ func LoadConfig() (*Config, error) {
 	viper.AddConfigPath("./configs")
 	viper.AddConfigPath(".")
 
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {

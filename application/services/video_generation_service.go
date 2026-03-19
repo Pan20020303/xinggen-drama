@@ -28,9 +28,15 @@ type VideoGenerationService struct {
 	ffmpeg          *ffmpeg.FFmpeg
 	promptI18n      *PromptI18n
 	runner          *TaskRunner
+	dispatcher      JobDispatcher
 }
 
-func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
+const (
+	videoPollMaxAttempts = 300
+	videoPollInterval    = 10 * time.Second
+)
+
+func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, aiService *AIService, dispatcher JobDispatcher, log *logger.Logger, promptI18n *PromptI18n) *VideoGenerationService {
 	service := &VideoGenerationService{
 		db:              db,
 		localStorage:    localStorage,
@@ -41,6 +47,7 @@ func NewVideoGenerationService(db *gorm.DB, cfg *config.Config, transferService 
 		ffmpeg:          ffmpeg.NewFFmpeg(log),
 		promptI18n:      promptI18n,
 		runner:          NewTaskRunner(log, 6),
+		dispatcher:      dispatcher,
 	}
 
 	service.runner.Submit("video.recover_pending_tasks", func() {
@@ -206,11 +213,46 @@ func (s *VideoGenerationService) GenerateVideo(userID uint, request *GenerateVid
 	// Start background goroutine to process video generation asynchronously
 	// This allows the API to return immediately while video generation happens in background
 	// CRITICAL: The goroutine will handle all video generation logic including API calls and polling
-	s.runner.Submit("video.process_generation", func() {
-		s.ProcessVideoGeneration(videoGen.ID)
-	})
+	if err := s.dispatchVideoGeneration(videoGen.ID); err != nil {
+		s.log.Warnw("Failed to dispatch video generation through task bus, fallback to local runner", "error", err, "id", videoGen.ID)
+		s.runner.Submit("video.process_generation", func() {
+			s.ProcessVideoGeneration(videoGen.ID)
+		})
+	}
 
 	return videoGen, nil
+}
+
+func (s *VideoGenerationService) dispatchVideoGeneration(videoGenID uint) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	payload, err := json.Marshal(VideoGenerationJobPayload{VideoGenerationID: videoGenID})
+	if err != nil {
+		return fmt.Errorf("marshal video job payload: %w", err)
+	}
+
+	return s.dispatcher.Dispatch(AsyncJob{
+		Type:    JobTypeVideoGeneration,
+		Payload: payload,
+	})
+}
+
+func (s *VideoGenerationService) dispatchVideoPollStatus(payload VideoPollStatusJobPayload, delay time.Duration) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal video poll payload: %w", err)
+	}
+
+	return s.dispatcher.DispatchDelayed(AsyncJob{
+		Type:    JobTypeVideoPollStatus,
+		Payload: body,
+	}, delay)
 }
 
 func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
@@ -387,12 +429,18 @@ func (s *VideoGenerationService) ProcessVideoGeneration(videoGenID uint) {
 			"task_id": result.TaskID,
 			"status":  models.VideoStatusProcessing,
 		})
-		// Start background goroutine to poll task status
-		// This allows the API to return immediately while video generation continues asynchronously
-		// The goroutine will poll until completion, failure, or timeout (max 300 attempts * 10s = 50 minutes)
-		s.runner.Submit("video.poll_task_status", func() {
-			s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model, recordedUsage)
-		})
+		payload := VideoPollStatusJobPayload{
+			VideoGenerationID: videoGenID,
+			TaskID:            result.TaskID,
+			RecordedUsage:     recordedUsage,
+			Attempt:           0,
+		}
+		if err := s.dispatchVideoPollStatus(payload, videoPollInterval); err != nil {
+			s.log.Warnw("Failed to dispatch delayed video poll through task bus, fallback to local runner", "error", err, "id", videoGenID, "task_id", result.TaskID)
+			s.runner.Submit("video.poll_task_status", func() {
+				s.pollTaskStatus(videoGenID, result.TaskID, videoGen.Provider, videoGen.Model, recordedUsage)
+			})
+		}
 		return
 	}
 
@@ -426,16 +474,10 @@ func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, 
 		return
 	}
 
-	// Polling configuration: max 300 attempts with 10 second intervals
-	// Total maximum polling time: 300 * 10s = 50 minutes
-	// This prevents infinite polling if the task never completes
-	maxAttempts := 300
-	interval := 10 * time.Second
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := 0; attempt < videoPollMaxAttempts; attempt++ {
 		// Sleep before each poll attempt to avoid overwhelming the API
 		// First iteration sleeps before the first check (after 0 attempts)
-		time.Sleep(interval)
+		time.Sleep(videoPollInterval)
 
 		var videoGen models.VideoGeneration
 		if err := s.db.First(&videoGen, videoGenID).Error; err != nil {
@@ -495,13 +537,101 @@ func (s *VideoGenerationService) pollTaskStatus(videoGenID uint, taskID string, 
 		}
 
 		// Task still in progress - log and continue polling
-		s.log.Infow("Video generation in progress", "id", videoGenID, "attempt", attempt+1, "max_attempts", maxAttempts)
+		s.log.Infow("Video generation in progress", "id", videoGenID, "attempt", attempt+1, "max_attempts", videoPollMaxAttempts)
 	}
 
 	// CRITICAL FIX: Handle polling timeout gracefully
 	// After maxAttempts (50 minutes), mark task as failed if still not completed
 	// This prevents indefinite polling and resource waste
-	s.updateVideoGenError(videoGenID, fmt.Sprintf("polling timeout after %d attempts (%.1f minutes)", maxAttempts, float64(maxAttempts*int(interval))/60.0))
+	s.updateVideoGenError(videoGenID, fmt.Sprintf("polling timeout after %d attempts (%.1f minutes)", videoPollMaxAttempts, float64(videoPollMaxAttempts*int(videoPollInterval))/60.0))
+}
+
+func (s *VideoGenerationService) ProcessVideoPollStatus(payload VideoPollStatusJobPayload) {
+	if payload.TaskID == "" {
+		s.log.Errorw("Invalid empty taskID for delayed polling", "video_gen_id", payload.VideoGenerationID)
+		s.updateVideoGenError(payload.VideoGenerationID, "invalid task ID for polling")
+		return
+	}
+
+	var videoGen models.VideoGeneration
+	if err := s.db.First(&videoGen, payload.VideoGenerationID).Error; err != nil {
+		s.log.Errorw("Failed to load video generation for delayed polling", "error", err, "id", payload.VideoGenerationID)
+		return
+	}
+
+	if videoGen.Status != models.VideoStatusProcessing {
+		s.log.Infow("Video generation status changed, skipping delayed poll", "id", payload.VideoGenerationID, "status", videoGen.Status)
+		return
+	}
+
+	if videoGen.TaskID == nil || *videoGen.TaskID == "" {
+		s.updateVideoGenError(payload.VideoGenerationID, "missing task ID for polling")
+		return
+	}
+
+	client, err := s.getVideoClient(videoGen.UserID, videoGen.Provider, videoGen.Model)
+	if err != nil {
+		s.log.Errorw("Failed to get video client for delayed polling", "error", err, "id", payload.VideoGenerationID)
+		s.updateVideoGenError(payload.VideoGenerationID, "failed to get video client")
+		return
+	}
+
+	result, err := client.GetTaskStatus(payload.TaskID)
+	if err != nil {
+		s.log.Errorw("Failed to get task status", "error", err, "task_id", payload.TaskID, "attempt", payload.Attempt+1)
+		s.requeueVideoPoll(payload)
+		return
+	}
+
+	if result.Completed {
+		if videoGen.BillingRefID != nil && *videoGen.BillingRefID != "" {
+			latestUsage := result.Usage
+			if !hasTokenUsage(latestUsage) {
+				latestUsage = client.GetLastUsage()
+			}
+			delta := usageDelta(latestUsage, payload.RecordedUsage)
+			if hasTokenUsage(delta) {
+				if err := s.billingService.RecordAIUsage(*videoGen.BillingRefID, delta); err != nil {
+					s.log.Warnw("Failed to record video token usage on completion", "video_generation_id", payload.VideoGenerationID, "error", err)
+				}
+			}
+		}
+		if result.VideoURL != "" {
+			s.completeVideoGeneration(payload.VideoGenerationID, result.VideoURL, &result.Duration, &result.Width, &result.Height, nil)
+			return
+		}
+		s.updateVideoGenError(payload.VideoGenerationID, "task completed but no video URL")
+		return
+	}
+
+	if result.Error != "" {
+		s.updateVideoGenError(payload.VideoGenerationID, result.Error)
+		return
+	}
+
+	s.log.Infow("Video generation still processing, scheduling next delayed poll", "id", payload.VideoGenerationID, "attempt", payload.Attempt+1)
+	s.requeueVideoPoll(payload)
+}
+
+func (s *VideoGenerationService) requeueVideoPoll(payload VideoPollStatusJobPayload) {
+	if payload.Attempt+1 >= videoPollMaxAttempts {
+		s.updateVideoGenError(payload.VideoGenerationID, fmt.Sprintf("polling timeout after %d attempts (%.1f minutes)", videoPollMaxAttempts, float64(videoPollMaxAttempts*int(videoPollInterval))/60.0))
+		return
+	}
+
+	nextPayload := payload
+	nextPayload.Attempt++
+	if err := s.dispatchVideoPollStatus(nextPayload, videoPollInterval); err != nil {
+		s.log.Warnw("Failed to dispatch delayed video poll through task bus, fallback to local runner", "error", err, "id", payload.VideoGenerationID, "task_id", payload.TaskID)
+		s.runner.Submit("video.poll_task_status", func() {
+			var current models.VideoGeneration
+			if dbErr := s.db.First(&current, payload.VideoGenerationID).Error; dbErr != nil {
+				s.log.Errorw("Failed to load video generation for local poll fallback", "error", dbErr, "id", payload.VideoGenerationID)
+				return
+			}
+			s.pollTaskStatus(payload.VideoGenerationID, payload.TaskID, current.Provider, current.Model, payload.RecordedUsage)
+		})
+	}
 }
 
 func (s *VideoGenerationService) completeVideoGeneration(videoGenID uint, videoURL string, duration *int, width *int, height *int, firstFrameURL *string) {
@@ -719,12 +849,19 @@ func (s *VideoGenerationService) RecoverPendingTasks() {
 			continue
 		}
 
-		// Start goroutine to poll task status for each pending video
-		// Each goroutine will poll independently until completion or timeout
-		videoGenCopy := videoGen
-		s.runner.Submit("video.recover_poll_task_status", func() {
-			s.pollTaskStatus(videoGenCopy.ID, *videoGenCopy.TaskID, videoGenCopy.Provider, videoGenCopy.Model, usage.TokenUsage{})
-		})
+		payload := VideoPollStatusJobPayload{
+			VideoGenerationID: videoGen.ID,
+			TaskID:            *videoGen.TaskID,
+			RecordedUsage:     usage.TokenUsage{},
+			Attempt:           0,
+		}
+		if err := s.dispatchVideoPollStatus(payload, videoPollInterval); err != nil {
+			s.log.Warnw("Failed to dispatch recovered video poll through task bus, fallback to local runner", "error", err, "id", videoGen.ID, "task_id", *videoGen.TaskID)
+			videoGenCopy := videoGen
+			s.runner.Submit("video.recover_poll_task_status", func() {
+				s.pollTaskStatus(videoGenCopy.ID, *videoGenCopy.TaskID, videoGenCopy.Provider, videoGenCopy.Model, usage.TokenUsage{})
+			})
+		}
 	}
 }
 

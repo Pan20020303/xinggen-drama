@@ -57,7 +57,8 @@ func newRouterForDisabledAITest(t *testing.T) *gin.Engine {
 	// SetupRouter expects a LocalStorage pointer when local storage enabled.
 	ls, _ := storage.NewLocalStorage(cfg.Storage.LocalPath, cfg.Storage.BaseURL)
 	_ = database.AutoMigrate(db)
-	return routes.SetupRouter(cfg, db, log, ls)
+	router, _ := routes.SetupRouter(cfg, db, log, ls)
+	return router
 }
 
 func TestAIConfigDisabled_UserEndpointsNotMounted(t *testing.T) {

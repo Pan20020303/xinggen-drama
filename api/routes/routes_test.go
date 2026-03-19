@@ -59,7 +59,8 @@ func newRouterForStaticFileTest(t *testing.T) *gin.Engine {
 	ls, _ := storage.NewLocalStorage(cfg.Storage.LocalPath, cfg.Storage.BaseURL)
 	_ = database.AutoMigrate(db)
 
-	return routes.SetupRouter(cfg, db, log, ls)
+	router, _ := routes.SetupRouter(cfg, db, log, ls)
+	return router
 }
 
 func TestSetupRouter_ServesBuiltPublicFileBeforeSPAFallback(t *testing.T) {

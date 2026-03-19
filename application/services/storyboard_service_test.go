@@ -35,7 +35,7 @@ func newStoryboardServiceForTest(t *testing.T) (*StoryboardService, *gorm.DB) {
 	t.Helper()
 	db := newStoryboardServiceTestDB(t)
 	cfg := &config.Config{}
-	svc := NewStoryboardService(db, cfg, logger.NewLogger(true))
+	svc := NewStoryboardService(db, cfg, nil, logger.NewLogger(true))
 	return svc, db
 }
 

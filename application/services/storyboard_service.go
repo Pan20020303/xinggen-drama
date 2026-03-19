@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,9 +25,10 @@ type StoryboardService struct {
 	config      *config.Config
 	promptI18n  *PromptI18n
 	runner      *TaskRunner
+	dispatcher  JobDispatcher
 }
 
-func NewStoryboardService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *StoryboardService {
+func NewStoryboardService(db *gorm.DB, cfg *config.Config, dispatcher JobDispatcher, log *logger.Logger) *StoryboardService {
 	return &StoryboardService{
 		db:          db,
 		aiService:   NewAIService(db, log),
@@ -36,6 +38,7 @@ func NewStoryboardService(db *gorm.DB, cfg *config.Config, log *logger.Logger) *
 		config:      cfg,
 		promptI18n:  NewPromptI18n(cfg),
 		runner:      NewTaskRunner(log, 4),
+		dispatcher:  dispatcher,
 	}
 }
 
@@ -738,17 +741,43 @@ func (s *StoryboardService) GenerateStoryboard(userID uint, episodeID string, mo
 		"scene_count", len(scenes),
 		"scenes", sceneList)
 
-	// 启动后台goroutine处理AI调用和后续逻辑
-	s.runner.Submit("storyboard.generate", func() {
-		s.processStoryboardGeneration(userID, task.ID, episodeID, model, scriptContent, characterList, sceneList)
-	})
+	if err := s.dispatchStoryboardGeneration(StoryboardGenerationJobPayload{
+		UserID:        userID,
+		TaskID:        task.ID,
+		EpisodeID:     episodeID,
+		Model:         model,
+		ScriptContent: scriptContent,
+		CharacterList: characterList,
+		SceneList:     sceneList,
+	}); err != nil {
+		s.log.Warnw("Failed to dispatch storyboard generation through task bus, fallback to local runner", "error", err, "task_id", task.ID)
+		s.runner.Submit("storyboard.generate", func() {
+			s.ProcessStoryboardGeneration(userID, task.ID, episodeID, model, scriptContent, characterList, sceneList)
+		})
+	}
 
 	// 立即返回任务ID
 	return task.ID, nil
 }
 
-// processStoryboardGeneration 后台处理故事板生成
-func (s *StoryboardService) processStoryboardGeneration(userID uint, taskID, episodeID, model, scriptContent, characterList, sceneList string) {
+func (s *StoryboardService) dispatchStoryboardGeneration(payload StoryboardGenerationJobPayload) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal storyboard job payload: %w", err)
+	}
+
+	return s.dispatcher.Dispatch(AsyncJob{
+		Type:    JobTypeStoryboard,
+		Payload: body,
+	})
+}
+
+// ProcessStoryboardGeneration 后台处理故事板生成
+func (s *StoryboardService) ProcessStoryboardGeneration(userID uint, taskID, episodeID, model, scriptContent, characterList, sceneList string) {
 	// 更新任务状态为处理中
 	if err := s.taskService.UpdateTaskStatus(taskID, "processing", 10, "开始生成分镜头..."); err != nil {
 		s.log.Errorw("Failed to update task status", "error", err, "task_id", taskID)

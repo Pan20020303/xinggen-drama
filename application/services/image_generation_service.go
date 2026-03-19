@@ -32,6 +32,7 @@ type ImageGenerationService struct {
 	promptI18n      *PromptI18n
 	taskService     *TaskService
 	runner          *TaskRunner
+	dispatcher      JobDispatcher
 }
 
 // truncateImageURL 截断图片 URL，避免 base64 格式的 URL 占满日志
@@ -52,7 +53,7 @@ func truncateImageURL(url string) string {
 	return url
 }
 
-func NewImageGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, log *logger.Logger) *ImageGenerationService {
+func NewImageGenerationService(db *gorm.DB, cfg *config.Config, transferService *ResourceTransferService, localStorage *storage.LocalStorage, dispatcher JobDispatcher, log *logger.Logger) *ImageGenerationService {
 	return &ImageGenerationService{
 		db:              db,
 		aiService:       NewAIService(db, log),
@@ -64,6 +65,7 @@ func NewImageGenerationService(db *gorm.DB, cfg *config.Config, transferService 
 		log:             log,
 		taskService:     NewTaskService(db, log),
 		runner:          NewTaskRunner(log, 6),
+		dispatcher:      dispatcher,
 	}
 }
 
@@ -177,11 +179,30 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 		return nil, fmt.Errorf("failed to create record: %w", err)
 	}
 
-	s.runner.Submit("image.process_generation", func() {
-		s.ProcessImageGeneration(imageGen.ID)
-	})
+	if err := s.dispatchImageGeneration(imageGen.ID); err != nil {
+		s.log.Warnw("Failed to dispatch image generation through task bus, fallback to local runner", "error", err, "id", imageGen.ID)
+		s.runner.Submit("image.process_generation", func() {
+			s.ProcessImageGeneration(imageGen.ID)
+		})
+	}
 
 	return imageGen, nil
+}
+
+func (s *ImageGenerationService) dispatchImageGeneration(imageGenID uint) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	payload, err := json.Marshal(ImageGenerationJobPayload{ImageGenerationID: imageGenID})
+	if err != nil {
+		return fmt.Errorf("marshal image job payload: %w", err)
+	}
+
+	return s.dispatcher.Dispatch(AsyncJob{
+		Type:    JobTypeImageGeneration,
+		Payload: payload,
+	})
 }
 
 func parseOptionalDramaID(dramaID string) (*uint, error) {
@@ -1023,7 +1044,7 @@ func (s *ImageGenerationService) processBackgroundExtraction(userID uint, taskID
 		for _, bgInfo := range backgroundsInfo {
 			// 保存新场景到数据库（章节级）
 			episodeIDVal := episode.ID
-		scene := &models.Scene{
+			scene := &models.Scene{
 				UserID:          userID,
 				DramaID:         dramaID,
 				EpisodeID:       &episodeIDVal,

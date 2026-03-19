@@ -42,3 +42,11 @@ auth:
 billing:
   frame_prompt_credits: 10
   image_generation_credits: 5
+
+mq:
+  enabled: true
+  url: "amqp://<rabbitmq-user>:<rabbitmq-password>@rabbitmq:5672/"
+  queue_prefix: "xinggen"
+  consumer_enabled: true
+  consumer_concurrency: 4
+  prefetch_count: 8

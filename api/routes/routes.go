@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStorage interface{}) *gin.Engine {
+func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStorage interface{}) (*gin.Engine, func(context.Context) error) {
 	r := gin.New()
 
 	r.Use(gin.Recovery())
@@ -113,6 +114,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		{
 			generation.POST("/characters", deps.scriptGenHandler.GenerateCharacters)
 			generation.POST("/script/polish", deps.scriptGenHandler.PolishScriptText)
+			generation.POST("/script/polish/stream", deps.scriptGenHandler.PolishScriptTextStream)
 		}
 
 		// 角色库路由
@@ -273,7 +275,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		c.File("./web/dist/index.html")
 	})
 
-	return r
+	return r, deps.Shutdown
 }
 
 func resolveBuiltStaticFile(requestPath string) (string, bool) {

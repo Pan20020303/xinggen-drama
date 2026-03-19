@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,9 +24,10 @@ type CharacterLibraryService struct {
 	taskService *TaskService
 	promptI18n  *PromptI18n
 	runner      *TaskRunner
+	dispatcher  JobDispatcher
 }
 
-func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Config) *CharacterLibraryService {
+func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Config, dispatcher JobDispatcher) *CharacterLibraryService {
 	return &CharacterLibraryService{
 		db:          db,
 		log:         log,
@@ -35,6 +37,7 @@ func NewCharacterLibraryService(db *gorm.DB, log *logger.Logger, cfg *config.Con
 		taskService: NewTaskService(db, log),
 		promptI18n:  NewPromptI18n(cfg),
 		runner:      NewTaskRunner(log, 4),
+		dispatcher:  dispatcher,
 	}
 }
 
@@ -301,14 +304,14 @@ func (s *CharacterLibraryService) GenerateCharacterImage(userID uint, characterI
 	dramaIDStr := fmt.Sprintf("%d", character.DramaID)
 	imageType := "character"
 	req := &GenerateImageRequest{
-		DramaID:     dramaIDStr,
-		CharacterID: &character.ID,
-		ImageType:   imageType,
-		Prompt:      prompt,
-		Provider:    "openai",    // 或从配置读取
-		Model:       modelName,   // 使用用户指定的模型
-		Size:        "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
-		Quality:     "standard",
+		DramaID:        dramaIDStr,
+		CharacterID:    &character.ID,
+		ImageType:      imageType,
+		Prompt:         prompt,
+		Provider:       "openai",    // 或从配置读取
+		Model:          modelName,   // 使用用户指定的模型
+		Size:           "2560x1440", // 3,686,400像素，满足API最低要求（16:9比例）
+		Quality:        "standard",
 		ImageLocalPath: imageLocalPath,
 	}
 	if size != "" {
@@ -510,14 +513,38 @@ func (s *CharacterLibraryService) ExtractCharactersFromScript(userID uint, episo
 		return task.ID, nil
 	}
 
-	s.runner.Submit("character.extract_from_script", func() {
-		s.processCharacterExtraction(userID, task.ID, episode)
-	})
+	payload := CharacterExtractionJobPayload{
+		UserID:    userID,
+		TaskID:    task.ID,
+		EpisodeID: episode.ID,
+	}
+	if err := s.dispatchCharacterExtraction(payload); err != nil {
+		s.log.Warnw("Failed to dispatch character extraction through task bus, fallback to local runner", "error", err, "task_id", task.ID, "episode_id", episode.ID)
+		s.runner.Submit("character.extract_from_script", func() {
+			s.ProcessCharacterExtraction(userID, task.ID, episode)
+		})
+	}
 
 	return task.ID, nil
 }
 
-func (s *CharacterLibraryService) processCharacterExtraction(userID uint, taskID string, episode models.Episode) {
+func (s *CharacterLibraryService) dispatchCharacterExtraction(payload CharacterExtractionJobPayload) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal character extraction payload: %w", err)
+	}
+
+	return s.dispatcher.Dispatch(AsyncJob{
+		Type:    JobTypeCharacterExtraction,
+		Payload: body,
+	})
+}
+
+func (s *CharacterLibraryService) ProcessCharacterExtraction(userID uint, taskID string, episode models.Episode) {
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在分析剧本...")
 
 	script := ""

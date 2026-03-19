@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,9 +24,10 @@ type PropService struct {
 	config                 *config.Config
 	promptI18n             *PromptI18n
 	runner                 *TaskRunner
+	dispatcher             JobDispatcher
 }
 
-func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService, imageGenerationService *ImageGenerationService, log *logger.Logger, cfg *config.Config) *PropService {
+func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService, imageGenerationService *ImageGenerationService, log *logger.Logger, cfg *config.Config, dispatcher JobDispatcher) *PropService {
 	return &PropService{
 		db:                     db,
 		aiService:              aiService,
@@ -36,6 +38,7 @@ func NewPropService(db *gorm.DB, aiService *AIService, taskService *TaskService,
 		config:                 cfg,
 		promptI18n:             NewPromptI18n(cfg),
 		runner:                 NewTaskRunner(log, 4),
+		dispatcher:             dispatcher,
 	}
 }
 
@@ -79,14 +82,38 @@ func (s *PropService) ExtractPropsFromScript(userID uint, episodeID uint) (strin
 		return task.ID, nil
 	}
 
-	s.runner.Submit("prop.extract_from_script", func() {
-		s.processPropExtraction(userID, task.ID, episode)
-	})
+	payload := PropExtractionJobPayload{
+		UserID:    userID,
+		TaskID:    task.ID,
+		EpisodeID: episode.ID,
+	}
+	if err := s.dispatchPropExtraction(payload); err != nil {
+		s.log.Warnw("Failed to dispatch prop extraction through task bus, fallback to local runner", "error", err, "task_id", task.ID, "episode_id", episode.ID)
+		s.runner.Submit("prop.extract_from_script", func() {
+			s.ProcessPropExtraction(userID, task.ID, episode)
+		})
+	}
 
 	return task.ID, nil
 }
 
-func (s *PropService) processPropExtraction(userID uint, taskID string, episode models.Episode) {
+func (s *PropService) dispatchPropExtraction(payload PropExtractionJobPayload) error {
+	if s.dispatcher == nil {
+		return fmt.Errorf("task dispatcher not configured")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal prop extraction payload: %w", err)
+	}
+
+	return s.dispatcher.Dispatch(AsyncJob{
+		Type:    JobTypePropExtraction,
+		Payload: body,
+	})
+}
+
+func (s *PropService) ProcessPropExtraction(userID uint, taskID string, episode models.Episode) {
 	s.taskService.UpdateTaskStatus(taskID, "processing", 0, "正在分析剧本...")
 
 	script := ""

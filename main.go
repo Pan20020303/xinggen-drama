@@ -75,7 +75,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router := routes.SetupRouter(cfg, db, logr, localStorage)
+	router, shutdownBackground := routes.SetupRouter(cfg, db, logr, localStorage)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -128,6 +128,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if shutdownBackground != nil {
+		if err := shutdownBackground(ctx); err != nil {
+			logr.Warnw("Failed to shutdown background services", "error", err)
+		}
+	}
 
 	if err := srv.Shutdown(ctx); err != nil {
 		logr.Fatal("Server forced to shutdown", "error", err)
