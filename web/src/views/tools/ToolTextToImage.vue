@@ -257,6 +257,13 @@
                     >
                       加入素材库
                     </el-button>
+                    <el-button
+                      v-if="item.kind === 'generated'"
+                      size="small"
+                      @click="reuseTemplate(item.image)"
+                    >
+                      模板复用
+                    </el-button>
                   </div>
                 </div>
               </article>
@@ -307,6 +314,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePricingStore } from '@/stores/pricing'
 import type { Asset, AssetType } from '@/types/asset'
 import type { ImageGeneration, ImageStatus } from '@/types/image'
+import { getImageUrl } from '@/utils/image'
 
 type RatioKey = '16:9' | '9:16' | '4:3' | '3:4' | '1:1'
 type GenerationMode = 'text' | 'reference'
@@ -462,6 +470,15 @@ const applyRatio = (ratioKey: RatioKey) => {
   form.height = matched.height
 }
 
+const resetToolForm = () => {
+  generationMode.value = 'text'
+  form.prompt = ''
+  form.count = 1
+  clearReferenceImage()
+  applyRatio('16:9')
+  form.model = modelOptions.value[0]?.value || ''
+}
+
 const ensureDefaultSelections = () => {
   if (!form.model && modelOptions.value.length > 0) {
     form.model = modelOptions.value[0].value
@@ -523,11 +540,47 @@ const loadReferenceCandidates = async () => {
 
 const selectReferenceAsset = (item: Asset) => {
   selectedReference.value = {
-    url: item.url,
+    url: item.local_path ? getImageUrl(item) : item.url,
     name: item.name,
     localPath: item.local_path
   }
   showReferenceDialog.value = false
+}
+
+const resolveReferenceSource = (reference: string) => {
+  if (!reference) return null
+
+  if (reference.startsWith('http') || reference.startsWith('data:')) {
+    return {
+      url: reference,
+      name: '参考图'
+    } satisfies ReferenceSource
+  }
+
+  const normalizedLocalPath = reference.replace(/^\/?static\//, '').replace(/^\/+/, '')
+
+  return {
+    url: `/static/${normalizedLocalPath}`,
+    name: '参考图',
+    localPath: normalizedLocalPath
+  } satisfies ReferenceSource
+}
+
+const reuseTemplate = (image: ImageGeneration) => {
+  form.prompt = image.prompt || ''
+
+  const references = Array.isArray(image.reference_images) ? image.reference_images.filter(Boolean) : []
+  const firstReference = references.length > 0 ? resolveReferenceSource(references[0]) : null
+
+  if (firstReference) {
+    generationMode.value = 'reference'
+    selectedReference.value = firstReference
+  } else {
+    generationMode.value = 'text'
+    selectedReference.value = null
+  }
+
+  ElMessage.success(firstReference ? '已复用提示词和参考图' : '已复用提示词')
 }
 
 const loadMaterialAssets = async () => {
@@ -633,9 +686,10 @@ const handleGenerate = async () => {
     return
   }
 
+  const submittedCount = form.count
   submitting.value = true
   try {
-    for (let i = 0; i < form.count; i += 1) {
+    for (let i = 0; i < submittedCount; i += 1) {
       await imageAPI.generateImage({
         image_type: 'toolbox',
         prompt: form.prompt.trim(),
@@ -651,9 +705,10 @@ const handleGenerate = async () => {
     }
 
     await authStore.refreshMe()
+    resetToolForm()
     onlyProcessing.value = true
     await loadRightPanel()
-    ElMessage.success(`已提交 ${form.count} 张图片生成任务`)
+    ElMessage.success(`已提交 ${submittedCount} 张图片生成任务`)
   } catch (error: any) {
     ElMessage.error(error?.message || '提交生成任务失败')
   } finally {
