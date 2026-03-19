@@ -155,19 +155,54 @@
                 </div>
               </div>
 
-              <el-button text @click="loadRightPanel">刷新</el-button>
+              <div class="history-header-actions">
+                <el-button
+                  v-if="bulkDeleteTargets.length > 0 && bulkDeleteSelectionMode"
+                  text
+                  @click="cancelBulkDeleteSelection"
+                >
+                  取消选择
+                </el-button>
+                <el-button
+                  v-if="bulkDeleteTargets.length > 0"
+                  text
+                  type="danger"
+                  :icon="Delete"
+                  :disabled="bulkDeleteSelectionMode && selectedBulkDeleteTargets.length === 0"
+                  :loading="bulkDeleting"
+                  @click="handleBulkDelete"
+                >
+                  {{ bulkDeleteSelectionMode ? `删除已选 (${selectedBulkDeleteTargets.length})` : '批量删除' }}
+                </el-button>
+                <el-button text @click="loadRightPanel">刷新</el-button>
+              </div>
             </div>
           </template>
 
-          <div v-loading="historyLoading" class="history-panel">
+          <div v-loading="showHistoryLoading" class="history-panel">
             <el-empty
-              v-if="!historyLoading && displayItems.length === 0"
+              v-if="showHistoryEmptyState"
               :description="onlyProcessing ? '还没有进行中的任务' : '还没有素材记录'"
             />
 
             <div v-else-if="onlyProcessing" class="history-grid">
-              <article v-for="image in processingImages" :key="image.id" class="history-item">
+              <article
+                v-for="image in processingImages"
+                :key="image.id"
+                class="history-item"
+                :class="{ 'is-selectable': bulkDeleteSelectionMode, 'is-selected': isGeneratedImageSelected(image) }"
+                @click="bulkDeleteSelectionMode && toggleGeneratedImageSelection(image)"
+              >
                 <div class="history-image-wrap">
+                  <button
+                    v-if="bulkDeleteSelectionMode"
+                    type="button"
+                    class="selection-check"
+                    :class="{ 'is-selected': isGeneratedImageSelected(image) }"
+                    @click.stop="toggleGeneratedImageSelection(image)"
+                  >
+                    <el-icon v-if="isGeneratedImageSelected(image)"><Check /></el-icon>
+                  </button>
                   <div class="history-image-placeholder" :class="`is-${image.status}`">
                     <el-icon v-if="image.status === 'processing'" class="loading-icon"><Loading /></el-icon>
                     <el-icon v-else><Picture /></el-icon>
@@ -197,7 +232,7 @@
               >
                 <div v-if="item.kind === 'generated-group'" class="history-generated-group">
                   <div class="group-badge">{{ item.images.length }} 张</div>
-                  <div class="group-toolbar">
+                  <div v-if="!bulkDeleteSelectionMode" class="group-toolbar">
                     <button
                       type="button"
                       class="overlay-chip-btn"
@@ -214,15 +249,25 @@
                         v-for="image in item.images"
                         :key="image.id"
                         class="history-generated-group-cell"
+                        :class="{ 'is-selectable': bulkDeleteSelectionMode, 'is-selected': isGeneratedImageSelected(image) }"
                         :style="{ aspectRatio: getGeneratedAspectRatio(image) }"
-                        @click="openGeneratedGroupPreview(item.images, image.id)"
+                        @click="bulkDeleteSelectionMode ? toggleGeneratedImageSelection(image) : openGeneratedGroupPreview(item.images, image.id)"
                       >
+                      <button
+                        v-if="bulkDeleteSelectionMode"
+                        type="button"
+                        class="selection-check"
+                        :class="{ 'is-selected': isGeneratedImageSelected(image) }"
+                        @click.stop="toggleGeneratedImageSelection(image)"
+                      >
+                        <el-icon v-if="isGeneratedImageSelected(image)"><Check /></el-icon>
+                      </button>
                       <el-image
                         :src="getGeneratedImageSrc(image)"
                         fit="cover"
                         class="history-image"
                       />
-                      <div class="history-image-toolbar">
+                      <div v-if="!bulkDeleteSelectionMode" class="history-image-toolbar">
                         <button
                           type="button"
                           class="overlay-chip-btn"
@@ -245,18 +290,28 @@
                 <div
                   v-else-if="isImageDisplayItem(item)"
                   class="history-image-card"
+                  :class="{ 'is-selectable': bulkDeleteSelectionMode && item.kind === 'generated', 'is-selected': item.kind === 'generated' && isGeneratedImageSelected(item.image) }"
                   :style="{ aspectRatio: getItemAspectRatio(item) }"
-                  @click="openPreview(item)"
-                  @keydown.enter="openPreview(item)"
-                  @keydown.space.prevent="openPreview(item)"
+                  @click="bulkDeleteSelectionMode && item.kind === 'generated' ? toggleGeneratedImageSelection(item.image) : openPreview(item)"
+                  @keydown.enter="bulkDeleteSelectionMode && item.kind === 'generated' ? toggleGeneratedImageSelection(item.image) : openPreview(item)"
+                  @keydown.space.prevent="bulkDeleteSelectionMode && item.kind === 'generated' ? toggleGeneratedImageSelection(item.image) : openPreview(item)"
                   tabindex="0"
                 >
+                  <button
+                    v-if="bulkDeleteSelectionMode && item.kind === 'generated'"
+                    type="button"
+                    class="selection-check"
+                    :class="{ 'is-selected': isGeneratedImageSelected(item.image) }"
+                    @click.stop="toggleGeneratedImageSelection(item.image)"
+                  >
+                    <el-icon v-if="isGeneratedImageSelected(item.image)"><Check /></el-icon>
+                  </button>
                   <el-image
                     :src="getItemImageSrc(item)"
                     fit="cover"
                     class="history-image"
                   />
-                  <div class="history-image-toolbar">
+                  <div v-if="!bulkDeleteSelectionMode" class="history-image-toolbar">
                     <button
                       v-if="item.kind === 'asset'"
                       type="button"
@@ -290,8 +345,8 @@
                 <template v-else>
                   <div class="history-image-wrap">
                     <video
-                      v-if="item.kind === 'asset' && item.asset.type === 'video'"
-                      :src="item.asset.url"
+                      v-if="isVideoAsset(item)"
+                      :src="getAssetMediaUrl(item)"
                       class="history-video"
                       controls
                       preload="metadata"
@@ -305,17 +360,15 @@
                     <div class="history-item-top">
                       <el-tag
                         size="small"
-                        :type="item.kind === 'asset' ? assetTagMap[item.asset.type] : 'info'"
+                        :type="getDisplayItemTagType(item)"
                       >
-                        {{ item.kind === 'asset' ? assetTypeLabelMap[item.asset.type] : '工具图片' }}
+                        {{ getDisplayItemLabel(item) }}
                       </el-tag>
                     </div>
-                    <div class="history-prompt">{{ item.kind === 'asset' ? item.asset.name : item.image.prompt }}</div>
+                    <div class="history-prompt">{{ getDisplayItemTitle(item) }}</div>
                     <div class="history-meta">
-                      <span>
-                        {{ item.kind === 'asset' ? (item.asset.category || '未分类') : (item.image.model || '默认模型') }}
-                      </span>
-                      <span>{{ formatTime(item.kind === 'asset' ? item.asset.created_at : item.image.created_at) }}</span>
+                      <span>{{ getDisplayItemCategory(item) }}</span>
+                      <span>{{ formatTime(getItemCreatedAt(item)) }}</span>
                     </div>
                   </div>
                 </template>
@@ -438,6 +491,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  Check,
+  Delete,
   Headset,
   Loading,
   Picture,
@@ -445,7 +500,7 @@ import {
   Star,
   StarFilled
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { AppHeader } from '@/components/common'
 import { assetAPI } from '@/api/asset'
 import { imageAPI } from '@/api/image'
@@ -455,6 +510,12 @@ import { usePricingStore } from '@/stores/pricing'
 import type { Asset, AssetType } from '@/types/asset'
 import type { ImageGeneration, ImageStatus } from '@/types/image'
 import { getImageUrl } from '@/utils/image'
+import {
+  collectBulkDeletableImages,
+  collectSelectedBulkDeleteImages,
+  shouldShowHistoryEmptyState,
+  groupGeneratedImages
+} from './toolTextToImage.helpers'
 
 type RatioKey = '16:9' | '9:16' | '4:3' | '3:4' | '1:1'
 type GenerationMode = 'text' | 'reference'
@@ -477,6 +538,9 @@ type DisplayItem =
   | { key: string; kind: 'generated'; image: ImageGeneration }
   | { key: string; kind: 'generated-group'; images: ImageGeneration[] }
 
+type SingleImageDisplayItem = Extract<DisplayItem, { kind: 'asset' | 'generated' }>
+type PreviewSourceItem = Extract<PreviewItem, { kind: 'asset' | 'generated' }>
+
 type PreviewItem =
   | { kind: 'asset'; asset: Asset }
   | { kind: 'generated'; image: ImageGeneration }
@@ -488,6 +552,9 @@ const pricingStore = usePricingStore()
 
 const submitting = ref(false)
 const historyLoading = ref(false)
+const historyRefreshing = ref(false)
+const bulkDeleting = ref(false)
+const bulkDeleteSelectionMode = ref(false)
 const uploadingReference = ref(false)
 const showReferenceDialog = ref(false)
 const referenceDialogLoading = ref(false)
@@ -506,6 +573,7 @@ const importedImageIds = ref<number[]>([])
 const selectedReference = ref<ReferenceSource | null>(null)
 const referenceInputRef = ref<HTMLInputElement | null>(null)
 const previewItem = ref<PreviewItem | null>(null)
+const selectedBulkDeleteIds = ref<string[]>([])
 const previewCurrentIndex = computed(() => {
   return previewItem.value?.kind === 'generated-group' ? previewItem.value.currentIndex : 0
 })
@@ -609,73 +677,35 @@ const displayItems = computed<DisplayItem[]>(() => {
   return items
 })
 
-const isImageDisplayItem = (item: DisplayItem) => {
+const bulkDeleteTargets = computed(() => {
+  return collectBulkDeletableImages({
+    activeMediaTab: activeMediaTab.value,
+    onlyFavorites: onlyFavorites.value,
+    onlyProcessing: onlyProcessing.value,
+    processingImages: processingImages.value,
+    completedToolboxImages: completedToolboxImages.value
+  })
+})
+
+const selectedBulkDeleteTargets = computed(() => {
+  return collectSelectedBulkDeleteImages(bulkDeleteTargets.value, selectedBulkDeleteIds.value)
+})
+
+const showHistoryLoading = computed(() => {
+  return historyLoading.value && !historyRefreshing.value
+})
+
+const showHistoryEmptyState = computed(() => {
+  return shouldShowHistoryEmptyState({
+    historyLoading: historyLoading.value,
+    onlyProcessing: onlyProcessing.value,
+    displayItemCount: displayItems.value.length,
+    processingItemCount: processingImages.value.length
+  })
+})
+
+const isImageDisplayItem = (item: DisplayItem): item is SingleImageDisplayItem => {
   return (item.kind === 'asset' && item.asset.type === 'image') || item.kind === 'generated'
-}
-
-const GROUP_WINDOW_MS = 20 * 1000
-
-const getGeneratedGroupKey = (image: ImageGeneration) => {
-  const references = Array.isArray(image.reference_images) ? image.reference_images.filter(Boolean).join('|') : ''
-  return [
-    image.prompt || '',
-    image.model || '',
-    image.size || '',
-    image.width || '',
-    image.height || '',
-    references
-  ].join('::')
-}
-
-const groupGeneratedImages = (images: ImageGeneration[]): DisplayItem[] => {
-  const grouped: DisplayItem[] = []
-  let currentGroup: ImageGeneration[] = []
-  let currentKey = ''
-  let currentStartAt = 0
-
-  const flush = () => {
-    if (currentGroup.length === 0) return
-    if (currentGroup.length === 1) {
-      grouped.push({
-        key: `generated-${currentGroup[0].id}`,
-        kind: 'generated',
-        image: currentGroup[0]
-      })
-    } else {
-      grouped.push({
-        key: `generated-group-${currentGroup.map((item) => item.id).join('-')}`,
-        kind: 'generated-group',
-        images: [...currentGroup]
-      })
-    }
-    currentGroup = []
-    currentKey = ''
-    currentStartAt = 0
-  }
-
-  for (const image of images) {
-    const imageKey = getGeneratedGroupKey(image)
-    const createdAt = new Date(image.created_at).getTime()
-    const canJoin =
-      currentGroup.length > 0 &&
-      imageKey === currentKey &&
-      Number.isFinite(createdAt) &&
-      Math.abs(createdAt - currentStartAt) <= GROUP_WINDOW_MS &&
-      currentGroup.length < 4
-
-    if (!canJoin) {
-      flush()
-      currentGroup = [image]
-      currentKey = imageKey
-      currentStartAt = createdAt
-      continue
-    }
-
-    currentGroup.push(image)
-  }
-
-  flush()
-  return grouped
 }
 
 const parseSize = (size?: string) => {
@@ -688,7 +718,7 @@ const parseSize = (size?: string) => {
   }
 }
 
-const getItemImageSrc = (item: DisplayItem) => {
+const getItemImageSrc = (item: SingleImageDisplayItem) => {
   if (item.kind === 'asset') {
     return item.asset.local_path ? getImageUrl(item.asset) : item.asset.url
   }
@@ -700,7 +730,7 @@ const getGeneratedImageSrc = (image: ImageGeneration) => {
   return getImageUrl(image) || image.image_url || ''
 }
 
-const getItemAspectRatio = (item: DisplayItem) => {
+const getItemAspectRatio = (item: SingleImageDisplayItem) => {
   const width = item.kind === 'asset' ? item.asset.width : item.image.width
   const height = item.kind === 'asset' ? item.asset.height : item.image.height
   const parsed = item.kind === 'generated' ? parseSize(item.image.size) : null
@@ -718,8 +748,73 @@ const getGeneratedAspectRatio = (image: ImageGeneration) => {
   return `${safeWidth} / ${safeHeight}`
 }
 
+const isVideoAsset = (item: DisplayItem): item is Extract<DisplayItem, { kind: 'asset' }> => {
+  return item.kind === 'asset' && item.asset.type === 'video'
+}
+
+const isGeneratedImageSelected = (image: ImageGeneration) => {
+  return selectedBulkDeleteIds.value.includes(String(image.id))
+}
+
+const toggleGeneratedImageSelection = (image: ImageGeneration) => {
+  const imageId = String(image.id)
+  if (selectedBulkDeleteIds.value.includes(imageId)) {
+    selectedBulkDeleteIds.value = selectedBulkDeleteIds.value.filter((id) => id !== imageId)
+    return
+  }
+
+  selectedBulkDeleteIds.value = [...selectedBulkDeleteIds.value, imageId]
+}
+
+const enterBulkDeleteSelectionMode = () => {
+  bulkDeleteSelectionMode.value = true
+}
+
+const cancelBulkDeleteSelection = () => {
+  bulkDeleteSelectionMode.value = false
+  selectedBulkDeleteIds.value = []
+}
+
+const getDisplayItemTagType = (item: DisplayItem) => {
+  return item.kind === 'asset' ? assetTagMap[item.asset.type] : 'info'
+}
+
+const getDisplayItemLabel = (item: DisplayItem) => {
+  return item.kind === 'asset' ? assetTypeLabelMap[item.asset.type] : '工具图片'
+}
+
+const getAssetMediaUrl = (item: DisplayItem) => {
+  return item.kind === 'asset' ? item.asset.url : ''
+}
+
+const getDisplayItemTitle = (item: DisplayItem) => {
+  if (item.kind === 'asset') {
+    return item.asset.name
+  }
+  if (item.kind === 'generated') {
+    return item.image.prompt
+  }
+  return item.images[0]?.prompt || '暂无提示词'
+}
+
+const getDisplayItemCategory = (item: DisplayItem) => {
+  if (item.kind === 'asset') {
+    return item.asset.category || '未分类'
+  }
+  if (item.kind === 'generated') {
+    return item.image.model || '默认模型'
+  }
+  return item.images[0]?.model || '默认模型'
+}
+
 const getItemCreatedAt = (item: DisplayItem) => {
-  return item.kind === 'asset' ? item.asset.created_at : item.image.created_at
+  if (item.kind === 'asset') {
+    return item.asset.created_at
+  }
+  if (item.kind === 'generated') {
+    return item.image.created_at
+  }
+  return item.images[0]?.created_at
 }
 
 const previewContent = computed(() => {
@@ -754,7 +849,7 @@ const previewContent = computed(() => {
   }
 })
 
-const getPreviewPrompt = (item: DisplayItem) => {
+const getPreviewPrompt = (item: PreviewSourceItem) => {
   if (item.kind === 'generated') {
     return item.image.prompt || '暂无提示词'
   }
@@ -762,7 +857,7 @@ const getPreviewPrompt = (item: DisplayItem) => {
   return item.asset.description || item.asset.name || '暂无描述'
 }
 
-const getPreviewRatio = (item: DisplayItem) => {
+const getPreviewRatio = (item: PreviewSourceItem) => {
   const width = item.kind === 'asset' ? item.asset.width : item.image.width
   const height = item.kind === 'asset' ? item.asset.height : item.image.height
   const parsed = item.kind === 'generated' ? parseSize(item.image.size) : null
@@ -797,8 +892,10 @@ const formatDateOnly = (value?: string) => {
   return date.toLocaleDateString('zh-CN')
 }
 
-const openPreview = (item: PreviewItem) => {
-  previewItem.value = item
+const openPreview = (item: SingleImageDisplayItem) => {
+  previewItem.value = item.kind === 'asset'
+    ? { kind: 'asset', asset: item.asset }
+    : { kind: 'generated', image: item.image }
   showPreviewDialog.value = true
 }
 
@@ -1032,12 +1129,14 @@ const loadProcessingItems = async () => {
   })
 }
 
-const loadRightPanel = async () => {
+const loadRightPanel = async (options: { silent?: boolean } = {}) => {
+  historyRefreshing.value = !!options.silent
   historyLoading.value = true
   try {
     if (onlyProcessing.value) {
       await loadProcessingItems()
       materialItems.value = []
+      completedToolboxImages.value = []
       return
     }
 
@@ -1047,6 +1146,7 @@ const loadRightPanel = async () => {
     ElMessage.error(error?.message || '加载记录失败')
   } finally {
     historyLoading.value = false
+    historyRefreshing.value = false
   }
 }
 
@@ -1155,8 +1255,52 @@ const importGroupToAssetLibrary = async (images: ImageGeneration[]) => {
   }
 }
 
-const openAsset = (url: string) => {
-  window.open(url, '_blank')
+const handleBulkDelete = async () => {
+  if (!bulkDeleteSelectionMode.value) {
+    enterBulkDeleteSelectionMode()
+    return
+  }
+
+  const targets = selectedBulkDeleteTargets.value
+  if (targets.length === 0 || bulkDeleting.value) {
+    return
+  }
+
+  const message = `是否删除选中的 ${targets.length} 张图片？`
+
+  try {
+    await ElMessageBox.confirm(message, '批量删除生成图片', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger'
+    })
+  } catch {
+    return
+  }
+
+  bulkDeleting.value = true
+  try {
+    const results = await Promise.allSettled(targets.map((image) => imageAPI.deleteImage(image.id)))
+    const successCount = results.filter((result) => result.status === 'fulfilled').length
+    const failedCount = results.length - successCount
+
+    if (successCount > 0) {
+      await loadRightPanel({ silent: true })
+    }
+
+    if (failedCount === 0) {
+      ElMessage.success(`已删除 ${successCount} 张图片`)
+      cancelBulkDeleteSelection()
+      return
+    }
+
+    ElMessage.warning(`已删除 ${successCount} 张图片，${failedCount} 张删除失败`)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '批量删除失败')
+  } finally {
+    bulkDeleting.value = false
+  }
 }
 
 const formatTime = (value?: string) => {
@@ -1179,6 +1323,15 @@ watch(() => form.model, () => {
   ensureDefaultSelections()
 })
 
+watch(bulkDeleteTargets, (targets) => {
+  const validIds = new Set(targets.map((item) => String(item.id)))
+  selectedBulkDeleteIds.value = selectedBulkDeleteIds.value.filter((id) => validIds.has(id))
+
+  if (targets.length === 0) {
+    bulkDeleteSelectionMode.value = false
+  }
+})
+
 watch(showReferenceDialog, (visible) => {
   if (visible) {
     loadReferenceCandidates()
@@ -1194,7 +1347,7 @@ onMounted(async () => {
 
   pollTimer = setInterval(() => {
     if (onlyProcessing.value) {
-      loadRightPanel()
+      loadRightPanel({ silent: true })
     }
   }, 5000)
 })
@@ -1396,6 +1549,13 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.history-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .history-filter-row {
   display: flex;
   flex-direction: column;
@@ -1431,6 +1591,18 @@ onUnmounted(() => {
   border: 1px solid var(--border-primary);
   border-radius: 18px;
   background: var(--bg-card);
+}
+
+.history-item.is-selectable,
+.history-generated-group-cell.is-selectable,
+.history-image-card.is-selectable {
+  cursor: pointer;
+}
+
+.history-item.is-selected,
+.history-generated-group-cell.is-selected,
+.history-image-card.is-selected {
+  box-shadow: inset 0 0 0 2px var(--color-primary);
 }
 
 .history-masonry .history-item {
@@ -1516,7 +1688,31 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.selection-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.36);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.selection-check.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+
 .history-image-wrap {
+  position: relative;
   aspect-ratio: 1 / 1;
   background: var(--bg-muted);
 }

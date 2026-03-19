@@ -90,156 +90,248 @@
 
 ## 🚀 快速开始
 
+> **TL;DR：** 本地开发时，先用 Docker 启动 MySQL 和 RabbitMQ，再检查 `configs/config.yaml`，然后运行 `go run main.go` 和 `cd web && npm run dev`。
+
+### ✅ 完成标准
+
+启动完成应满足：
+
+- [ ] `docker compose ps` 显示 `mysql` 和 `rabbitmq` 为健康状态
+- [ ] `go run main.go` 启动时不再出现数据库或 RabbitMQ 连接错误
+- [ ] `http://localhost:5678/health` 返回 `{"status":"ok"}`
+- [ ] `cd web && npm run dev` 启动成功
+- [ ] 浏览器可访问 `http://localhost:3012`
+
 ### 📋 环境要求
 
-| 软件        | 版本要求 | 说明                 |
-| ----------- | -------- | -------------------- |
-| **Go**      | 1.23+    | 后端运行环境         |
-| **Node.js** | 18+      | 前端构建环境         |
-| **npm**     | 9+       | 包管理工具           |
-| **FFmpeg**  | 4.0+     | 视频处理（**必需**） |
-| **MySQL**   | 8.0+     | 默认部署数据库       |
-| **SQLite**  | 3.x      | 兼容调试与历史迁移   |
+| 软件 | 版本要求 | 用途 |
+| --- | --- | --- |
+| **Go** | 1.23+ | 本地启动后端 |
+| **Node.js** | 18+ | 本地启动前端 |
+| **npm** | 9+ | 前端依赖管理 |
+| **Docker / Docker Compose** | 最新版 | 启动 MySQL + RabbitMQ |
+| **FFmpeg** | 4.0+ | 图片、视频、音频处理 |
 
 #### 安装 FFmpeg
 
-**macOS:**
+**macOS**
 
 ```bash
 brew install ffmpeg
 ```
 
-**Ubuntu/Debian:**
+**Ubuntu / Debian**
 
 ```bash
 sudo apt update
 sudo apt install ffmpeg
 ```
 
-**Windows:**
-从 [FFmpeg 官网](https://ffmpeg.org/download.html) 下载并配置环境变量
+**Windows**
 
-验证安装：
+从 [FFmpeg 官网](https://ffmpeg.org/download.html) 下载并加入 `PATH`。
+
+验证：
 
 ```bash
 ffmpeg -version
 ```
 
-### ⚙️ 配置文件
-
-复制并编辑配置文件：
-
-```bash
-cp configs/config.example.yaml configs/config.yaml
-vim configs/config.yaml
-```
-
-配置文件格式（`configs/config.yaml`）：
-
-```yaml
-app:
-  name: "星亘 Drama API"
-  version: "1.0.0"
-  debug: true # 开发环境设为true，生产环境设为false
-
-server:
-  port: 5678
-  host: "0.0.0.0"
-  cors_origins:
-    - "http://localhost:3012"
-  read_timeout: 600
-  write_timeout: 600
-
-database:
-  type: "mysql"
-  host: "mysql"
-  port: 3306
-  user: "xinggen"
-  password: "xinggen123"
-  database: "xinggen_drama"
-  charset: "utf8mb4"
-  path: "./data/drama_generator.db"
-  max_idle: 10
-  max_open: 100
-
-storage:
-  type: "local"
-  local_path: "./data/storage"
-  base_url: "http://localhost:5678/static"
-
-ai:
-  default_text_provider: "openai"
-  default_image_provider: "openai"
-  default_video_provider: "doubao"
-```
-
-**重要配置项：**
-
-- `app.debug`: 调试模式开关（开发环境建议设为 true）
-- `server.port`: 服务运行端口
-- `server.cors_origins`: 允许跨域访问的前端地址
-- `database.host` / `database.port` / `database.user` / `database.password` / `database.database`: MySQL 连接配置
-- `database.path`: SQLite 数据文件路径，保留用于兼容调试和历史数据迁移
-- `storage.local_path`: 本地文件存储路径
-- `storage.base_url`: 静态资源访问 URL
-- `ai.default_*_provider`: AI 服务提供商配置（在 Web 界面中配置具体的 API Key）
-
 ### 📥 安装依赖
 
 ```bash
-# 克隆项目
 git clone https://github.com/chatfire-AI/xinggen-drama.git
 cd xinggen-drama
 
-# 安装Go依赖
 go mod download
 
-# 安装前端依赖
 cd web
 npm install
 cd ..
 ```
 
-### 🎯 启动项目
+### ⚙️ 配置文件
 
-#### 方式一：开发模式（推荐）
-
-**前后端分离，支持热重载**
+先生成本地配置：
 
 ```bash
-# 终端1：启动后端服务
-go run main.go
+cp configs/config.example.yaml configs/config.yaml
+```
 
-# 终端2：启动前端开发服务器
+如果你是在**宿主机直接运行** `go run main.go`，`configs/config.yaml` 需要使用宿主机端口，而不是 Docker 服务名：
+
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 5678
+  cors_origins:
+    - "http://localhost:3012"
+
+database:
+  type: "mysql"
+  host: "localhost"
+  port: 3306
+  user: "xinggen"
+  password: "xinggen123"
+  database: "xinggen_drama"
+
+mq:
+  enabled: true
+  url: "amqp://xinggen_rmq:XinggenRmq_2026_StrongPass@localhost:5672/"
+  queue_prefix: "xinggen"
+  consumer_enabled: true
+  consumer_concurrency: 4
+  prefetch_count: 8
+
+storage:
+  type: "local"
+  local_path: "./data/storage"
+  base_url: "http://localhost:5678/static"
+```
+
+如果是**整套 Docker 部署**，应用容器内使用的是 `docker-compose.yml` 里的服务名：
+
+- MySQL 主机：`mysql`
+- RabbitMQ 主机：`rabbitmq`
+- 应用端口：`5678`
+
+### 🎯 本地开发启动
+
+#### 1. 先启动基础依赖
+
+```bash
+docker compose up -d mysql rabbitmq
+```
+
+验证：
+
+```bash
+docker compose ps
+```
+
+默认端口：
+
+- MySQL：`localhost:3306`
+- RabbitMQ AMQP：`localhost:5672`
+- RabbitMQ 管理界面：`http://localhost:15672`
+
+`docker-compose.yml` 中的默认 RabbitMQ 账号：
+
+- 用户名：`xinggen_rmq`
+- 密码：`XinggenRmq_2026_StrongPass`
+
+#### 2. 启动后端
+
+```bash
+go run main.go
+```
+
+后端地址：
+
+- 健康检查：`http://localhost:5678/health`
+- API 基础路径：`http://localhost:5678/api/v1`
+- 静态文件：`http://localhost:5678/static`
+
+#### 3. 启动前端
+
+```bash
 cd web
 npm run dev
 ```
 
-- 前端地址: `http://localhost:3012`
-- 后端 API: `http://localhost:5678/api/v1`
-- 前端自动代理 API 请求到后端
+前端地址：
 
-#### 方式二：单服务模式
+- `http://localhost:3012`
 
-**后端同时提供 API 和前端静态文件**
+Vite 开发服务器会自动将 API 请求代理到 Go 后端。
+
+### 🧪 单服务启动
+
+如果你希望由后端同时提供前端静态文件：
 
 ```bash
-# 1. 构建前端
 cd web
 npm run build
 cd ..
-
-# 2. 启动服务
 go run main.go
 ```
 
-访问: `http://localhost:5678`
+访问地址：
+
+- `http://localhost:5678`
 
 ### 🗄️ 数据库初始化
 
-默认情况下数据库表会在首次启动时自动创建（使用 GORM AutoMigrate），无需手动执行建表。
+项目启动时会通过 GORM AutoMigrate 自动创建表，无需手动建表。
 
-如果 Docker 数据卷中已存在旧的 `data/drama_generator.db` SQLite 文件，容器启动时会自动尝试将历史数据迁移到 MySQL，并在成功后写入迁移标记文件，避免重复导入。
+如果 `data/drama_generator.db` 中已有旧 SQLite 数据，Docker 启动流程会尝试执行一次 SQLite -> MySQL 导入，并写入迁移标记文件，避免重复迁移。
+
+### 🛠️ 常见启动问题
+
+#### RabbitMQ 鉴权失败
+
+现象：
+
+```text
+failed to create rabbitmq task bus: connect rabbitmq: Exception (403) Reason: "username or password not allowed"
+```
+
+原因：
+
+- RabbitMQ 容器的数据卷里保留了旧的用户状态，和当前默认账号密码不一致。
+
+处理：
+
+```bash
+docker compose stop rabbitmq
+docker compose rm -f rabbitmq
+docker volume rm huobao-drama_xinggen-rabbitmq || docker volume rm xinggen-rabbitmq
+docker compose up -d rabbitmq
+```
+
+然后验证：
+
+```bash
+docker exec xinggen-rabbitmq rabbitmqctl list_users
+```
+
+#### `5678` 端口被占用
+
+现象：
+
+```text
+listen tcp :5678: bind: address already in use
+```
+
+在 Linux / WSL 中处理：
+
+```bash
+ss -ltnp | grep 5678
+fuser -k 5678/tcp
+```
+
+#### 前端无法连接后端
+
+检查：
+
+- 后端是否已启动在 `localhost:5678`
+- `server.cors_origins` 是否包含 `http://localhost:3012`
+- `web/vite.config.ts` 里的代理配置是否正常
+
+#### SQLite 写权限错误
+
+现象：
+
+```text
+attempt to write a readonly database
+```
+
+处理：
+
+```bash
+mkdir -p data/storage
+chmod -R 755 data
+```
 
 ---
 
@@ -257,9 +349,10 @@ go run main.go
 
 #### 方式一：Docker Compose（推荐）
 
-当前 Docker Compose 默认启动两个容器：
+当前 Docker Compose 默认启动三个服务：
 
 - `xinggen-mysql`: MySQL 8 数据库
+- `xinggen-rabbitmq`: RabbitMQ 任务队列
 - `xinggen-drama`: 应用服务
 
 首次切换到 MySQL 时，如果旧数据卷里还保留了 SQLite 文件 `data/drama_generator.db`，应用容器会在启动阶段自动执行一次 SQLite -> MySQL 历史数据迁移。

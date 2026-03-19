@@ -94,158 +94,248 @@ Experience AI short drama generation:
 
 ## 🚀 Quick Start
 
+> **TL;DR:** For local development, start MySQL and RabbitMQ with Docker first, verify `configs/config.yaml`, then run `go run main.go` and `cd web && npm run dev`.
+
+### ✅ Definition of Done
+
+Startup is complete when:
+
+- [ ] `docker compose ps` shows `mysql` and `rabbitmq` healthy
+- [ ] `go run main.go` starts without `database` or `rabbitmq` connection errors
+- [ ] `http://localhost:5678/health` returns `{"status":"ok"}`
+- [ ] `cd web && npm run dev` starts successfully
+- [ ] Frontend opens at `http://localhost:3012`
+
 ### 📋 Prerequisites
 
-| Software    | Version | Description                     |
-| ----------- | ------- | ------------------------------- |
-| **Go**      | 1.23+   | Backend runtime                 |
-| **Node.js** | 18+     | Frontend build environment      |
-| **npm**     | 9+      | Package manager                 |
-| **FFmpeg**  | 4.0+    | Video processing (**Required**) |
-| **MySQL**   | 8.0+    | Default deployment database     |
-| **SQLite**  | 3.x     | Compatibility and legacy import |
+| Software | Version | Required For |
+| --- | --- | --- |
+| **Go** | 1.23+ | Backend local startup |
+| **Node.js** | 18+ | Frontend local startup |
+| **npm** | 9+ | Frontend dependency management |
+| **Docker / Docker Compose** | Latest | MySQL + RabbitMQ dependencies |
+| **FFmpeg** | 4.0+ | Image/video/audio processing |
 
 #### Installing FFmpeg
 
-**macOS:**
+**macOS**
 
 ```bash
 brew install ffmpeg
 ```
 
-**Ubuntu/Debian:**
+**Ubuntu / Debian**
 
 ```bash
 sudo apt update
 sudo apt install ffmpeg
 ```
 
-**Windows:**
-Download from [FFmpeg Official Site](https://ffmpeg.org/download.html) and configure environment variables
+**Windows**
 
-Verify installation:
+Download from [FFmpeg Official Site](https://ffmpeg.org/download.html) and add it to `PATH`.
+
+Verify:
 
 ```bash
 ffmpeg -version
 ```
 
-### ⚙️ Configuration
-
-Copy and edit the configuration file:
-
-```bash
-cp configs/config.example.yaml configs/config.yaml
-vim configs/config.yaml
-```
-
-Configuration file format (`configs/config.yaml`):
-
-```yaml
-app:
-  name: "星亘 Drama API"
-  version: "1.0.0"
-  debug: true # Set to true for development, false for production
-
-server:
-  port: 5678
-  host: "0.0.0.0"
-  cors_origins:
-    - "http://localhost:3012"
-  read_timeout: 600
-  write_timeout: 600
-
-database:
-  type: "mysql"
-  host: "mysql"
-  port: 3306
-  user: "xinggen"
-  password: "xinggen123"
-  database: "xinggen_drama"
-  charset: "utf8mb4"
-  path: "./data/drama_generator.db"
-  max_idle: 10
-  max_open: 100
-
-storage:
-  type: "local"
-  local_path: "./data/storage"
-  base_url: "http://localhost:5678/static"
-
-ai:
-  default_text_provider: "openai"
-  default_image_provider: "openai"
-  default_video_provider: "doubao"
-```
-
-**Key Configuration Items:**
-
-- `app.debug`: Debug mode switch (recommended true for development)
-- `server.port`: Service port
-- `server.cors_origins`: Allowed CORS origins for frontend
-- `database.host` / `database.port` / `database.user` / `database.password` / `database.database`: MySQL connection settings
-- `database.path`: SQLite file path kept for compatibility and legacy migration
-- `storage.local_path`: Local file storage path
-- `storage.base_url`: Static resource access URL
-- `ai.default_*_provider`: AI service provider configuration (API keys configured in Web UI)
-
-If you are running the project locally without provisioning MySQL, change `database.type` back to `sqlite` and keep `database.path` pointing to the local database file.
-
 ### 📥 Installation
 
 ```bash
-# Clone the project
 git clone https://github.com/chatfire-AI/xinggen-drama.git
 cd xinggen-drama
 
-# Install Go dependencies
 go mod download
 
-# Install frontend dependencies
 cd web
 npm install
 cd ..
 ```
 
-### 🎯 Starting the Project
+### ⚙️ Configuration
 
-#### Method 1: Development Mode (Recommended)
-
-**Frontend and backend separation with hot reload**
+Create your local configuration:
 
 ```bash
-# Terminal 1: Start backend service
-go run main.go
+cp configs/config.example.yaml configs/config.yaml
+```
 
-# Terminal 2: Start frontend dev server
+For **host-based local startup** (`go run main.go` on your machine), make sure `configs/config.yaml` uses host ports instead of Docker service names:
+
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 5678
+  cors_origins:
+    - "http://localhost:3012"
+
+database:
+  type: "mysql"
+  host: "localhost"
+  port: 3306
+  user: "xinggen"
+  password: "xinggen123"
+  database: "xinggen_drama"
+
+mq:
+  enabled: true
+  url: "amqp://xinggen_rmq:XinggenRmq_2026_StrongPass@localhost:5672/"
+  queue_prefix: "xinggen"
+  consumer_enabled: true
+  consumer_concurrency: 4
+  prefetch_count: 8
+
+storage:
+  type: "local"
+  local_path: "./data/storage"
+  base_url: "http://localhost:5678/static"
+```
+
+For **full Docker deployment**, the application container uses internal service names from `docker-compose.yml`, so the effective values are:
+
+- MySQL host: `mysql`
+- RabbitMQ host: `rabbitmq`
+- App port: `5678`
+
+### 🎯 Local Development Startup
+
+#### 1. Start infrastructure dependencies
+
+```bash
+docker compose up -d mysql rabbitmq
+```
+
+Verify:
+
+```bash
+docker compose ps
+```
+
+Expected ports:
+
+- MySQL: `localhost:3306`
+- RabbitMQ AMQP: `localhost:5672`
+- RabbitMQ Management UI: `http://localhost:15672`
+
+Default RabbitMQ credentials from `docker-compose.yml`:
+
+- Username: `xinggen_rmq`
+- Password: `XinggenRmq_2026_StrongPass`
+
+#### 2. Start backend
+
+```bash
+go run main.go
+```
+
+Backend endpoints:
+
+- Health check: `http://localhost:5678/health`
+- API base: `http://localhost:5678/api/v1`
+- Static files: `http://localhost:5678/static`
+
+#### 3. Start frontend
+
+```bash
 cd web
 npm run dev
 ```
 
-- Frontend: `http://localhost:3012`
-- Backend API: `http://localhost:5678/api/v1`
-- Frontend automatically proxies API requests to backend
+Frontend URL:
 
-#### Method 2: Single Service Mode
+- `http://localhost:3012`
 
-**Backend serves both API and frontend static files**
+The Vite dev server proxies API requests to the Go backend.
+
+### 🧪 Single-Service Startup
+
+If you want the backend to serve the built frontend:
 
 ```bash
-# 1. Build frontend
 cd web
 npm run build
 cd ..
-
-# 2. Start service
 go run main.go
 ```
 
-Access: `http://localhost:5678`
+Access:
+
+- `http://localhost:5678`
 
 ### 🗄️ Database Initialization
 
-Database tables are automatically created on first startup (using GORM AutoMigrate), no manual schema migration is required.
+Tables are created automatically on startup through GORM AutoMigrate.
 
-If an older SQLite file already exists at `data/drama_generator.db`, the Docker startup flow will try to import that historical data into MySQL once and then write a migration marker to avoid duplicate imports.
+If an older SQLite file already exists at `data/drama_generator.db`, the Docker startup flow attempts a one-time SQLite -> MySQL import and writes a migration marker file to avoid duplicate imports.
+
+### 🛠️ Common Startup Problems
+
+#### RabbitMQ authentication failed
+
+Symptom:
+
+```text
+failed to create rabbitmq task bus: connect rabbitmq: Exception (403) Reason: "username or password not allowed"
+```
+
+Cause:
+
+- The RabbitMQ container is running with a persisted data volume created using older credentials.
+
+Fix:
+
+```bash
+docker compose stop rabbitmq
+docker compose rm -f rabbitmq
+docker volume rm huobao-drama_xinggen-rabbitmq || docker volume rm xinggen-rabbitmq
+docker compose up -d rabbitmq
+```
+
+Then verify:
+
+```bash
+docker exec xinggen-rabbitmq rabbitmqctl list_users
+```
+
+#### Port `5678` already in use
+
+Symptom:
+
+```text
+listen tcp :5678: bind: address already in use
+```
+
+Fix on Linux / WSL:
+
+```bash
+ss -ltnp | grep 5678
+fuser -k 5678/tcp
+```
+
+#### Frontend cannot reach backend
+
+Check:
+
+- Backend is running on `localhost:5678`
+- `server.cors_origins` includes `http://localhost:3012`
+- `web/vite.config.ts` proxy settings are intact
+
+#### SQLite write permission error
+
+Symptom:
+
+```text
+attempt to write a readonly database
+```
+
+Fix:
+
+```bash
+mkdir -p data/storage
+chmod -R 755 data
+```
 
 ---
 
@@ -263,9 +353,10 @@ If an older SQLite file already exists at `data/drama_generator.db`, the Docker 
 
 #### Method 1: Docker Compose (Recommended)
 
-The default Docker Compose setup now starts two containers:
+The default Docker Compose setup starts three services:
 
 - `xinggen-mysql`: MySQL 8 database
+- `xinggen-rabbitmq`: RabbitMQ task queue
 - `xinggen-drama`: application service
 
 When upgrading from a previous SQLite-based deployment, the application container will automatically run a one-time SQLite -> MySQL import if it detects the legacy SQLite file in the mounted data volume.

@@ -1891,16 +1891,82 @@ const polishChapterScript = async () => {
     return;
   }
 
+  const originalContent = scriptContent.value;
   polishingScript.value = true;
   try {
-    const result = await dramaAPI.polishScriptText({
-      content: scriptContent.value,
-      skill_name: "polish_master",
+    scriptContent.value = "";
+
+    const token = authStore.token || localStorage.getItem("token") || "";
+    const response = await fetch("/api/v1/generation/script/polish/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        content: originalContent,
+        skill_name: "polish_master",
+      }),
     });
 
-    const polished = (result.content || "").trim();
+    if (!response.ok || !response.body) {
+      throw new Error($t("workflow.polishFailed"));
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalContent = "";
+    let streamError = "";
+
+    const handleSSEEvent = (rawEvent: string) => {
+      const lines = rawEvent
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!lines.length) return;
+
+      const eventLine = lines.find((line) => line.startsWith("event:"));
+      const dataLine = lines.find((line) => line.startsWith("data:"));
+      if (!eventLine || !dataLine) return;
+
+      const eventName = eventLine.slice(6).trim();
+      const rawData = dataLine.slice(5).trim();
+      const payload = JSON.parse(rawData);
+
+      if (eventName === "chunk") {
+        scriptContent.value += payload.content || "";
+      } else if (eventName === "done") {
+        finalContent = (payload.content || "").trim();
+      } else if (eventName === "error") {
+        streamError = payload.message || $t("workflow.polishFailed");
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const eventBlock of events) {
+        handleSSEEvent(eventBlock);
+      }
+    }
+
+    if (buffer.trim()) {
+      handleSSEEvent(buffer);
+    }
+
+    if (streamError) {
+      throw new Error(streamError);
+    }
+
+    const polished = finalContent || scriptContent.value.trim();
     if (!polished) {
       ElMessage.warning($t("workflow.polishFailed"));
+      scriptContent.value = originalContent;
       return;
     }
 
@@ -1908,6 +1974,9 @@ const polishChapterScript = async () => {
     ElMessage.success($t("workflow.polishSuccess"));
     await authStore.refreshMe();
   } catch (error: any) {
+    if (!scriptContent.value.trim()) {
+      scriptContent.value = originalContent;
+    }
     ElMessage.error(error?.response?.data?.error?.message || error?.message || $t("workflow.polishFailed"));
   } finally {
     polishingScript.value = false;
