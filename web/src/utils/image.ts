@@ -7,8 +7,17 @@
  */
 export function fixImageUrl(url: string): string {
   if (!url) return "";
-  if (url.startsWith("http") || url.startsWith("data:")) return url;
-  return `${import.meta.env.VITE_API_BASE_URL || ""}${url}`;
+  const value = url.trim();
+  if (!value) return "";
+
+  if (value.startsWith("http") || value.startsWith("data:")) return value;
+
+  const normalizedPath = value.startsWith("/static/")
+    ? value
+    : `/static/${value.replace(/^\/+/, "")}`;
+
+  const baseURL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+  return baseURL ? `${baseURL}${normalizedPath}` : normalizedPath;
 }
 
 /**
@@ -22,7 +31,7 @@ export function getImageUrl(item: any): string {
   // 优先使用 local_path
   if (item.local_path) {
     // local_path 是相对路径（如 images/xxx.jpg），需要添加 /static/ 前缀
-    return `/static/${item.local_path}`;
+    return fixImageUrl(item.local_path);
   }
 
   // 回退到 image_url
@@ -55,7 +64,7 @@ export function getVideoUrl(item: any): string {
       return item.local_path;
     }
     // 否则添加 /static/ 前缀
-    return `/static/${item.local_path}`;
+    return fixImageUrl(item.local_path);
   }
 
   // 回退到 video_url

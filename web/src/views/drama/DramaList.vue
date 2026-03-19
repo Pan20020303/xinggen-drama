@@ -221,6 +221,7 @@ import {
 } from "@element-plus/icons-vue";
 import { dramaAPI } from "@/api/drama";
 import type { Drama, DramaListQuery } from "@/types/drama";
+import { fixImageUrl } from "@/utils/image";
 import {
   AppHeader,
   ProjectCard,
@@ -262,23 +263,7 @@ const beforeCoverUpload = (file: File) => {
 
 const normalizeThumbnail = (thumbnail?: string) => {
   if (!thumbnail) return "";
-
-  const value = thumbnail.trim();
-  if (!value) return "";
-
-  if (
-    value.startsWith("http://") ||
-    value.startsWith("https://") ||
-    value.startsWith("data:")
-  ) {
-    return value;
-  }
-
-  if (value.startsWith("/")) {
-    return value;
-  }
-
-  return `/static/${value.replace(/^\/+/, "")}`;
+  return fixImageUrl(thumbnail);
 };
 
 const handleCoverUploadSuccess = async (response: any, dramaId: string) => {
