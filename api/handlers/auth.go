@@ -33,6 +33,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	resp, err := h.authService.Register(&req)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidCaptcha) {
+			response.BadRequest(c, "图形验证码错误或已过期")
+			return
+		}
 		if errors.Is(err, services.ErrEmailAlreadyExists) {
 			response.BadRequest(c, "邮箱已被注册")
 			return
@@ -54,6 +58,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.authService.Login(&req)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidCaptcha) {
+			response.BadRequest(c, "图形验证码错误或已过期")
+			return
+		}
 		if errors.Is(err, services.ErrInvalidCredentials) {
 			response.Unauthorized(c, "邮箱或密码错误")
 			return
@@ -64,6 +72,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 		h.log.Errorw("login failed", "error", err)
 		response.InternalError(c, "登录失败")
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+func (h *AuthHandler) Captcha(c *gin.Context) {
+	resp, err := h.authService.GenerateCaptcha()
+	if err != nil {
+		h.log.Errorw("generate captcha failed", "error", err)
+		response.InternalError(c, "获取图形验证码失败")
 		return
 	}
 

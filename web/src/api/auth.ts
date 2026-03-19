@@ -1,9 +1,13 @@
 import request from '@/utils/request'
-import type { AuthResponse, AuthUser, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from '@/types/auth'
+import type { AuthResponse, AuthUser, CaptchaResponse, ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest } from '@/types/auth'
 
 export const authAPI = {
   login(data: LoginRequest) {
     return request.post<AuthResponse>('/auth/login', data)
+  },
+
+  captcha() {
+    return request.get<CaptchaResponse>('/auth/captcha')
   },
 
   register(data: RegisterRequest) {

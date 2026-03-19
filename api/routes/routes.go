@@ -43,6 +43,7 @@ func SetupRouter(cfg *config.Config, db *gorm.DB, log *logger.Logger, localStora
 		auth := api.Group("/auth")
 		{
 			loginRateLimit := middlewares2.LoginRateLimitMiddleware()
+			auth.GET("/captcha", deps.authHandler.Captcha)
 			auth.POST("/register", deps.authHandler.Register)
 			auth.POST("/login", loginRateLimit, deps.authHandler.Login)
 		}

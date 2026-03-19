@@ -18,6 +18,7 @@ import (
 var (
 	ErrEmailAlreadyExists   = errors.New("email already exists")
 	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrInvalidCaptcha       = errors.New("invalid captcha")
 	ErrUserDisabled         = errors.New("user disabled")
 	ErrAdminAccessDenied    = errors.New("admin access denied")
 	ErrTokenRefreshTooEarly = errors.New("token refresh too early")
@@ -32,6 +33,7 @@ type AuthService struct {
 	tokenExpire      time.Duration
 	refreshThreshold time.Duration
 	initialCredits   int
+	captchaService   *CaptchaService
 }
 
 type TokenClaims struct {
@@ -62,10 +64,15 @@ func NewAuthService(repo repository.UserRepository, cfg *config.Config, log *log
 		tokenExpire:      time.Duration(expireHours) * time.Hour,
 		refreshThreshold: 24 * time.Hour,
 		initialCredits:   initialCredits,
+		captchaService:   NewCaptchaService(5 * time.Minute),
 	}
 }
 
 func (s *AuthService) Register(req *dto.RegisterRequest) (*dto.AuthResponse, error) {
+	if req == nil || !s.captchaService.Verify(req.CaptchaID, req.CaptchaCode) {
+		return nil, ErrInvalidCaptcha
+	}
+
 	if _, err := s.repo.FindByEmail(req.Email); err == nil {
 		return nil, ErrEmailAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -97,6 +104,14 @@ func (s *AuthService) Register(req *dto.RegisterRequest) (*dto.AuthResponse, err
 }
 
 func (s *AuthService) Login(req *dto.LoginRequest) (*dto.AuthResponse, error) {
+	if req == nil || !s.captchaService.Verify(req.CaptchaID, req.CaptchaCode) {
+		return nil, ErrInvalidCaptcha
+	}
+
+	return s.loginWithoutCaptcha(req)
+}
+
+func (s *AuthService) loginWithoutCaptcha(req *dto.LoginRequest) (*dto.AuthResponse, error) {
 	user, err := s.repo.FindByEmail(req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -119,6 +134,18 @@ func (s *AuthService) Login(req *dto.LoginRequest) (*dto.AuthResponse, error) {
 	}
 
 	return &dto.AuthResponse{Token: token, User: *user}, nil
+}
+
+func (s *AuthService) GenerateCaptcha() (*dto.CaptchaResponse, error) {
+	payload, err := s.captchaService.Generate()
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.CaptchaResponse{
+		CaptchaID: payload.CaptchaID,
+		ImageData: payload.ImageData,
+	}, nil
 }
 
 func (s *AuthService) GenerateToken(user models.User) (string, error) {
@@ -149,7 +176,7 @@ func (s *AuthService) generateTokenWithAudience(user models.User, audience strin
 }
 
 func (s *AuthService) AdminLogin(req *dto.LoginRequest) (*dto.AuthResponse, error) {
-	resp, err := s.Login(req)
+	resp, err := s.loginWithoutCaptcha(req)
 	if err != nil {
 		return nil, err
 	}

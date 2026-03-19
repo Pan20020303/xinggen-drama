@@ -25,6 +25,26 @@
         />
       </el-form-item>
 
+      <el-form-item label="图形验证码" prop="captchaCode">
+        <div class="captcha-row">
+          <el-input
+            v-model="form.captchaCode"
+            placeholder="请输入图形验证码"
+            autocomplete="off"
+            @keyup.enter="handleLogin"
+          />
+          <button
+            type="button"
+            class="captcha-image-btn"
+            :disabled="captchaLoading"
+            @click="loadCaptcha"
+          >
+            <img v-if="captchaImage" :src="captchaImage" alt="captcha" class="captcha-image" />
+            <span v-else>{{ captchaLoading ? '加载中' : '获取验证码' }}</span>
+          </button>
+        </div>
+      </el-form-item>
+
       <el-button class="submit-btn" type="primary" :loading="submitting" @click="handleLogin">
         登 录
       </el-button>
@@ -42,10 +62,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import AuthSceneLayout from '@/components/auth/AuthSceneLayout.vue'
+import { authAPI } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -54,9 +75,13 @@ const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
+const captchaLoading = ref(false)
+const captchaId = ref('')
+const captchaImage = ref('')
 const form = reactive({
   email: '',
-  password: ''
+  password: '',
+  captchaCode: ''
 })
 
 const rules: FormRules = {
@@ -64,7 +89,22 @@ const rules: FormRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
   ],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  captchaCode: [{ required: true, message: '请输入图形验证码', trigger: 'blur' }]
+}
+
+const loadCaptcha = async () => {
+  captchaLoading.value = true
+  try {
+    const resp = await authAPI.captcha()
+    captchaId.value = resp.captcha_id
+    captchaImage.value = resp.image_data
+    form.captchaCode = ''
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error?.message || error?.message || '获取图形验证码失败')
+  } finally {
+    captchaLoading.value = false
+  }
 }
 
 const handleLogin = async () => {
@@ -76,20 +116,53 @@ const handleLogin = async () => {
   try {
     await authStore.login({
       email: form.email,
-      password: form.password
+      password: form.password,
+      captcha_id: captchaId.value,
+      captcha_code: form.captchaCode
     })
     ElMessage.success('登录成功')
     const redirect = route.query.redirect as string | undefined
     await router.replace(redirect || '/')
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error?.message || error?.message || '登录失败')
+    await loadCaptcha()
   } finally {
     submitting.value = false
   }
 }
+
+onMounted(() => {
+  loadCaptcha()
+})
 </script>
 
 <style scoped>
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 10px;
+}
+
+.captcha-image-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  color: rgba(233, 242, 255, 0.84);
+}
+
+.captcha-image {
+  display: block;
+  width: 100%;
+  height: 40px;
+  object-fit: cover;
+}
+
 .submit-btn {
   width: 100%;
   margin-top: 2px;
