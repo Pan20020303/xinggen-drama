@@ -54,6 +54,21 @@ func (s *ScriptGenerationService) PolishScriptText(userID uint, content string, 
 	)
 }
 
+func (s *ScriptGenerationService) PolishScriptTextStream(userID uint, content string, model string, skillName string, callback ai.StreamCallback) (string, string, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", "", errors.New("empty content")
+	}
+	return s.polishContentWithSkillStream(
+		userID,
+		content,
+		model,
+		skillName,
+		"script_polish",
+		callback,
+	)
+}
+
 func (s *ScriptGenerationService) polishContentWithSkill(userID uint, content string, model string, skillName string, detailPrefix string) (string, string, error) {
 	skillID, skill := resolveScriptPolishSkill(skillName)
 	isEN := s.promptI18n != nil && s.promptI18n.IsEnglish()
@@ -113,6 +128,74 @@ func (s *ScriptGenerationService) polishContentWithSkill(userID uint, content st
 	}
 
 	s.log.Infow("Script polished",
+		"user_id", userID,
+		"skill_name", skillID,
+		"model", actualModel,
+		"length", len([]rune(polished)))
+
+	success = true
+	return polished, skillID, nil
+}
+
+func (s *ScriptGenerationService) polishContentWithSkillStream(userID uint, content string, model string, skillName string, detailPrefix string, callback ai.StreamCallback) (string, string, error) {
+	skillID, skill := resolveScriptPolishSkill(skillName)
+	isEN := s.promptI18n != nil && s.promptI18n.IsEnglish()
+
+	systemPrompt := skill.SystemPromptZH
+	userTemplate := skill.UserPromptZH
+	if isEN {
+		systemPrompt = skill.SystemPromptEN
+		userTemplate = skill.UserPromptEN
+	}
+	userPrompt := fmt.Sprintf(userTemplate, content)
+
+	modelHint := s.resolvePolishModelHint(model)
+
+	client, actualModel, billingRefID, err := reserveTextClient(
+		s.aiService,
+		s.billing,
+		userID,
+		modelHint,
+		fmt.Sprintf("%s:%s", detailPrefix, skillID),
+	)
+	if err != nil && strings.TrimSpace(model) == "" && modelHint != "" {
+		client, actualModel, billingRefID, err = reserveTextClient(
+			s.aiService,
+			s.billing,
+			userID,
+			"",
+			fmt.Sprintf("%s:%s", detailPrefix, skillID),
+		)
+	}
+	if err != nil {
+		return "", "", err
+	}
+
+	success := false
+	defer func() {
+		if !success && billingRefID != "" {
+			_ = s.billing.RefundAI(billingRefID)
+		}
+	}()
+
+	polished, err := client.GenerateTextStream(
+		userPrompt,
+		systemPrompt,
+		callback,
+		ai.WithTemperature(0.45),
+		ai.WithMaxTokens(2600),
+	)
+	if err != nil {
+		return "", "", err
+	}
+	recordTextUsage(s.billing, billingRefID, client)
+
+	polished = normalizePolishedScript(polished)
+	if polished == "" {
+		return "", "", errors.New("polished content is empty")
+	}
+
+	s.log.Infow("Script polished stream",
 		"user_id", userID,
 		"skill_name", skillID,
 		"model", actualModel,
