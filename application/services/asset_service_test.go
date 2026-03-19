@@ -72,7 +72,7 @@ func TestAssetService_ImportFromImageGenAllowsToolImagesWithoutDrama(t *testing.
 	imageURL := "https://example.com/tool-image.png"
 	imageGen := models.ImageGeneration{
 		UserID:      8,
-		DramaID:     0,
+		DramaID:     nil,
 		ImageType:   "toolbox",
 		Provider:    "openai",
 		Prompt:      "tool image",

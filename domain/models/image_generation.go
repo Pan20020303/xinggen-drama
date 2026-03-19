@@ -10,7 +10,7 @@ type ImageGeneration struct {
 	ID              uint                  `gorm:"primarykey" json:"id"`
 	UserID          uint                  `gorm:"not null;default:0;index" json:"user_id"`
 	StoryboardID    *uint                 `gorm:"index" json:"storyboard_id,omitempty"`
-	DramaID         uint                  `gorm:"not null;index" json:"drama_id"`
+	DramaID         *uint                 `gorm:"index" json:"drama_id,omitempty"`
 	SceneID         *uint                 `gorm:"index" json:"scene_id,omitempty"`
 	CharacterID     *uint                 `gorm:"index" json:"character_id,omitempty"`
 	PropID          *uint                 `gorm:"index" json:"prop_id,omitempty"`
@@ -41,7 +41,7 @@ type ImageGeneration struct {
 	CompletedAt     *time.Time            `json:"completed_at,omitempty"`
 
 	Storyboard *Storyboard `gorm:"foreignKey:StoryboardID" json:"storyboard,omitempty"`
-	Drama      Drama       `gorm:"foreignKey:DramaID" json:"drama,omitempty"`
+	Drama      *Drama      `gorm:"foreignKey:DramaID" json:"drama,omitempty"`
 	Scene      *Scene      `gorm:"foreignKey:SceneID" json:"scene,omitempty"`
 	Character  *Character  `gorm:"foreignKey:CharacterID" json:"character,omitempty"`
 	Prop       *Prop       `gorm:"foreignKey:PropID" json:"prop,omitempty"`

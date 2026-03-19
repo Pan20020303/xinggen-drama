@@ -806,7 +806,7 @@ func (s *VideoGenerationService) GenerateVideoFromImage(userID uint, imageGenID 
 	}
 
 	req := &GenerateVideoRequest{
-		DramaID:      fmt.Sprintf("%d", imageGen.DramaID),
+		DramaID:      "",
 		StoryboardID: imageGen.StoryboardID,
 		ImageGenID:   &imageGenID,
 		ImageURL:     *imageGen.ImageURL,
@@ -814,6 +814,10 @@ func (s *VideoGenerationService) GenerateVideoFromImage(userID uint, imageGenID 
 		Provider:     "doubao",
 		Duration:     duration,
 	}
+	if imageGen.DramaID == nil {
+		return nil, fmt.Errorf("image generation is not bound to a drama")
+	}
+	req.DramaID = fmt.Sprintf("%d", *imageGen.DramaID)
 
 	return s.GenerateVideo(userID, req)
 }

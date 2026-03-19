@@ -128,7 +128,7 @@ func TestSaveStoryboardsPersistsBatchAndAssociations(t *testing.T) {
 	oldImage := models.ImageGeneration{
 		UserID:       1,
 		StoryboardID: &oldStoryboard.ID,
-		DramaID:      drama.ID,
+		DramaID:      &drama.ID,
 		ImageType:    string(models.ImageTypeStoryboard),
 		Provider:     "test",
 		Prompt:       "old",

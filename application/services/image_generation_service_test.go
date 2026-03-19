@@ -41,7 +41,7 @@ func TestListImageGenerations_FiltersByCharacterID(t *testing.T) {
 	images := []models.ImageGeneration{
 		{
 			UserID:      userID,
-			DramaID:     dramaID,
+			DramaID:     uintPtr(dramaID),
 			CharacterID: &characterID,
 			ImageType:   string(models.ImageTypeCharacter),
 			Provider:    "openai",
@@ -53,7 +53,7 @@ func TestListImageGenerations_FiltersByCharacterID(t *testing.T) {
 		},
 		{
 			UserID:      userID,
-			DramaID:     dramaID,
+			DramaID:     uintPtr(dramaID),
 			CharacterID: &otherCharacterID,
 			ImageType:   string(models.ImageTypeCharacter),
 			Provider:    "openai",
@@ -96,7 +96,7 @@ func TestListImageGenerations_FiltersByImageType(t *testing.T) {
 	items := []models.ImageGeneration{
 		{
 			UserID:    userID,
-			DramaID:   dramaID,
+			DramaID:   uintPtr(dramaID),
 			ImageType: "toolbox",
 			Provider:  "openai",
 			Prompt:    "toolbox image",
@@ -107,7 +107,7 @@ func TestListImageGenerations_FiltersByImageType(t *testing.T) {
 		},
 		{
 			UserID:    userID,
-			DramaID:   dramaID,
+			DramaID:   uintPtr(dramaID),
 			ImageType: string(models.ImageTypeStoryboard),
 			Provider:  "openai",
 			Prompt:    "storyboard image",
@@ -175,6 +175,37 @@ func TestNormalizeDimensionsForModel_LeavesLargeEnoughRequestUnchanged(t *testin
 	}
 }
 
+func TestParseOptionalDramaID_EmptyStringReturnsNil(t *testing.T) {
+	value, err := parseOptionalDramaID("")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if value != nil {
+		t.Fatalf("expected nil drama id, got %v", *value)
+	}
+}
+
+func TestParseOptionalDramaID_ValidValueReturnsPointer(t *testing.T) {
+	value, err := parseOptionalDramaID("42")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if value == nil || *value != 42 {
+		t.Fatalf("expected 42, got %#v", value)
+	}
+}
+
+func TestParseOptionalDramaID_InvalidValueReturnsError(t *testing.T) {
+	value, err := parseOptionalDramaID("abc")
+	if err == nil {
+		t.Fatalf("expected error, got nil with value %#v", value)
+	}
+}
+
 func intPtr(v int) *int {
+	return &v
+}
+
+func uintPtr(v uint) *uint {
 	return &v
 }

@@ -236,17 +236,13 @@ func (s *AssetService) ImportFromImageGen(userID uint, imageGenID uint) (*models
 		return nil, fmt.Errorf("image is not ready")
 	}
 
-	var dramaID *uint
-	if imageGen.DramaID != 0 {
-		dramaID = &imageGen.DramaID
-	}
 	category := "图片素材"
 	asset := &models.Asset{
 		UserID:     userID,
 		Name:       fmt.Sprintf("Image_%d", imageGen.ID),
 		Type:       models.AssetTypeImage,
 		URL:        *imageGen.ImageURL,
-		DramaID:    dramaID,
+		DramaID:    imageGen.DramaID,
 		Category:   &category,
 		ImageGenID: &imageGenID,
 		Width:      imageGen.Width,

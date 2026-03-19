@@ -100,6 +100,10 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	normalizeDimensionsForModel(request)
 
 	var drama models.Drama
+	dramaIDParsed, err := parseOptionalDramaID(request.DramaID)
+	if err != nil {
+		return nil, err
+	}
 	if request.DramaID != "" {
 		if err := s.db.Where("id = ? AND user_id = ?", request.DramaID, userID).First(&drama).Error; err != nil {
 			return nil, fmt.Errorf("drama not found")
@@ -131,15 +135,6 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 		referenceImagesJSON, _ = json.Marshal(request.ReferenceImages)
 	}
 
-	// 转换DramaID
-	var dramaIDParsed uint64
-	if request.DramaID != "" {
-		dramaIDParsed, err = strconv.ParseUint(request.DramaID, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid drama ID")
-		}
-	}
-
 	// 设置默认图片类型
 	imageType := request.ImageType
 	if imageType == "" {
@@ -149,7 +144,7 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	imageGen := &models.ImageGeneration{
 		UserID:          userID,
 		StoryboardID:    request.StoryboardID,
-		DramaID:         uint(dramaIDParsed),
+		DramaID:         dramaIDParsed,
 		SceneID:         request.SceneID,
 		CharacterID:     request.CharacterID,
 		PropID:          request.PropID,
@@ -187,6 +182,20 @@ func (s *ImageGenerationService) GenerateImage(userID uint, request *GenerateIma
 	})
 
 	return imageGen, nil
+}
+
+func parseOptionalDramaID(dramaID string) (*uint, error) {
+	if strings.TrimSpace(dramaID) == "" {
+		return nil, nil
+	}
+
+	parsed, err := strconv.ParseUint(dramaID, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid drama ID")
+	}
+
+	value := uint(parsed)
+	return &value, nil
 }
 
 func normalizeDimensionsForModel(request *GenerateImageRequest) {
@@ -265,9 +274,9 @@ func (s *ImageGenerationService) ProcessImageGeneration(imageGenID uint) {
 
 	// 获取drama的style信息
 	var drama models.Drama
-	if imageGen.DramaID != 0 {
-		if err := s.db.First(&drama, imageGen.DramaID).Error; err != nil {
-			s.log.Warnw("Failed to load drama for style", "error", err, "drama_id", imageGen.DramaID)
+	if imageGen.DramaID != nil {
+		if err := s.db.First(&drama, *imageGen.DramaID).Error; err != nil {
+			s.log.Warnw("Failed to load drama for style", "error", err, "drama_id", *imageGen.DramaID)
 		}
 	}
 
@@ -795,10 +804,11 @@ func (s *ImageGenerationService) CreateImageFromUpload(req *UploadImageRequest) 
 	}
 
 	now := time.Now()
+	dramaID := req.DramaID
 	imageGen := &models.ImageGeneration{
-		UserID:      req.UserID,
+		UserID:       req.UserID,
 		StoryboardID: &req.StoryboardID,
-		DramaID:      req.DramaID,
+		DramaID:      &dramaID,
 		ImageType:    string(models.ImageTypeStoryboard),
 		FrameType:    &req.FrameType,
 		Provider:     "upload",
