@@ -321,6 +321,7 @@ interface ModelOption {
 interface ReferenceSource {
   url: string
   name: string
+  localPath?: string
 }
 
 type DisplayItem =
@@ -492,7 +493,8 @@ const handleReferenceFileChange = async (event: Event) => {
     const result = await uploadAPI.uploadImage(file)
     selectedReference.value = {
       url: result.url,
-      name: result.filename || file.name
+      name: result.filename || file.name,
+      localPath: result.local_path
     }
     ElMessage.success('参考图上传成功')
   } catch (error: any) {
@@ -522,7 +524,8 @@ const loadReferenceCandidates = async () => {
 const selectReferenceAsset = (item: Asset) => {
   selectedReference.value = {
     url: item.url,
-    name: item.name
+    name: item.name,
+    localPath: item.local_path
   }
   showReferenceDialog.value = false
 }
@@ -641,7 +644,9 @@ const handleGenerate = async () => {
         size: `${form.width}x${form.height}`,
         width: form.width,
         height: form.height,
-        reference_images: selectedReference.value ? [selectedReference.value.url] : undefined
+        reference_images: selectedReference.value
+          ? [selectedReference.value.localPath || selectedReference.value.url]
+          : undefined
       })
     }
 
