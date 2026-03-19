@@ -188,84 +188,137 @@
               </article>
             </div>
 
-            <div v-else class="history-grid">
-              <article v-for="item in displayItems" :key="item.key" class="history-item">
-                <div class="history-image-wrap">
-                  <el-image
-                    v-if="item.kind === 'asset' && item.asset.type === 'image'"
-                    :src="item.asset.url"
-                    fit="cover"
-                    class="history-image"
-                    :preview-src-list="[item.asset.url]"
-                    preview-teleported
-                  />
-                  <video
-                    v-else-if="item.kind === 'asset' && item.asset.type === 'video'"
-                    :src="item.asset.url"
-                    class="history-video"
-                    controls
-                    preload="metadata"
-                  />
-                  <el-image
-                    v-else-if="item.kind === 'generated' && item.image.image_url"
-                    :src="item.image.image_url"
-                    fit="cover"
-                    class="history-image"
-                    :preview-src-list="[item.image.image_url]"
-                    preview-teleported
-                  />
-                  <div v-else class="history-image-placeholder" :class="item.kind === 'generated' ? 'is-completed' : 'is-audio'">
-                    <el-icon><Headset /></el-icon>
-                    <span>{{ item.kind === 'generated' ? '待入库图片' : '音频素材' }}</span>
+            <div v-else class="history-grid history-masonry">
+              <article
+                v-for="item in displayItems"
+                :key="item.key"
+                class="history-item"
+                :class="{ 'is-image-card': isImageDisplayItem(item) }"
+              >
+                <div v-if="item.kind === 'generated-group'" class="history-generated-group">
+                  <div class="group-badge">{{ item.images.length }} 张</div>
+                  <div class="group-toolbar">
+                    <button
+                      type="button"
+                      class="overlay-chip-btn"
+                      @click.stop="importGroupToAssetLibrary(item.images)"
+                    >
+                      整组加入素材库
+                    </button>
+                  </div>
+                  <div
+                    class="history-generated-group-grid"
+                    :class="`is-count-${item.images.length}`"
+                  >
+                    <div
+                        v-for="image in item.images"
+                        :key="image.id"
+                        class="history-generated-group-cell"
+                        :style="{ aspectRatio: getGeneratedAspectRatio(image) }"
+                        @click="openGeneratedGroupPreview(item.images, image.id)"
+                      >
+                      <el-image
+                        :src="getGeneratedImageSrc(image)"
+                        fit="cover"
+                        class="history-image"
+                      />
+                      <div class="history-image-toolbar">
+                        <button
+                          type="button"
+                          class="overlay-chip-btn"
+                          @click.stop="importToAssetLibrary(image)"
+                        >
+                          加入素材库
+                        </button>
+                        <button
+                          type="button"
+                          class="overlay-chip-btn"
+                          @click.stop="reuseTemplate(image)"
+                        >
+                          模板复用
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div class="history-item-body">
-                  <div class="history-item-top">
-                    <el-tag
-                      size="small"
-                      :type="item.kind === 'asset' ? assetTagMap[item.asset.type] : 'info'"
+
+                <div
+                  v-else-if="isImageDisplayItem(item)"
+                  class="history-image-card"
+                  :style="{ aspectRatio: getItemAspectRatio(item) }"
+                  @click="openPreview(item)"
+                  @keydown.enter="openPreview(item)"
+                  @keydown.space.prevent="openPreview(item)"
+                  tabindex="0"
+                >
+                  <el-image
+                    :src="getItemImageSrc(item)"
+                    fit="cover"
+                    class="history-image"
+                  />
+                  <div class="history-image-toolbar">
+                    <button
+                      v-if="item.kind === 'asset'"
+                      type="button"
+                      class="overlay-icon-btn"
+                      @click.stop="toggleFavorite(item.asset)"
                     >
-                      {{ item.kind === 'asset' ? assetTypeLabelMap[item.asset.type] : '工具图片' }}
-                    </el-tag>
-                    <el-button v-if="item.kind === 'asset'" text class="favorite-btn" @click="toggleFavorite(item.asset)">
                       <el-icon :class="{ 'is-favorite': item.asset.is_favorite }">
                         <StarFilled v-if="item.asset.is_favorite" />
                         <Star v-else />
                       </el-icon>
-                    </el-button>
-                  </div>
-                  <div class="history-prompt">{{ item.kind === 'asset' ? item.asset.name : item.image.prompt }}</div>
-                  <div class="history-meta">
-                    <span>
-                      {{ item.kind === 'asset' ? (item.asset.category || '未分类') : (item.image.model || '默认模型') }}
-                    </span>
-                    <span>{{ formatTime(item.kind === 'asset' ? item.asset.created_at : item.image.created_at) }}</span>
-                  </div>
-                  <div class="history-actions">
-                    <el-button
-                      v-if="item.kind === 'asset'"
-                      size="small"
-                      @click="openAsset(item.asset.url)"
-                    >
-                      查看
-                    </el-button>
-                    <el-button
-                      v-else
-                      size="small"
-                      type="primary"
-                      @click="importToAssetLibrary(item.image)"
+                    </button>
+                    <button
+                      v-if="item.kind === 'generated'"
+                      type="button"
+                      class="overlay-chip-btn"
+                      @click.stop="importToAssetLibrary(item.image)"
                     >
                       加入素材库
-                    </el-button>
-                    <el-button
+                    </button>
+                    <button
                       v-if="item.kind === 'generated'"
-                      size="small"
-                      @click="reuseTemplate(item.image)"
+                      type="button"
+                      class="overlay-chip-btn"
+                      @click.stop="reuseTemplate(item.image)"
                     >
                       模板复用
-                    </el-button>
+                    </button>
                   </div>
                 </div>
+
+                <template v-else>
+                  <div class="history-image-wrap">
+                    <video
+                      v-if="item.kind === 'asset' && item.asset.type === 'video'"
+                      :src="item.asset.url"
+                      class="history-video"
+                      controls
+                      preload="metadata"
+                    />
+                    <div v-else class="history-image-placeholder is-audio">
+                      <el-icon><Headset /></el-icon>
+                      <span>音频素材</span>
+                    </div>
+                  </div>
+                  <div class="history-item-body">
+                    <div class="history-item-top">
+                      <el-tag
+                        size="small"
+                        :type="item.kind === 'asset' ? assetTagMap[item.asset.type] : 'info'"
+                      >
+                        {{ item.kind === 'asset' ? assetTypeLabelMap[item.asset.type] : '工具图片' }}
+                      </el-tag>
+                    </div>
+                    <div class="history-prompt">{{ item.kind === 'asset' ? item.asset.name : item.image.prompt }}</div>
+                    <div class="history-meta">
+                      <span>
+                        {{ item.kind === 'asset' ? (item.asset.category || '未分类') : (item.image.model || '默认模型') }}
+                      </span>
+                      <span>{{ formatTime(item.kind === 'asset' ? item.asset.created_at : item.image.created_at) }}</span>
+                    </div>
+                  </div>
+                </template>
               </article>
             </div>
           </div>
@@ -289,6 +342,93 @@
           <span>{{ item.name }}</span>
         </button>
       </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="showPreviewDialog"
+      width="1200px"
+      class="image-preview-dialog"
+      destroy-on-close
+      align-center
+      >
+      <template v-if="previewContent">
+        <div class="preview-dialog-layout">
+          <div class="preview-dialog-image">
+            <img :src="previewContent.imageSrc" alt="preview" />
+            <div v-if="previewItem?.kind === 'generated-group'" class="preview-group-nav">
+              <button type="button" class="preview-nav-btn" @click="showPreviousPreviewImage">
+                上一张
+              </button>
+              <span class="preview-nav-count">{{ previewCurrentIndex + 1 }} / {{ previewItem.images.length }}</span>
+              <button type="button" class="preview-nav-btn" @click="showNextPreviewImage">
+                下一张
+              </button>
+            </div>
+          </div>
+          <aside class="preview-dialog-sidebar">
+            <div class="preview-meta-line">
+              <span>{{ formatDateOnly(previewContent.createdAt) }}</span>
+              <span>{{ previewContent.sourceLabel }}</span>
+            </div>
+
+            <div class="preview-section">
+              <div class="preview-section-title">图片提示词</div>
+              <div class="preview-prompt-text">
+                {{ previewContent.prompt }}
+              </div>
+            </div>
+
+            <div class="preview-submeta">
+              <span v-if="previewContent.model">{{ previewContent.model }}</span>
+              <span>{{ previewContent.ratio }}</span>
+            </div>
+
+            <div class="preview-action-row">
+              <el-button
+                v-if="previewContent.mode === 'generated'"
+                @click="reuseTemplate(previewContent.image); showPreviewDialog = false"
+              >
+                做同款
+              </el-button>
+              <el-button
+                v-if="previewContent.mode === 'generated'"
+                type="primary"
+                @click="setGeneratedAsReference(previewContent.image); showPreviewDialog = false"
+              >
+                用作参考图
+              </el-button>
+              <el-button
+                v-if="previewContent.mode === 'asset'"
+                @click="setAssetAsReference(previewContent.asset); showPreviewDialog = false"
+              >
+                用作参考图
+              </el-button>
+              <el-button
+                v-if="previewContent.mode === 'generated'"
+                type="primary"
+                plain
+                @click="importToAssetLibrary(previewContent.image)"
+              >
+                加入素材库
+              </el-button>
+              <el-button
+                v-if="previewItem?.kind === 'generated-group'"
+                plain
+                @click="importGroupToAssetLibrary(previewItem.images)"
+              >
+                整组加入素材库
+              </el-button>
+              <el-button
+                v-if="previewContent.mode === 'asset'"
+                plain
+                @click="toggleFavorite(previewContent.asset)"
+              >
+                {{ previewContent.asset.is_favorite ? '取消收藏' : '收藏' }}
+              </el-button>
+            </div>
+          </aside>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -335,6 +475,12 @@ interface ReferenceSource {
 type DisplayItem =
   | { key: string; kind: 'asset'; asset: Asset }
   | { key: string; kind: 'generated'; image: ImageGeneration }
+  | { key: string; kind: 'generated-group'; images: ImageGeneration[] }
+
+type PreviewItem =
+  | { kind: 'asset'; asset: Asset }
+  | { kind: 'generated'; image: ImageGeneration }
+  | { kind: 'generated-group'; images: ImageGeneration[]; currentIndex: number }
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -345,6 +491,7 @@ const historyLoading = ref(false)
 const uploadingReference = ref(false)
 const showReferenceDialog = ref(false)
 const referenceDialogLoading = ref(false)
+const showPreviewDialog = ref(false)
 
 const generationMode = ref<GenerationMode>('text')
 const activeMediaTab = ref<AssetType>('image')
@@ -358,6 +505,10 @@ const referenceCandidates = ref<Asset[]>([])
 const importedImageIds = ref<number[]>([])
 const selectedReference = ref<ReferenceSource | null>(null)
 const referenceInputRef = ref<HTMLInputElement | null>(null)
+const previewItem = ref<PreviewItem | null>(null)
+const previewCurrentIndex = computed(() => {
+  return previewItem.value?.kind === 'generated-group' ? previewItem.value.currentIndex : 0
+})
 
 const ratioOptions: Array<{ key: RatioKey; width: number; height: number }> = [
   { key: '16:9', width: 2560, height: 1440 },
@@ -450,17 +601,234 @@ const displayItems = computed<DisplayItem[]>(() => {
 
   if (!onlyFavorites.value && activeMediaTab.value === 'image') {
     return [
-      ...completedToolboxImages.value.map((image) => ({
-        key: `generated-${image.id}`,
-        kind: 'generated' as const,
-        image
-      })),
+      ...groupGeneratedImages(completedToolboxImages.value),
       ...items
     ]
   }
 
   return items
 })
+
+const isImageDisplayItem = (item: DisplayItem) => {
+  return (item.kind === 'asset' && item.asset.type === 'image') || item.kind === 'generated'
+}
+
+const GROUP_WINDOW_MS = 20 * 1000
+
+const getGeneratedGroupKey = (image: ImageGeneration) => {
+  const references = Array.isArray(image.reference_images) ? image.reference_images.filter(Boolean).join('|') : ''
+  return [
+    image.prompt || '',
+    image.model || '',
+    image.size || '',
+    image.width || '',
+    image.height || '',
+    references
+  ].join('::')
+}
+
+const groupGeneratedImages = (images: ImageGeneration[]): DisplayItem[] => {
+  const grouped: DisplayItem[] = []
+  let currentGroup: ImageGeneration[] = []
+  let currentKey = ''
+  let currentStartAt = 0
+
+  const flush = () => {
+    if (currentGroup.length === 0) return
+    if (currentGroup.length === 1) {
+      grouped.push({
+        key: `generated-${currentGroup[0].id}`,
+        kind: 'generated',
+        image: currentGroup[0]
+      })
+    } else {
+      grouped.push({
+        key: `generated-group-${currentGroup.map((item) => item.id).join('-')}`,
+        kind: 'generated-group',
+        images: [...currentGroup]
+      })
+    }
+    currentGroup = []
+    currentKey = ''
+    currentStartAt = 0
+  }
+
+  for (const image of images) {
+    const imageKey = getGeneratedGroupKey(image)
+    const createdAt = new Date(image.created_at).getTime()
+    const canJoin =
+      currentGroup.length > 0 &&
+      imageKey === currentKey &&
+      Number.isFinite(createdAt) &&
+      Math.abs(createdAt - currentStartAt) <= GROUP_WINDOW_MS &&
+      currentGroup.length < 4
+
+    if (!canJoin) {
+      flush()
+      currentGroup = [image]
+      currentKey = imageKey
+      currentStartAt = createdAt
+      continue
+    }
+
+    currentGroup.push(image)
+  }
+
+  flush()
+  return grouped
+}
+
+const parseSize = (size?: string) => {
+  if (!size) return null
+  const match = size.match(/^(\d+)x(\d+)$/i)
+  if (!match) return null
+  return {
+    width: Number(match[1]),
+    height: Number(match[2])
+  }
+}
+
+const getItemImageSrc = (item: DisplayItem) => {
+  if (item.kind === 'asset') {
+    return item.asset.local_path ? getImageUrl(item.asset) : item.asset.url
+  }
+
+  return getImageUrl(item.image) || item.image.image_url || ''
+}
+
+const getGeneratedImageSrc = (image: ImageGeneration) => {
+  return getImageUrl(image) || image.image_url || ''
+}
+
+const getItemAspectRatio = (item: DisplayItem) => {
+  const width = item.kind === 'asset' ? item.asset.width : item.image.width
+  const height = item.kind === 'asset' ? item.asset.height : item.image.height
+  const parsed = item.kind === 'generated' ? parseSize(item.image.size) : null
+  const safeWidth = width || parsed?.width || 3
+  const safeHeight = height || parsed?.height || 4
+  return `${safeWidth} / ${safeHeight}`
+}
+
+const getGeneratedAspectRatio = (image: ImageGeneration) => {
+  const width = image.width
+  const height = image.height
+  const parsed = parseSize(image.size)
+  const safeWidth = width || parsed?.width || 3
+  const safeHeight = height || parsed?.height || 4
+  return `${safeWidth} / ${safeHeight}`
+}
+
+const getItemCreatedAt = (item: DisplayItem) => {
+  return item.kind === 'asset' ? item.asset.created_at : item.image.created_at
+}
+
+const previewContent = computed(() => {
+  if (!previewItem.value) return null
+
+  if (previewItem.value.kind === 'asset') {
+    return {
+      mode: 'asset' as const,
+      asset: previewItem.value.asset,
+      imageSrc: previewItem.value.asset.local_path ? getImageUrl(previewItem.value.asset) : previewItem.value.asset.url,
+      createdAt: previewItem.value.asset.created_at,
+      sourceLabel: '图片素材',
+      prompt: previewItem.value.asset.description || previewItem.value.asset.name || '暂无描述',
+      model: '',
+      ratio: getPreviewRatio(previewItem.value)
+    }
+  }
+
+  const image = previewItem.value.kind === 'generated-group'
+    ? previewItem.value.images[previewItem.value.currentIndex]
+    : previewItem.value.image
+
+  return {
+    mode: 'generated' as const,
+    image,
+    imageSrc: getGeneratedImageSrc(image),
+    createdAt: image.created_at,
+    sourceLabel: '内容由 AI 生成',
+    prompt: image.prompt || '暂无提示词',
+    model: image.model || '默认模型',
+    ratio: getGeneratedAspectRatioLabel(image)
+  }
+})
+
+const getPreviewPrompt = (item: DisplayItem) => {
+  if (item.kind === 'generated') {
+    return item.image.prompt || '暂无提示词'
+  }
+
+  return item.asset.description || item.asset.name || '暂无描述'
+}
+
+const getPreviewRatio = (item: DisplayItem) => {
+  const width = item.kind === 'asset' ? item.asset.width : item.image.width
+  const height = item.kind === 'asset' ? item.asset.height : item.image.height
+  const parsed = item.kind === 'generated' ? parseSize(item.image.size) : null
+  const safeWidth = width || parsed?.width
+  const safeHeight = height || parsed?.height
+
+  if (!safeWidth || !safeHeight) {
+    return '比例未知'
+  }
+
+  return `${safeWidth}:${safeHeight}`
+}
+
+const getGeneratedAspectRatioLabel = (image: ImageGeneration) => {
+  const width = image.width
+  const height = image.height
+  const parsed = parseSize(image.size)
+  const safeWidth = width || parsed?.width
+  const safeHeight = height || parsed?.height
+
+  if (!safeWidth || !safeHeight) {
+    return '比例未知'
+  }
+
+  return `${safeWidth}:${safeHeight}`
+}
+
+const formatDateOnly = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('zh-CN')
+}
+
+const openPreview = (item: PreviewItem) => {
+  previewItem.value = item
+  showPreviewDialog.value = true
+}
+
+const openGeneratedGroupPreview = (images: ImageGeneration[], activeId: number | string) => {
+  const currentIndex = Math.max(images.findIndex((image) => String(image.id) === String(activeId)), 0)
+  previewItem.value = {
+    kind: 'generated-group',
+    images,
+    currentIndex
+  }
+  showPreviewDialog.value = true
+}
+
+const showPreviousPreviewImage = () => {
+  if (!previewItem.value || previewItem.value.kind !== 'generated-group') return
+  const total = previewItem.value.images.length
+  previewItem.value = {
+    ...previewItem.value,
+    currentIndex: (previewItem.value.currentIndex - 1 + total) % total
+  }
+}
+
+const showNextPreviewImage = () => {
+  if (!previewItem.value || previewItem.value.kind !== 'generated-group') return
+  const total = previewItem.value.images.length
+  previewItem.value = {
+    ...previewItem.value,
+    currentIndex: (previewItem.value.currentIndex + 1) % total
+  }
+}
 
 const applyRatio = (ratioKey: RatioKey) => {
   const matched = ratioOptions.find((item) => item.key === ratioKey)
@@ -581,6 +949,32 @@ const reuseTemplate = (image: ImageGeneration) => {
   }
 
   ElMessage.success(firstReference ? '已复用提示词和参考图' : '已复用提示词')
+}
+
+const setGeneratedAsReference = (image: ImageGeneration) => {
+  const source = getImageUrl(image) || image.image_url
+  if (!source) {
+    ElMessage.warning('当前图片没有可用的参考图地址')
+    return
+  }
+
+  generationMode.value = 'reference'
+  selectedReference.value = {
+    url: source,
+    name: '生成结果',
+    localPath: image.local_path
+  }
+  ElMessage.success('已设置为参考图')
+}
+
+const setAssetAsReference = (asset: Asset) => {
+  generationMode.value = 'reference'
+  selectedReference.value = {
+    url: asset.local_path ? getImageUrl(asset) : asset.url,
+    name: asset.name,
+    localPath: asset.local_path
+  }
+  ElMessage.success('已设置为参考图')
 }
 
 const loadMaterialAssets = async () => {
@@ -737,6 +1131,27 @@ const importToAssetLibrary = async (image: ImageGeneration) => {
     await loadRightPanel()
   } catch (error: any) {
     ElMessage.error(error?.message || '加入素材库失败')
+  }
+}
+
+const importGroupToAssetLibrary = async (images: ImageGeneration[]) => {
+  try {
+    const results = await Promise.allSettled(images.map((image) => assetAPI.importFromImage(image.id)))
+    const successCount = results.filter((result) => result.status === 'fulfilled').length
+    const failedCount = results.length - successCount
+
+    if (successCount > 0) {
+      await loadRightPanel()
+    }
+
+    if (failedCount === 0) {
+      ElMessage.success(`已将 ${successCount} 张图片加入素材库`)
+      return
+    }
+
+    ElMessage.warning(`已加入 ${successCount} 张图片，${failedCount} 张失败`)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '整组加入素材库失败')
   }
 }
 
@@ -1002,6 +1417,13 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
+  align-items: start;
+}
+
+.history-masonry {
+  display: block;
+  column-width: 240px;
+  column-gap: 16px;
 }
 
 .history-item {
@@ -1009,6 +1431,89 @@ onUnmounted(() => {
   border: 1px solid var(--border-primary);
   border-radius: 18px;
   background: var(--bg-card);
+}
+
+.history-masonry .history-item {
+  display: inline-block;
+  width: 100%;
+  margin-bottom: 16px;
+  break-inside: avoid;
+}
+
+.history-item.is-image-card {
+  border: none;
+  background: transparent;
+}
+
+.history-generated-group {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+
+.group-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.68);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.group-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.history-generated-group:hover .group-toolbar {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.history-generated-group-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.history-generated-group-grid.is-count-2,
+.history-generated-group-grid.is-count-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.history-generated-group-grid.is-count-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.history-generated-group-cell {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.history-generated-group-grid.is-count-3 .history-generated-group-cell:first-child {
+  grid-column: 1 / -1;
+}
+
+.history-image-card {
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: var(--bg-muted);
+  overflow: hidden;
+  cursor: pointer;
 }
 
 .history-image-wrap {
@@ -1021,6 +1526,67 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.history-image-card .history-image {
+  display: block;
+}
+
+.history-image-toolbar {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.history-image-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(15, 23, 42, 0.56) 100%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.history-image-card:hover::after,
+.history-image-card:hover .history-image-toolbar {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.overlay-icon-btn,
+.overlay-chip-btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #111827;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+}
+
+.overlay-icon-btn {
+  width: 34px;
+}
+
+.overlay-chip-btn {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.overlay-icon-btn .el-icon.is-favorite {
+  color: #f59e0b;
 }
 
 .history-image-placeholder {
@@ -1093,6 +1659,99 @@ onUnmounted(() => {
   color: #f59e0b;
 }
 
+.image-preview-dialog :deep(.el-dialog__body) {
+  padding-top: 8px;
+}
+
+.preview-dialog-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  align-items: start;
+}
+
+.preview-dialog-image {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+
+.preview-dialog-image img {
+  display: block;
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  margin: 0 auto;
+}
+
+.preview-group-nav {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+}
+
+.preview-nav-btn {
+  border: 0;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.preview-nav-count {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-dialog-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 8px 0;
+}
+
+.preview-meta-line,
+.preview-submeta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.preview-prompt-text {
+  white-space: pre-wrap;
+  line-height: 1.85;
+  color: var(--text-primary);
+}
+
+.preview-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .reference-library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -1150,6 +1809,15 @@ onUnmounted(() => {
 
   .history-header {
     flex-direction: column;
+  }
+
+  .history-masonry {
+    column-width: auto;
+    column-count: 1;
+  }
+
+  .preview-dialog-layout {
+    grid-template-columns: 1fr;
   }
 }
 </style>
